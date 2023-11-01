@@ -23,12 +23,12 @@ use Symfony\Component\Process\Process;
 function get_remote_content( string $url, array $headers = array(), string $method = 'GET', ?string $content = null ): ?array {
 	$options = array(
 		'http' => array(
-			'header'        => \implode(
-				'\r\n',
-				\array_map(
+			'header'        => implode(
+				"\r\n",
+				array_map(
 					static fn( $key, $value ) => "$key: $value",
-					\array_keys( $headers ),
-					\array_values( $headers )
+					array_keys( $headers ),
+					array_values( $headers )
 				)
 			),
 			'method'        => $method,
@@ -37,9 +37,9 @@ function get_remote_content( string $url, array $headers = array(), string $meth
 			'ignore_errors' => true,
 		),
 	);
-	$context = \stream_context_create( $options );
+	$context = stream_context_create( $options );
 
-	$result = @\file_get_contents( $url, false, $context ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+	$result = @file_get_contents( $url, false, $context ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 	if ( false === $result ) {
 		return null;
 	}
@@ -63,12 +63,12 @@ function parse_http_headers( array $http_response_header ): array {
 	$headers = array();
 
 	foreach ( $http_response_header as $header ) {
-		$header = \explode( ':', $header, 2 );
-		if ( 2 === \count( $header ) ) {
-			$headers[ \trim( $header[0] ) ] = \trim( $header[1] );
+		$header = explode( ':', $header, 2 );
+		if ( 2 === count( $header ) ) {
+			$headers[ trim( $header[0] ) ] = trim( $header[1] );
 		} else {
-			$headers[] = \trim( $header[0] );
-			if ( \preg_match( '#HTTP/[0-9.]+\s+(\d+)#', $header[0], $out ) ) {
+			$headers[] = trim( $header[0] );
+			if ( preg_match( '#HTTP/[0-9.]+\s+(\d+)#', $header[0], $out ) ) {
 				$headers['http_code'] = (int) $out[1];
 			}
 		}
@@ -92,10 +92,10 @@ function parse_http_headers( array $http_response_header ): array {
  */
 function decode_json_content( string $json, bool $associative = false, int $flags = 0 ): object|array|null {
 	try {
-		return \json_decode( $json, $associative, 512, $flags | JSON_THROW_ON_ERROR );
-	} catch ( \JsonException $exception ) {
+		return json_decode( $json, $associative, 512, $flags | JSON_THROW_ON_ERROR );
+	} catch ( JsonException $exception ) {
 		console_writeln( "JSON Decoding Exception: {$exception->getMessage()}" );
-		console_writeln( 'Original JSON:' . \PHP_EOL . $json );
+		console_writeln( 'Original JSON:' . PHP_EOL . $json );
 		console_writeln( $exception->getTraceAsString() );
 		return null;
 	}
@@ -111,10 +111,10 @@ function decode_json_content( string $json, bool $associative = false, int $flag
  */
 function encode_json_content( mixed $data, int $flags = 0 ): ?string {
 	try {
-		return \json_encode( $data, $flags | JSON_THROW_ON_ERROR );
-	} catch ( \JsonException $exception ) {
+		return json_encode( $data, $flags | JSON_THROW_ON_ERROR );
+	} catch ( JsonException $exception ) {
 		console_writeln( "JSON Encoding Exception: {$exception->getMessage()}" );
-		console_writeln( 'Original data:' . \PHP_EOL . \print_r( $data, true ) );
+		console_writeln( 'Original data:' . PHP_EOL . print_r( $data, true ) );
 		console_writeln( $exception->getTraceAsString() );
 		return null;
 	}
@@ -182,7 +182,7 @@ function run_system_command( array $command, string $working_directory = '.', bo
  * @return  void
  */
 function maybe_define_console_verbosity( int $verbosity ): void {
-	\defined( 'TEAM51_CLI_VERBOSITY' ) || \define( 'TEAM51_CLI_VERBOSITY', $verbosity );
+	defined( 'TEAM51_CLI_VERBOSITY' ) || define( 'TEAM51_CLI_VERBOSITY', $verbosity );
 }
 
 /**
@@ -194,7 +194,7 @@ function maybe_define_console_verbosity( int $verbosity ): void {
  * @return  void
  */
 function console_writeln( string $message, int $verbosity = 0 ): void {
-	$console_verbosity = \defined( 'TEAM51_CLI_VERBOSITY' ) ? TEAM51_CLI_VERBOSITY : 0;
+	$console_verbosity = defined( 'TEAM51_CLI_VERBOSITY' ) ? TEAM51_CLI_VERBOSITY : 0;
 	if ( $verbosity <= $console_verbosity ) {
 		echo $message . PHP_EOL;
 	}
@@ -214,7 +214,7 @@ function get_string_input( InputInterface $input, OutputInterface $output, strin
 	$string = $input->hasOption( $name ) ? $input->getOption( $name ) : $input->getArgument( $name );
 
 	// If we don't have a value, prompt for one.
-	if ( empty( $string ) && \is_callable( $no_input_func ) ) {
+	if ( empty( $string ) && is_callable( $no_input_func ) ) {
 		$string = $no_input_func( $input, $output );
 	}
 
@@ -243,7 +243,7 @@ function get_enum_input( InputInterface $input, OutputInterface $output, string 
 
 	if ( $option !== $default ) {
 		foreach ( (array) $option as $value ) {
-			if ( ! \in_array( $value, $valid, true ) ) {
+			if ( ! in_array( $value, $valid, true ) ) {
 				$output->writeln( "<error>Invalid value for input '$name': $value</error>" );
 				exit( 1 );
 			}
@@ -267,7 +267,7 @@ function get_email_input( InputInterface $input, OutputInterface $output, ?calla
 	$email = $input->hasOption( $name ) ? $input->getOption( $name ) : $input->getArgument( $name );
 
 	// If we don't have an email, prompt for one.
-	if ( empty( $email ) && \is_callable( $no_input_func ) ) {
+	if ( empty( $email ) && is_callable( $no_input_func ) ) {
 		$email = $no_input_func( $input, $output );
 	}
 
@@ -278,7 +278,7 @@ function get_email_input( InputInterface $input, OutputInterface $output, ?calla
 	}
 
 	// Check email for validity.
-	if ( false === \filter_var( $email, FILTER_VALIDATE_EMAIL ) ) {
+	if ( false === filter_var( $email, FILTER_VALIDATE_EMAIL ) ) {
 		$output->writeln( '<error>The provided email is invalid. Aborting!</error>' );
 		exit( 1 );
 	}
@@ -300,7 +300,7 @@ function get_site_input( InputInterface $input, OutputInterface $output, ?callab
 	$site_id_or_url = $input->hasOption( $name ) ? $input->getOption( $name ) : $input->getArgument( $name );
 
 	// If we don't have a site, prompt for one.
-	if ( empty( $site_id_or_url ) && \is_callable( $no_input_func ) ) {
+	if ( empty( $site_id_or_url ) && is_callable( $no_input_func ) ) {
 		$site_id_or_url = $no_input_func( $input, $output );
 	}
 
@@ -311,8 +311,8 @@ function get_site_input( InputInterface $input, OutputInterface $output, ?callab
 	}
 
 	// Strip out everything but the hostname if we have a URL.
-	if ( \str_contains( $site_id_or_url, 'http' ) ) {
-		$site_id_or_url = \parse_url( $site_id_or_url, PHP_URL_HOST );
+	if ( str_contains( $site_id_or_url, 'http' ) ) {
+		$site_id_or_url = parse_url( $site_id_or_url, PHP_URL_HOST );
 		if ( false === $site_id_or_url ) {
 			$output->writeln( '<error>Invalid URL provided. Aborting!</error>' );
 			exit( 1 );
@@ -337,7 +337,7 @@ function get_user_input( InputInterface $input, OutputInterface $output, ?callab
 	$user = $input->hasOption( $name ) ? $input->getOption( $name ) : $input->getArgument( $name );
 
 	// If we don't have a user, prompt for one.
-	if ( empty( $user ) && \is_callable( $no_input_func ) ) {
+	if ( empty( $user ) && is_callable( $no_input_func ) ) {
 		$user = $no_input_func( $input, $output );
 	}
 
@@ -348,7 +348,7 @@ function get_user_input( InputInterface $input, OutputInterface $output, ?callab
 	}
 
 	// Check user for validity.
-	if ( true === $validate && ! \is_numeric( $user ) && false === \filter_var( $user, FILTER_VALIDATE_EMAIL ) ) {
+	if ( true === $validate && ! is_numeric( $user ) && false === filter_var( $user, FILTER_VALIDATE_EMAIL ) ) {
 		$output->writeln( '<error>The provided user is invalid. Aborting!</error>' );
 		exit( 1 );
 	}

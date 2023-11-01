@@ -24,14 +24,16 @@
       "WPCOMSpecialProjects\\CLI\\Command\\": "commands/"
     },
     "files": [
+      "includes/api-helper.php",
       "includes/functions.php",
-      "includes/1password-functions.php"
+      "includes/1password-functions.php",
+      "includes/wpcom-functions.php"
     ]
   },
 
   "scripts": {
-    "format:php": "phpcbf --standard=./vendor/a8cteam51/team51-configs/quality-tools/phpcs.xml.dist --basepath=. . -v",
-    "lint:php": "phpcs --standard=./vendor/a8cteam51/team51-configs/quality-tools/phpcs.xml.dist --basepath=. . -s -v",
+    "format:php": "phpcbf --standard=.phpcs.xml --basepath=. . -v",
+    "lint:php": "phpcs --standard=.phpcs.xml --basepath=. . -s -v",
 
     "packages-install": "@composer install --ignore-platform-reqs --no-interaction",
     "packages-update": [

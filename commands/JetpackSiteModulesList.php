@@ -4,6 +4,7 @@ namespace WPCOMSpecialProjects\CLI\Command;
 
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -13,15 +14,15 @@ use Symfony\Component\Console\Question\Question;
  * Lists the status of Jetpack modules on a given site.
  */
 #[AsCommand( name: 'jetpack:list-site-modules' )]
-final class JetpackSiteListModules extends Command {
+final class JetpackSiteModulesList extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**
 	 * Domain or WPCOM ID of the site to fetch the information for.
 	 *
-	 * @var string|null
+	 * @var \stdClass|null
 	 */
-	protected ?string $site = null;
+	protected ?\stdClass $site = null;
 
 	// endregion
 
@@ -32,7 +33,7 @@ final class JetpackSiteListModules extends Command {
 	 */
 	protected function configure(): void {
 		$this->setDescription( 'Lists the status of Jetpack modules on a given site.' )
-			->setHelp( 'Use this command to show a list of Jetpack modules on a site, and their status. This command requires a Jetpack site connected to the a8cteam51 account.' );
+			->setHelp( 'Use this command to show a list of Jetpack modules on a given site together with their status. This command requires that the given site have an active Jetpack connection to WPCOM.' );
 
 		$this->addArgument( 'site', InputArgument::REQUIRED, 'Domain or WPCOM ID of the site to fetch the information for.' );
 	}
@@ -43,28 +44,32 @@ final class JetpackSiteListModules extends Command {
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
 		maybe_define_console_verbosity( $output->getVerbosity() );
 
-		$this->site = get_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
-		if ( \is_null( $this->site ) ) {
-			exit( 1 );
-		}
-
-		// TODO: Fetch site object to confirm it exists.
+		$this->site = get_wpcom_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
+		$input->setArgument( 'site', $this->site );
 	}
 
 	/**
 	 * {@inheritDoc}
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
-		$app_user     = 'YOUR-USERNAME-HERE';
-		$app_password = 'YOUR-APP-PASS-HERE';
+		$output->writeln( "<fg=magenta;options=bold>Listing Jetpack modules information for {$this->site->URL}.</>" );
 
-		$response = get_remote_content(
-			'https://opsoasis.wpspecialprojects.com/wp-json/oasis/jetpack-modules-list?site-domain=' . $this->site,
-			array(
-				'Authorization' => 'Basic ' . base64_encode( $app_user . ':' . $app_password ),
+		$module_data = \API_Helper::make_jetpack_request( "site-modules/{$this->site->ID}" );
+		if ( \is_null( $module_data ) ) {
+			return 1;
+		}
+
+		$module_table = new Table( $output );
+		$module_table->setStyle( 'box-double' );
+		$module_table->setHeaders( array( 'Module', 'Status' ) );
+
+		$module_table->setRows(
+			array_map(
+				static fn( $module ) => array( $module->module, ( $module->activated ? 'on' : 'off' ) ),
+				(array) $module_data
 			)
 		);
-		$output->write( encode_json_content( $response['body'] ) );
+		$module_table->render();
 
 		return 0;
 	}
@@ -83,9 +88,10 @@ final class JetpackSiteListModules extends Command {
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		if ( $input->isInteractive() ) {
-			// TODO: Add autocompletion for sites.
 			$question = new Question( '<question>Enter the domain or WPCOM site ID to fetch the information for:</question> ' );
-			$site     = $this->getHelper( 'question' )->ask( $input, $output, $question );
+			$question->setAutocompleterValues( array_column( get_wpcom_jetpack_sites(), 'domain' ) );
+
+			$site = $this->getHelper( 'question' )->ask( $input, $output, $question );
 		}
 
 		return $site ?? null;
