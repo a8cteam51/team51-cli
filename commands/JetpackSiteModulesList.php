@@ -54,7 +54,7 @@ final class JetpackSiteModulesList extends Command {
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		$output->writeln( "<fg=magenta;options=bold>Listing Jetpack modules information for {$this->site->URL}.</>" );
 
-		$module_data = \API_Helper::make_jetpack_request( "site-modules/{$this->site->ID}" );
+		$module_data = get_jetpack_site_modules( $this->site->ID );
 		if ( \is_null( $module_data ) ) {
 			return 1;
 		}
@@ -66,7 +66,7 @@ final class JetpackSiteModulesList extends Command {
 		$module_table->setRows(
 			array_map(
 				static fn( $module ) => array( $module->module, ( $module->activated ? 'on' : 'off' ) ),
-				(array) $module_data
+				$module_data
 			)
 		);
 		$module_table->render();

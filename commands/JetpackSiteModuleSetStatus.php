@@ -108,10 +108,8 @@ final class JetpackSiteModuleSetStatus extends Command {
 	 * @return  string|null
 	 */
 	private function prompt_module_input( InputInterface $input, OutputInterface $output ): ?string {
-		$module_data = \API_Helper::make_jetpack_request( "site-modules/{$this->site->ID}" );
-
 		$question = new Question( '<question>Enter the module to set the status for:</question> ' );
-		$question->setAutocompleterValues( array_keys( (array) $module_data ) );
+		$question->setAutocompleterValues( array_keys( get_jetpack_site_modules( $this->site->ID ) ?? array() ) );
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

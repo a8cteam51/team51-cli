@@ -27,6 +27,7 @@
       "includes/api-helper.php",
       "includes/functions.php",
       "includes/1password-functions.php",
+      "includes/jetpack-functions.php",
       "includes/wpcom-functions.php"
     ]
   },
