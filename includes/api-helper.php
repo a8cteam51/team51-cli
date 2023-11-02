@@ -1,5 +1,7 @@
 <?php
 
+use Symfony\Component\Console\Output\OutputInterface;
+
 /**
  * Handles making and parsing the API calls to the central REST API server.
  */
@@ -72,11 +74,11 @@ final class API_Helper {
 		);
 
 		if ( ! str_starts_with( $result['headers']['http_code'], '2' ) ) {
-			console_writeln( "❌ API error: {$result['headers']['http_code']} " . encode_json_content( $result['body'] ) );
+			console_writeln( "❌ API error: {$result['headers']['http_code']} " . encode_json_content( $result['body'] ), OutputInterface::VERBOSITY_DEBUG );
 			return null;
 		}
 		if ( property_exists( $result['body'], 'code' ) ) {
-			console_writeln( "❌ API error ({$result['body']->code}): {$result['body']->message}" );
+			console_writeln( "❌ API error ({$result['body']->code}): {$result['body']->message}", OutputInterface::VERBOSITY_DEBUG );
 			return null;
 		}
 

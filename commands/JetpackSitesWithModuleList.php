@@ -4,6 +4,8 @@ namespace WPCOMSpecialProjects\CLI\Command;
 
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Helper\ProgressBar;
+use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -64,7 +66,58 @@ final class JetpackSitesWithModuleList extends Command {
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		$output->writeln( "<fg=magenta;options=bold>Listing connected sites where the status of the Jetpack module $this->module is $this->status.</>" );
 
-		// TODO: Implement this command.
+		$sites = get_wpcom_jetpack_sites();
+		if ( empty( $sites ) ) {
+			$output->writeln( '<error>Failed to fetch sites.<error>' );
+			return 1;
+		}
+
+		$sites_count = count( $sites );
+		$output->writeln( "<info>$sites_count sites found.<info>" );
+		$output->writeln( "<info>Checking each site for the Jetpack module: $this->module<info>" );
+		$output->writeln( '<info>Expected duration: 20 - 30 minutes. Use Ctrl+C to abort.</info>' );
+
+		$progress_bar = new ProgressBar( $output, $sites_count );
+		$progress_bar->start();
+
+		$sites_not_checked = array();
+		$sites_found       = array();
+		foreach ( $sites as $site ) {
+			/* @noinspection DisconnectedForeachInstructionInspection */
+			$progress_bar->advance();
+
+			$site_modules = get_jetpack_site_modules( $site->userblog_id );
+			if ( ! is_null( $site_modules ) ) {
+				if ( 'on' === $this->status && $site_modules[ $this->module ]->activated ) {
+					$sites_found[] = $site;
+				} elseif ( 'off' === $this->status && ! $site_modules[ $this->module ]->activated ) {
+					$sites_found[] = $site;
+				}
+			} else {
+				$sites_not_checked[] = $site;
+			}
+		}
+
+		$progress_bar->finish();
+
+		output_table(
+			$output,
+			array_map(
+				static fn( \stdClass $site ) => array( $site->userblog_id, $site->domain ),
+				$sites_found
+			),
+			array( 'Site ID', 'Site URL' ),
+			"Sites with the Jetpack module '$this->module' turned $this->status"
+		);
+		output_table(
+			$output,
+			array_map(
+				static fn( \stdClass $site ) => array( $site->userblog_id, $site->domain ),
+				$sites_not_checked
+			),
+			array( 'Site ID', 'Site URL' ),
+			'Sites not checked either due to an error or due to the Jetpack API module being turned off'
+		);
 
 		return 0;
 	}

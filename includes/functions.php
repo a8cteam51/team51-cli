@@ -2,6 +2,7 @@
 
 use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Exception\ExceptionInterface;
+use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -361,6 +362,31 @@ function get_user_input( InputInterface $input, OutputInterface $output, ?callab
 	}
 
 	return $user;
+}
+
+/**
+ * Outputs a table to the console. Useful to standardize the output throughout the application.
+ *
+ * @since   1.0.0
+ * @version 1.0.0
+ *
+ * @param   OutputInterface $output       The console output.
+ * @param   array           $rows         The rows to output.
+ * @param   array           $headers      The headers to output.
+ * @param   string|null     $header_title The title to use for the header.
+ *
+ * @return  void
+ */
+function output_table( OutputInterface $output, array $rows, array $headers, ?string $header_title = null ): void {
+	$table = new Table( $output );
+
+	$table->setHeaderTitle( $header_title );
+	$table->setHeaders( $headers );
+
+	$table->setRows( $rows );
+
+	$table->setStyle( 'box-double' );
+	$table->render();
 }
 
 // endregion
