@@ -62,7 +62,7 @@ final class JetpackSiteModuleSetStatus extends Command {
 		$this->site = get_wpcom_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
 		$input->setArgument( 'site', $this->site );
 
-		$this->module = get_string_input( $input, $output, 'module', fn() => $this->prompt_module_input( $input, $output ) );
+		$this->module = get_enum_input( $input, $output, 'module', array_keys( get_jetpack_site_modules( $this->site->ID ) ?? array() ), fn() => $this->prompt_module_input( $input, $output ) );
 		$input->setArgument( 'module', $this->module );
 
 		$this->status = get_enum_input( $input, $output, 'status', array( 'on', 'off' ), fn() => $this->prompt_status_input( $input, $output ), 'on' );

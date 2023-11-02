@@ -1,6 +1,46 @@
 <?php
 
 /**
+ * Returns the list of Jetpack modules. This is hacky but works...
+ *
+ * @since   1.0.0
+ * @version 1.0.0
+ *
+ * @return string[]|null
+ */
+function get_jetpack_modules(): ?array {
+	static $cache = null;
+
+	if ( is_null( $cache ) ) {
+		$all_sites = get_wpcom_jetpack_sites() ?? array();
+
+		$first_site = array_shift( $all_sites );
+		if ( ! is_object( $first_site ) ) {
+			return null;
+		}
+
+		$module_list = get_jetpack_site_modules( $first_site->userblog_id );
+		if ( is_null( $module_list ) ) {
+			return null;
+		}
+
+		$cache = array_combine(
+			array_keys( $module_list ),
+			array_map(
+				static fn( stdClass $module ) => array(
+					'name'        => $module->name,
+					'slug'        => $module->module,
+					'description' => $module->description,
+				),
+				$module_list
+			)
+		);
+	}
+
+	return $cache;
+}
+
+/**
  * Returns the list of complete Jetpack modules information for a given site.
  *
  * @since   1.0.0
