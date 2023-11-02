@@ -33,7 +33,7 @@ final class JetpackSiteModulesList extends Command {
 	 */
 	protected function configure(): void {
 		$this->setDescription( 'Lists the status of Jetpack modules on a given site.' )
-			->setHelp( 'Use this command to show a list of Jetpack modules on a given site together with their status. This command requires that the given site have an active Jetpack connection to WPCOM.' );
+			->setHelp( 'Use this command to show a list of Jetpack modules on a given site together with their status. This command requires that the given site has an active Jetpack connection to WPCOM.' );
 
 		$this->addArgument( 'site', InputArgument::REQUIRED, 'Domain or WPCOM ID of the site to fetch the information for.' );
 	}
@@ -79,7 +79,7 @@ final class JetpackSiteModulesList extends Command {
 	// region HELPERS
 
 	/**
-	 * Prompts the user for a site if in interactive mode.
+	 * Prompts the user for a site.
 	 *
 	 * @param   InputInterface  $input  The input object.
 	 * @param   OutputInterface $output The output object.
@@ -87,14 +87,10 @@ final class JetpackSiteModulesList extends Command {
 	 * @return  string|null
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
-		if ( $input->isInteractive() ) {
-			$question = new Question( '<question>Enter the domain or WPCOM site ID to fetch the information for:</question> ' );
-			$question->setAutocompleterValues( array_column( get_wpcom_jetpack_sites(), 'domain' ) );
+		$question = new Question( '<question>Enter the domain or WPCOM site ID to fetch the information for:</question> ' );
+		$question->setAutocompleterValues( array_column( get_wpcom_jetpack_sites() ?? array(), 'domain' ) );
 
-			$site = $this->getHelper( 'question' )->ask( $input, $output, $question );
-		}
-
-		return $site ?? null;
+		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
 
 	// endregion

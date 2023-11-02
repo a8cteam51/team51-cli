@@ -28,7 +28,7 @@ function get_wpcom_site( string $site_id_or_url ): ?stdClass {
  * @return  stdClass[]|null
  */
 function get_wpcom_jetpack_sites(): ?array {
-	$sites = API_Helper::make_wpcom_request( 'jetpack-blogs' );
+	$sites = API_Helper::make_wpcom_request( 'sites?type=jetpack' );
 	return is_null( $sites ) ? null : (array) $sites;
 }
 

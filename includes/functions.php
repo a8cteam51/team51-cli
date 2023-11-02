@@ -230,17 +230,24 @@ function get_string_input( InputInterface $input, OutputInterface $output, strin
 /**
  * Grabs a value from the console input and validates it against a list of allowed values.
  *
- * @param   InputInterface  $input   The input instance.
- * @param   OutputInterface $output  The output instance.
- * @param   string          $name    The name of the value to grab.
- * @param   array           $valid   The valid values for the option.
- * @param   mixed|null      $default The default value for the option.
+ * @param   InputInterface  $input         The input instance.
+ * @param   OutputInterface $output        The output instance.
+ * @param   string          $name          The name of the value to grab.
+ * @param   string[]        $valid         The valid values for the option.
+ * @param   callable|null   $no_input_func The function to call if no input is given.
+ * @param   string|null     $default       The default value for the option.
  *
- * @return  string|array|null
+ * @return  string|null
  */
-function get_enum_input( InputInterface $input, OutputInterface $output, string $name, array $valid, $default = null ) {
+function get_enum_input( InputInterface $input, OutputInterface $output, string $name, array $valid, ?callable $no_input_func = null, ?string $default = null ): ?string {
 	$option = $input->hasOption( $name ) ? $input->getOption( $name ) : $input->getArgument( $name );
 
+	// If we don't have a value, prompt for one.
+	if ( empty( $option ) && is_callable( $no_input_func ) ) {
+		$option = $no_input_func( $input, $output );
+	}
+
+	// Validate the option.
 	if ( $option !== $default ) {
 		foreach ( (array) $option as $value ) {
 			if ( ! in_array( $value, $valid, true ) ) {
