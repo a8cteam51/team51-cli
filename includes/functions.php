@@ -379,13 +379,14 @@ function get_user_input( InputInterface $input, OutputInterface $output, ?callab
  */
 function output_table( OutputInterface $output, array $rows, array $headers, ?string $header_title = null ): void {
 	$table = new Table( $output );
+	$table->setStyle( 'box-double' );
 
 	$table->setHeaderTitle( $header_title );
 	$table->setHeaders( $headers );
 
 	$table->setRows( $rows );
 
-	$table->setStyle( 'box-double' );
+	$output->writeln( '' ); // Empty line for UX purposes.
 	$table->render();
 }
 
