@@ -25,11 +25,12 @@ final class API_Helper {
 	 *
 	 * @param   string $endpoint The endpoint to call.
 	 * @param   string $method   The HTTP method to use. One of 'GET', 'POST', 'PUT', 'DELETE'.
+	 * @param   mixed  $body     The body to send with the request.
 	 *
 	 * @return  stdClass|stdClass[]|null
 	 */
-	public static function make_wpcom_request( string $endpoint, string $method = 'GET' ): stdClass|array|null {
-		return self::make_request( self::BASE_URL . "wpcom/v1/$endpoint", $method );
+	public static function make_wpcom_request( string $endpoint, string $method = 'GET', mixed $body = null ): stdClass|array|null {
+		return self::make_request( self::BASE_URL . "wpcom/v1/$endpoint", $method, $body );
 	}
 
 	/**
@@ -40,11 +41,12 @@ final class API_Helper {
 	 *
 	 * @param   string $endpoint The endpoint to call.
 	 * @param   string $method   The HTTP method to use. One of 'GET', 'POST', 'PUT', 'DELETE'.
+	 * @param   mixed  $body     The body to send with the request.
 	 *
 	 * @return  stdClass|stdClass[]|null
 	 */
-	public static function make_jetpack_request( string $endpoint, string $method = 'GET' ): stdClass|array|null {
-		return self::make_request( self::BASE_URL . "jetpack/v1/$endpoint", $method );
+	public static function make_jetpack_request( string $endpoint, string $method = 'GET', mixed $body = null ): stdClass|array|null {
+		return self::make_request( self::BASE_URL . "jetpack/v1/$endpoint", $method, $body );
 	}
 
 	// endregion
@@ -59,10 +61,12 @@ final class API_Helper {
 	 *
 	 * @param   string $endpoint The endpoint to call.
 	 * @param   string $method   The HTTP method to use. One of 'GET', 'POST', 'PUT', 'DELETE'.
+	 * @param   mixed  $body     The body to send with the request.
 	 *
 	 * @return  stdClass|stdClass[]|null
 	 */
-	protected static function make_request( string $endpoint, string $method ): stdClass|array|null {
+	protected static function make_request( string $endpoint, string $method, mixed $body = null ): stdClass|array|null {
+		$body   = is_null( $body ) ? null : encode_json_content( $body );
 		$result = get_remote_content(
 			$endpoint,
 			array(
@@ -70,15 +74,16 @@ final class API_Helper {
 				'Content-type'  => 'application/json',
 				'Authorization' => 'Basic ' . base64_encode( OPSOASIS_WP_USERNAME . ':' . OPSOASIS_APP_PASSWORD ),
 			),
-			$method
+			$method,
+			$body
 		);
 
 		if ( ! str_starts_with( $result['headers']['http_code'], '2' ) ) {
-			console_writeln( "❌ API error: {$result['headers']['http_code']} " . encode_json_content( $result['body'] ), OutputInterface::VERBOSITY_DEBUG );
+			console_writeln( "❌ API error ({$result['headers']['http_code']} $endpoint): " . encode_json_content( $result['body'] ) );
 			return null;
 		}
 		if ( property_exists( $result['body'], 'code' ) ) {
-			console_writeln( "❌ API error ({$result['body']->code}): {$result['body']->message}", OutputInterface::VERBOSITY_DEBUG );
+			console_writeln( "❌ API error ({$result['body']->code} $endpoint): {$result['body']->message}" );
 			return null;
 		}
 

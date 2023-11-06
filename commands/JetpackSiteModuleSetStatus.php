@@ -75,7 +75,12 @@ final class JetpackSiteModuleSetStatus extends Command {
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		$output->writeln( "<fg=magenta;options=bold>Setting the status of the Jetpack module $this->module to $this->status for {$this->site->URL}.</>" );
 
-		// TODO: Implement this command.
+		$result = update_jetpack_site_modules_settings( $this->site->ID, array( $this->module => 'on' === $this->status ) );
+		if ( true === $result ) {
+			$output->writeln( '<fg=green;options=bold>Successfully updated the module status.</>' );
+		} else {
+			$output->writeln( '<fg=red;options=bold>Failed to update the module status.</>' );
+		}
 
 		return 0;
 	}

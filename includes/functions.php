@@ -44,10 +44,13 @@ function get_remote_content( string $url, array $headers = array(), string $meth
 	if ( false === $result ) {
 		return null;
 	}
+	if ( '' === $result ) {
+		$result = '{}'; // Empty responses like those returned by WPCOM errors trigger an exception when JSON-decoding.
+	}
 
 	return array(
 		'headers' => parse_http_headers( $http_response_header ),
-		'body'    => decode_json_content( $result ?: '{}' ), // Empty responses like those returned by WPCOM errors trigger an exception when decoding.
+		'body'    => decode_json_content( $result ),
 	);
 }
 
@@ -197,7 +200,7 @@ function maybe_define_console_verbosity( int $verbosity ): void {
 function console_writeln( string $message, int $verbosity = 0 ): void {
 	$console_verbosity = defined( 'TEAM51_CLI_VERBOSITY' ) ? TEAM51_CLI_VERBOSITY : 0;
 	if ( $verbosity <= $console_verbosity ) {
-		echo $message . PHP_EOL;
+		echo PHP_EOL . $message . PHP_EOL;
 	}
 }
 
@@ -234,13 +237,13 @@ function get_string_input( InputInterface $input, OutputInterface $output, strin
  * @param   InputInterface  $input         The input instance.
  * @param   OutputInterface $output        The output instance.
  * @param   string          $name          The name of the value to grab.
- * @param   string[]        $valid         The valid values for the option.
+ * @param   string[]        $valid_values  The valid values for the option.
  * @param   callable|null   $no_input_func The function to call if no input is given.
- * @param   string|null     $default       The default value for the option.
+ * @param   string|null     $default_value The default value for the option.
  *
  * @return  string|null
  */
-function get_enum_input( InputInterface $input, OutputInterface $output, string $name, array $valid, ?callable $no_input_func = null, ?string $default = null ): ?string {
+function get_enum_input( InputInterface $input, OutputInterface $output, string $name, array $valid_values, ?callable $no_input_func = null, ?string $default_value = null ): ?string {
 	$option = $input->hasOption( $name ) ? $input->getOption( $name ) : $input->getArgument( $name );
 
 	// If we don't have a value, prompt for one.
@@ -249,9 +252,9 @@ function get_enum_input( InputInterface $input, OutputInterface $output, string 
 	}
 
 	// Validate the option.
-	if ( $option !== $default ) {
+	if ( $option !== $default_value ) {
 		foreach ( (array) $option as $value ) {
-			if ( ! in_array( $value, $valid, true ) ) {
+			if ( ! in_array( $value, $valid_values, true ) ) {
 				$output->writeln( "<error>Invalid value for input '$name': $value</error>" );
 				exit( 1 );
 			}

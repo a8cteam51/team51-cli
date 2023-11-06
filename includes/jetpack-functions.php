@@ -51,6 +51,26 @@ function get_jetpack_modules(): ?array {
  * @return  stdClass[]|null
  */
 function get_jetpack_site_modules( string $site_id_or_url ): ?array {
-	$module_list = API_Helper::make_jetpack_request( "site-modules/$site_id_or_url" );
+	$module_list = API_Helper::make_jetpack_request( "modules/$site_id_or_url" );
 	return is_null( $module_list ) ? null : (array) $module_list;
+}
+
+/**
+ * Updates the Jetpack modules settings for a given site.
+ *
+ * @since   1.0.0
+ * @version 1.0.0
+ *
+ * @param   string $site_id_or_url The site URL or WordPress.com site ID.
+ * @param   array  $settings       The settings to update.
+ *
+ * @return  boolean|null
+ */
+function update_jetpack_site_modules_settings( string $site_id_or_url, array $settings ): ?bool {
+	$update_result = API_Helper::make_jetpack_request( "modules/$site_id_or_url", 'POST', array( 'settings' => encode_json_content( $settings ) ) );
+	if ( is_null( $update_result ) ) {
+		return null;
+	}
+
+	return ( $update_result->data->code ?? null ) === 'success';
 }

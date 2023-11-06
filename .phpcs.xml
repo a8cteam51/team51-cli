@@ -6,4 +6,14 @@
 	<rule ref="vendor/a8cteam51/team51-configs/quality-tools/phpcs.xml.dist"/>
 
 	<!-- Add any other custom rules here. -->
+	<rule ref="WordPress.PHP">
+		<exclude name="WordPress.PHP.DevelopmentFunctions"/>
+		<exclude name="WordPress.PHP.DiscouragedPHPFunctions"/>
+	</rule>
+	<rule ref="WordPress.WP">
+		<exclude name="WordPress.WP.AlternativeFunctions"/>
+	</rule>
+	<rule ref="WordPress.Security">
+		<exclude name="WordPress.Security.EscapeOutput"/>
+	</rule>
 </ruleset>
