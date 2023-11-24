@@ -1,7 +1,5 @@
 <?php
 
-use Symfony\Component\Console\Output\OutputInterface;
-
 /**
  * Handles making and parsing the API calls to the central REST API server.
  */
