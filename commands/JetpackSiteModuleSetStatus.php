@@ -57,8 +57,6 @@ final class JetpackSiteModuleSetStatus extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		maybe_define_console_verbosity( $output->getVerbosity() );
-
 		$this->site = get_wpcom_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
 		$input->setArgument( 'site', $this->site );
 

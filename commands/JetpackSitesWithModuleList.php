@@ -50,8 +50,6 @@ final class JetpackSitesWithModuleList extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		maybe_define_console_verbosity( $output->getVerbosity() );
-
 		$this->module = get_enum_input( $input, $output, 'module', array_keys( get_jetpack_modules() ?? array() ), fn() => $this->prompt_module_input( $input, $output ) );
 		$input->setArgument( 'module', $this->module );
 

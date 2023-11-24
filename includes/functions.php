@@ -179,17 +179,6 @@ function run_system_command( array $command, string $working_directory = '.', bo
 // region CONSOLE
 
 /**
- * Defines a constant equal to the console's verbosity level, if not already defined.
- *
- * @param   integer $verbosity The verbosity level.
- *
- * @return  void
- */
-function maybe_define_console_verbosity( int $verbosity ): void {
-	defined( 'TEAM51_CLI_VERBOSITY' ) || define( 'TEAM51_CLI_VERBOSITY', $verbosity );
-}
-
-/**
  * Displays a message to the console if the console verbosity level is at least as high as the message's level.
  *
  * @param   string  $message   The message to display.
@@ -198,9 +187,10 @@ function maybe_define_console_verbosity( int $verbosity ): void {
  * @return  void
  */
 function console_writeln( string $message, int $verbosity = 0 ): void {
-	$console_verbosity = defined( 'TEAM51_CLI_VERBOSITY' ) ? TEAM51_CLI_VERBOSITY : 0;
-	if ( $verbosity <= $console_verbosity ) {
-		echo PHP_EOL . $message . PHP_EOL;
+	global $team51_cli_output;
+
+	if ( $verbosity <= $team51_cli_output->getVerbosity() ) {
+		$team51_cli_output->writeln( $message );
 	}
 }
 
