@@ -12,7 +12,7 @@ use Symfony\Component\Console\Question\Question;
 /**
  * Set the on/off status for a given Jetpack module on a given site.
  */
-#[AsCommand( name: 'jetpack:set-site-module-status' )]
+#[AsCommand( name: 'jetpack:set-site-module-status', aliases: array( 'jetpack:toggle-site-module' ) )]
 final class JetpackSiteModuleSetStatus extends Command {
 	// region FIELDS AND CONSTANTS
 
