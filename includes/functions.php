@@ -384,3 +384,19 @@ function output_table( OutputInterface $output, array $rows, array $headers, ?st
 }
 
 // endregion
+
+// region POLYFILLS
+
+/**
+ * Returns whether two given strings are equal or not in a case-insensitive manner.
+ *
+ * @param   string $string_1 The first string.
+ * @param   string $string_2 The second string.
+ *
+ * @return  boolean
+ */
+function is_case_insensitive_match( string $string_1, string $string_2 ): bool {
+	return 0 === strcasecmp( $string_1, $string_2 );
+}
+
+// endregion

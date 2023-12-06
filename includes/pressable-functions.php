@@ -46,6 +46,54 @@ function create_pressable_site_collaborator( string $site_id_or_url, string $col
 	return is_null( $collaborator ) ? null : (object) $collaborator;
 }
 
+/**
+ * Returns the list of SFTP users for the specified Pressable site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the Pressable site to retrieve the SFTP users for.
+ *
+ * @return  stdClass[]|null
+ */
+function get_pressable_site_sftp_users( string $site_id_or_url ): ?array {
+	$sftp_users = API_Helper::make_pressable_request( "site-sftp-users/$site_id_or_url" );
+	return is_null( $sftp_users ) ? null : (array) $sftp_users;
+}
+
+/**
+ * Get SFTP user by email for the specified site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the Pressable site to retrieve the SFTP user from.
+ * @param   string $user_email     The email of the site SFTP user.
+ *
+ * @return  object|null
+ */
+function get_pressable_site_sftp_user_by_email( string $site_id_or_url, string $user_email ): ?object {
+	$sftp_users = get_pressable_site_sftp_users( $site_id_or_url );
+	if ( ! is_array( $sftp_users ) ) {
+		return null;
+	}
+
+	foreach ( $sftp_users as $sftp_user ) {
+		if ( ! empty( $sftp_user->email ) && true === is_case_insensitive_match( $sftp_user->email, $user_email ) ) {
+			return $sftp_user;
+		}
+	}
+
+	return null;
+}
+
+/**
+ * Resets the password of the specified SFTP user on the specified Pressable site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the Pressable site to reset the SFTP user password on.
+ * @param   string $username       The username of the SFTP user to reset the password for.
+ *
+ * @return  string|null
+ */
+function reset_pressable_site_sftp_user_password( string $site_id_or_url, string $username ): ?string {
+	$response = API_Helper::make_pressable_request( "site-sftp-users/$site_id_or_url/$username/reset-password", 'POST' );
+	return is_null( $response ) ? null : $response->password;
+}
+
 // endregion
 
 // region CONSOLE

@@ -60,7 +60,7 @@ final class PressableSiteCreateCollaborator extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
-		$output->writeln( "<fg=magenta;options=bold>Creating collaborator $this->email on {$this->site->url}.</>" );
+		$output->writeln( "<fg=magenta;options=bold>Creating collaborator $this->email on {$this->site->displayName} (ID {$this->site->id}, URL {$this->site->url}).</>" );
 
 		$collaborator = create_pressable_site_collaborator( $this->site->id, $this->email );
 		if ( \is_null( $collaborator ) ) {
