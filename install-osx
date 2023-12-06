@@ -1,0 +1,7 @@
+#!/bin/bash
+ulimit -n 8192
+composer install
+composer dump-autoload -o
+sudo mkdir -p /usr/local/bin
+script_path=$(pwd)
+sudo ln -sf "$script_path"/team51-cli.php /usr/local/bin/team51
