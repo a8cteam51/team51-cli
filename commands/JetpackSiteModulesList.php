@@ -18,7 +18,7 @@ final class JetpackSiteModulesList extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**
-	 * Domain or WPCOM ID of the site to fetch the information for.
+	 * WPCOM site definition to fetch the information for.
 	 *
 	 * @var \stdClass|null
 	 */

@@ -16,22 +16,6 @@ final class API_Helper {
 	// region METHODS
 
 	/**
-	 * Calls a given WPCOM endpoint and returns the response.
-	 *
-	 * @since   1.0.0
-	 * @version 1.0.0
-	 *
-	 * @param   string $endpoint The endpoint to call.
-	 * @param   string $method   The HTTP method to use. One of 'GET', 'POST', 'PUT', 'DELETE'.
-	 * @param   mixed  $body     The body to send with the request.
-	 *
-	 * @return  stdClass|stdClass[]|null
-	 */
-	public static function make_wpcom_request( string $endpoint, string $method = 'GET', mixed $body = null ): stdClass|array|null {
-		return self::make_request( self::BASE_URL . "wpcom/v1/$endpoint", $method, $body );
-	}
-
-	/**
 	 * Calls a given Jetpack endpoint and returns the response.
 	 *
 	 * @since   1.0.0
@@ -45,6 +29,38 @@ final class API_Helper {
 	 */
 	public static function make_jetpack_request( string $endpoint, string $method = 'GET', mixed $body = null ): stdClass|array|null {
 		return self::make_request( self::BASE_URL . "jetpack/v1/$endpoint", $method, $body );
+	}
+
+	/**
+	 * Calls a given Pressable endpoint and returns the response.
+	 *
+	 * @since   1.0.0
+	 * @version 1.0.0
+	 *
+	 * @param   string $endpoint The endpoint to call.
+	 * @param   string $method   The HTTP method to use. One of 'GET', 'POST', 'PUT', 'DELETE'.
+	 * @param   mixed  $body     The body to send with the request.
+	 *
+	 * @return  stdClass|stdClass[]|null
+	 */
+	public static function make_pressable_request( string $endpoint, string $method = 'GET', mixed $body = null ): stdClass|array|null {
+		return self::make_request( self::BASE_URL . "pressable/v1/$endpoint", $method, $body );
+	}
+
+	/**
+	 * Calls a given WPCOM endpoint and returns the response.
+	 *
+	 * @since   1.0.0
+	 * @version 1.0.0
+	 *
+	 * @param   string $endpoint The endpoint to call.
+	 * @param   string $method   The HTTP method to use. One of 'GET', 'POST', 'PUT', 'DELETE'.
+	 * @param   mixed  $body     The body to send with the request.
+	 *
+	 * @return  stdClass|stdClass[]|null
+	 */
+	public static function make_wpcom_request( string $endpoint, string $method = 'GET', mixed $body = null ): stdClass|array|null {
+		return self::make_request( self::BASE_URL . "wpcom/v1/$endpoint", $method, $body );
 	}
 
 	// endregion
@@ -80,7 +96,7 @@ final class API_Helper {
 			console_writeln( "❌ API error ({$result['headers']['http_code']} $endpoint): " . encode_json_content( $result['body'] ) );
 			return null;
 		}
-		if ( property_exists( $result['body'], 'code' ) ) {
+		if ( is_object( $result['body'] ) && property_exists( $result['body'], 'code' ) ) {
 			console_writeln( "❌ API error ({$result['body']->code} $endpoint): {$result['body']->message}" );
 			return null;
 		}
