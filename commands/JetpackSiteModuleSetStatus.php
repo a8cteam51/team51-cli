@@ -7,6 +7,7 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
 
 /**
@@ -70,8 +71,19 @@ final class JetpackSiteModuleSetStatus extends Command {
 	/**
 	 * {@inheritDoc}
 	 */
+	protected function interact( InputInterface $input, OutputInterface $output ): void {
+		$question = new ConfirmationQuestion( "<question>Are you sure you want to set the status of the Jetpack module $this->module to $this->status on {$this->site->name} (ID {$this->site->ID}, URL {$this->site->URL})? [y/N]</question> ", false );
+		if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
+			$output->writeln( '<comment>Command aborted by user.</comment>' );
+			exit( 2 );
+		}
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
-		$output->writeln( "<fg=magenta;options=bold>Setting the status of the Jetpack module $this->module to $this->status for {$this->site->URL}.</>" );
+		$output->writeln( "<fg=magenta;options=bold>Setting the status of the Jetpack module $this->module to $this->status on {$this->site->name} (ID {$this->site->ID}, URL {$this->site->URL}).</>" );
 
 		$result = update_jetpack_site_modules_settings( $this->site->ID, array( $this->module => 'on' === $this->status ) );
 		if ( true === $result ) {

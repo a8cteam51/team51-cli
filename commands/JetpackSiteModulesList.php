@@ -50,7 +50,7 @@ final class JetpackSiteModulesList extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
-		$output->writeln( "<fg=magenta;options=bold>Listing Jetpack modules information for {$this->site->URL}.</>" );
+		$output->writeln( "<fg=magenta;options=bold>Listing Jetpack modules information for {$this->site->name} (ID {$this->site->ID}, URL {$this->site->URL}).</>" );
 
 		$module_data = get_jetpack_site_modules( $this->site->ID );
 		if ( \is_null( $module_data ) ) {
