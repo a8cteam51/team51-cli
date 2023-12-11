@@ -7,6 +7,7 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
 
 /**
@@ -59,6 +60,17 @@ final class PressableSiteCreateCollaborator extends Command {
 	/**
 	 * {@inheritDoc}
 	 */
+	protected function interact( InputInterface $input, OutputInterface $output ): void {
+		$question = new ConfirmationQuestion( "<question>Are you sure you want to add the collaborator $this->email to {$this->site->displayName} (ID {$this->site->id}, URL {$this->site->url})? [y/N]</question> ", false );
+		if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
+			$output->writeln( '<comment>Command aborted by user.</comment>' );
+			exit( 2 );
+		}
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		$output->writeln( "<fg=magenta;options=bold>Creating collaborator $this->email on {$this->site->displayName} (ID {$this->site->id}, URL {$this->site->url}).</>" );
 
@@ -100,7 +112,7 @@ final class PressableSiteCreateCollaborator extends Command {
 	 * @return  string|null
 	 */
 	private function prompt_email_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new Question( '<question>Enter the email address of the collaborator to create:</question> ' );
+		$question = new Question( '<question>Enter the email address of the collaborator to create [' . OPSOASIS_WP_USERNAME . ']:</question> ', OPSOASIS_WP_USERNAME );
 		$question->setValidator( fn( $value ) => filter_var( $value, FILTER_VALIDATE_EMAIL ) ? $value : throw new \RuntimeException( 'Invalid email address.' ) );
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
