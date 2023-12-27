@@ -7,7 +7,7 @@
  *
  * @link    https://developer.1password.com/docs/cli/reference/management-commands/account#account-list
  *
- * @return  array|null
+ * @return  object[]|null
  */
 function list_1password_accounts( array $global_flags = array() ): ?array {
 	$command = _build_1password_command_string( 'op account list', array(), array(), $global_flags );
@@ -38,7 +38,7 @@ function list_1password_items( array $flags = array(), array $global_flags = arr
  * @param   array    $flags        The flags to filter the results by.
  * @param   array    $global_flags The global flags to pass to the command.
  *
- * @return  array|null
+ * @return  object[]|null
  */
 function search_1password_items( callable $search_func, array $flags = array(), array $global_flags = array() ): ?array {
 	static $op_items = array();
