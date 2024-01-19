@@ -44,13 +44,10 @@ function get_remote_content( string $url, array $headers = array(), string $meth
 	if ( false === $result ) {
 		return null;
 	}
-	if ( '' === $result ) {
-		$result = '{}'; // Empty responses like those returned by WPCOM errors trigger an exception when JSON-decoding.
-	}
 
 	return array(
 		'headers' => parse_http_headers( $http_response_header ),
-		'body'    => decode_json_content( $result ),
+		'body'    => '' === $result ? null : decode_json_content( $result ),
 	);
 }
 

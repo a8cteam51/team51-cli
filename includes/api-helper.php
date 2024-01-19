@@ -25,9 +25,9 @@ final class API_Helper {
 	 * @param   string $method   The HTTP method to use. One of 'GET', 'POST', 'PUT', 'DELETE'.
 	 * @param   mixed  $body     The body to send with the request.
 	 *
-	 * @return  stdClass|stdClass[]|null
+	 * @return  stdClass|stdClass[]|true|null
 	 */
-	public static function make_jetpack_request( string $endpoint, string $method = 'GET', mixed $body = null ): stdClass|array|null {
+	public static function make_jetpack_request( string $endpoint, string $method = 'GET', mixed $body = null ): stdClass|array|true|null {
 		return self::make_request( self::BASE_URL . "jetpack/v1/$endpoint", $method, $body );
 	}
 
@@ -41,9 +41,9 @@ final class API_Helper {
 	 * @param   string $method   The HTTP method to use. One of 'GET', 'POST', 'PUT', 'DELETE'.
 	 * @param   mixed  $body     The body to send with the request.
 	 *
-	 * @return  stdClass|stdClass[]|null
+	 * @return  stdClass|stdClass[]|true|null
 	 */
-	public static function make_pressable_request( string $endpoint, string $method = 'GET', mixed $body = null ): stdClass|array|null {
+	public static function make_pressable_request( string $endpoint, string $method = 'GET', mixed $body = null ): stdClass|array|true|null {
 		return self::make_request( self::BASE_URL . "pressable/v1/$endpoint", $method, $body );
 	}
 
@@ -57,9 +57,9 @@ final class API_Helper {
 	 * @param   string $method   The HTTP method to use. One of 'GET', 'POST', 'PUT', 'DELETE'.
 	 * @param   mixed  $body     The body to send with the request.
 	 *
-	 * @return  stdClass|stdClass[]|null
+	 * @return  stdClass|stdClass[]|true|null
 	 */
-	public static function make_wpcom_request( string $endpoint, string $method = 'GET', mixed $body = null ): stdClass|array|null {
+	public static function make_wpcom_request( string $endpoint, string $method = 'GET', mixed $body = null ): stdClass|array|true|null {
 		return self::make_request( self::BASE_URL . "wpcom/v1/$endpoint", $method, $body );
 	}
 
@@ -77,9 +77,9 @@ final class API_Helper {
 	 * @param   string $method   The HTTP method to use. One of 'GET', 'POST', 'PUT', 'DELETE'.
 	 * @param   mixed  $body     The body to send with the request.
 	 *
-	 * @return  stdClass|stdClass[]|null
+	 * @return  stdClass|stdClass[]|true|null
 	 */
-	protected static function make_request( string $endpoint, string $method, mixed $body = null ): stdClass|array|null {
+	protected static function make_request( string $endpoint, string $method, mixed $body = null ): stdClass|array|true|null {
 		$body   = is_null( $body ) ? null : encode_json_content( $body );
 		$result = get_remote_content(
 			$endpoint,
@@ -101,7 +101,8 @@ final class API_Helper {
 			return null;
 		}
 
-		return $result['body'];
+		// Handles HTTP status codes like 201, 202, and especially 204.
+		return is_null( $result['body'] ) ? true : $result['body'];
 	}
 
 	// endregion
