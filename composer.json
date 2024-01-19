@@ -6,9 +6,10 @@
     }
   ],
   "require": {
+    "ext-json": "*",
+    "phpseclib/phpseclib": "^3.0",
     "symfony/console": "^v6.4",
-    "symfony/process": "^v6.4",
-    "ext-json": "*"
+    "symfony/process": "^v6.4"
   },
   "require-dev": {
     "a8cteam51/team51-configs": "dev-trunk",
@@ -25,11 +26,12 @@
     },
     "files": [
       "includes/api-helper.php",
+      "includes/connection-helper-pressable.php",
       "includes/functions.php",
-      "includes/1password-functions.php",
-      "includes/jetpack-functions.php",
-      "includes/pressable-functions.php",
-      "includes/wpcom-functions.php"
+      "includes/functions-1password.php",
+      "includes/functions-jetpack.php",
+      "includes/functions-pressable.php",
+      "includes/functions-wpcom.php"
     ]
   },
 

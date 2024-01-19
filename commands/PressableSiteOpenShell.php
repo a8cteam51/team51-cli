@@ -100,7 +100,7 @@ final class PressableSiteOpenShell extends Command {
 		}
 
 		// Call the system SSH/SFTP application.
-		$ssh_host = $sftp_user->username . '@ssh.atomicsites.net';
+		$ssh_host = $sftp_user->username . '@' . \Pressable_Connection_Helper::SSH_HOST;
 
 		$output->writeln( "<comment>Connecting to $ssh_host...</comment>", OutputInterface::VERBOSITY_VERBOSE );
 		if ( ! \is_null( \passthru( "$this->shell_type $ssh_host", $result_code ) ) ) {
