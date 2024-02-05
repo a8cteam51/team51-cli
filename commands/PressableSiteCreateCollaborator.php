@@ -77,11 +77,11 @@ final class PressableSiteCreateCollaborator extends Command {
 		$collaborator = create_pressable_site_collaborator( $this->site->id, $this->email );
 		if ( \is_null( $collaborator ) ) {
 			$output->writeln( '<error>Failed to create collaborator.</error>' );
-			return 1;
+			return Command::FAILURE;
 		}
 
 		$output->writeln( '<info>Collaborator created successfully.</info>' );
-		return 0;
+		return Command::SUCCESS;
 	}
 
 	// endregion

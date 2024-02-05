@@ -79,7 +79,7 @@ final class PressableSiteOpenShell extends Command {
 			$sftp_user = create_pressable_site_collaborator( $this->site->id, $this->email );
 			if ( \is_null( $sftp_user ) ) {
 				$output->writeln( "<error>Could not create a Pressable SFTP user with the email $this->email on {$this->site->displayName}.</>" );
-				return 1;
+				return Command::FAILURE;
 			}
 
 			// SFTP users are different from collaborator users. We need to query the API again to get the SFTP user.
@@ -93,7 +93,7 @@ final class PressableSiteOpenShell extends Command {
 			$new_password = reset_pressable_site_sftp_user_password( $this->site->id, $sftp_user->username );
 			if ( \is_null( $new_password ) ) {
 				$output->writeln( "<error>Could not reset the SFTP password for $this->email on {$this->site->displayName}.</>" );
-				return 1;
+				return Command::FAILURE;
 			}
 
 			$output->writeln( "<comment>New SFTP user password:</comment> <fg=green;options=bold>$new_password</>" );
@@ -105,10 +105,10 @@ final class PressableSiteOpenShell extends Command {
 		$output->writeln( "<comment>Connecting to $ssh_host...</comment>", OutputInterface::VERBOSITY_VERBOSE );
 		if ( ! \is_null( \passthru( "$this->shell_type $ssh_host", $result_code ) ) ) {
 			$output->writeln( "<error>Could not open an interactive $this->shell_type shell. Error code: $result_code</error>" );
-			return 1;
+			return Command::FAILURE;
 		}
 
-		return 0;
+		return Command::SUCCESS;
 	}
 
 	// endregion

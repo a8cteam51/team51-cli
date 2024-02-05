@@ -54,22 +54,19 @@ final class JetpackSiteModulesList extends Command {
 
 		$module_data = get_jetpack_site_modules( $this->site->ID );
 		if ( \is_null( $module_data ) ) {
-			return 1;
+			return Command::FAILURE;
 		}
 
-		$module_table = new Table( $output );
-		$module_table->setStyle( 'box-double' );
-		$module_table->setHeaders( array( 'Module', 'Status' ) );
-
-		$module_table->setRows(
+		output_table(
+			$output,
 			array_map(
 				static fn( $module ) => array( $module->module, ( $module->activated ? 'on' : 'off' ) ),
 				$module_data
-			)
+			),
+			array( 'Module', 'Status' )
 		);
-		$module_table->render();
 
-		return 0;
+		return Command::SUCCESS;
 	}
 
 	// endregion

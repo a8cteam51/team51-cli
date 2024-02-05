@@ -66,7 +66,7 @@ final class JetpackSitesWithModuleList extends Command {
 		$sites = get_wpcom_jetpack_sites();
 		if ( empty( $sites ) ) {
 			$output->writeln( '<error>Failed to fetch sites.<error>' );
-			return 1;
+			return Command::FAILURE;
 		}
 
 		$sites_count = count( $sites );
@@ -116,7 +116,7 @@ final class JetpackSitesWithModuleList extends Command {
 			'Sites not checked either due to an error or due to the Jetpack API module being turned off'
 		);
 
-		return 0;
+		return Command::SUCCESS;
 	}
 
 	// endregion
