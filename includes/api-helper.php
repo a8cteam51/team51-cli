@@ -16,6 +16,22 @@ final class API_Helper {
 	// region METHODS
 
 	/**
+	 * Calls a given GitHub endpoint and returns the response.
+	 *
+	 * @since   1.0.0
+	 * @version 1.0.0
+	 *
+	 * @param   string $endpoint The endpoint to call.
+	 * @param   string $method   The HTTP method to use. One of 'GET', 'POST', 'PUT', 'DELETE'.
+	 * @param   mixed  $body     The body to send with the request.
+	 *
+	 * @return  stdClass|stdClass[]|true|null
+	 */
+	public static function make_github_request( string $endpoint, string $method = 'GET', mixed $body = null ): stdClass|array|true|null {
+		return self::make_request( self::BASE_URL . "github/v1/$endpoint", $method, $body );
+	}
+
+	/**
 	 * Calls a given Jetpack endpoint and returns the response.
 	 *
 	 * @since   1.0.0
@@ -92,7 +108,7 @@ final class API_Helper {
 			$body
 		);
 
-		if ( ! str_starts_with( $result['headers']['http_code'], '2' ) ) {
+		if ( ! str_starts_with( (string) $result['headers']['http_code'], '2' ) ) {
 			console_writeln( "❌ API error ({$result['headers']['http_code']} $endpoint): " . encode_json_content( $result['body'] ) );
 			return null;
 		}

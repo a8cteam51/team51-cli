@@ -7,6 +7,7 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
 
 /**
@@ -54,6 +55,17 @@ final class WPCOMSiteStickersRemove extends Command {
 
 		$this->sticker = get_string_input( $input, $output, 'sticker', fn() => $this->prompt_sticker_input( $input, $output ) );
 		$input->setArgument( 'sticker', $this->sticker );
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	protected function interact( InputInterface $input, OutputInterface $output ): void {
+		$question = new ConfirmationQuestion( "<question>Are you sure you want to remove the sticker '$this->sticker' from {$this->site->name} (ID {$this->site->ID}, URL {$this->site->URL})? [y/N]</question> ", false );
+		if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
+			$output->writeln( '<comment>Command aborted by user.</comment>' );
+			exit( 2 );
+		}
 	}
 
 	/**

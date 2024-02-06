@@ -29,6 +29,7 @@
       "includes/connection-helper-pressable.php",
       "includes/functions.php",
       "includes/functions-1password.php",
+      "includes/functions-github.php",
       "includes/functions-jetpack.php",
       "includes/functions-pressable.php",
       "includes/functions-wpcom.php"
