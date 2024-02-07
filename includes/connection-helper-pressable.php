@@ -99,7 +99,7 @@ final class Pressable_Connection_Helper {
 
 			$cache[ $site_id ] = array(
 				'username' => $collaborator->username,
-				'password' => reset_pressable_site_sftp_user_password( $site_id, $collaborator->username ),
+				'password' => rotate_pressable_site_sftp_user_password( $site_id, $collaborator->username ),
 			);
 		}
 

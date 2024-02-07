@@ -15,7 +15,7 @@ use Symfony\Component\Console\Question\Question;
  * Create a new GitHub repository, optionally from a template.
  */
 #[AsCommand( name: 'github:create-repository' )]
-final class GitHubRepositoryCreate extends Command {
+final class GitHub_Repository_Create extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**
@@ -59,8 +59,7 @@ final class GitHubRepositoryCreate extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->name = get_string_input( $input, $output, 'name', fn() => $this->prompt_name_input( $input, $output ) );
-		$this->name = \preg_replace( '/[^a-z0-9_\-]/', '', \strtolower( $this->name ) );
+		$this->name = slugify( get_string_input( $input, $output, 'name', fn() => $this->prompt_name_input( $input, $output ) ) );
 		$input->setArgument( 'name', $this->name );
 
 		$this->type = get_enum_input( $input, $output, 'type', array( 'project', 'plugin', 'issues' ), fn() => $this->prompt_type_input( $input, $output ) );

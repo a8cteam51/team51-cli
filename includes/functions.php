@@ -396,4 +396,19 @@ function is_case_insensitive_match( string $string_1, string $string_2 ): bool {
 	return 0 === strcasecmp( $string_1, $string_2 );
 }
 
+/**
+ * Returns a slugified version of a given string. Partially inspired by WordPress's `sanitize_key` function.
+ *
+ * @param string $string
+ *
+ * @return string
+ */
+function slugify( string $string ): string {
+	$slug = strtolower( $string ); // Lowercase the string.
+	$slug = preg_replace( '/[^a-z0-9\-]+/', '-', $slug ); // Replace non-alphanumeric characters with hyphens.
+	$slug = preg_replace( '/-+/', '-', $slug ); // Replace multiple contiguous hyphens with a single hyphen.
+
+	return trim( $slug, '-' ); // Trim any leading or trailing hyphens.
+}
+
 // endregion

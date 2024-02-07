@@ -82,16 +82,53 @@ function get_pressable_site_sftp_user_by_email( string $site_id_or_url, string $
 }
 
 /**
- * Resets the password of the specified SFTP user on the specified Pressable site.
+ * Rotates the password of the specified SFTP user on the specified Pressable site.
  *
  * @param   string $site_id_or_url The ID or URL of the Pressable site to reset the SFTP user password on.
  * @param   string $username       The username of the SFTP user to reset the password for.
  *
  * @return  string|null
  */
-function reset_pressable_site_sftp_user_password( string $site_id_or_url, string $username ): ?string {
-	$response = API_Helper::make_pressable_request( "site-sftp-users/$site_id_or_url/$username/reset-password", 'POST' );
+function rotate_pressable_site_sftp_user_password( string $site_id_or_url, string $username ): ?string {
+	$response = API_Helper::make_pressable_request( "site-sftp-users/$site_id_or_url/$username/rotate-password", 'POST' );
 	return is_null( $response ) ? null : $response->password;
+}
+
+/**
+ * Returns the list of datacenters available for creating new sites.
+ *
+ * @since   1.0.0
+ * @version 1.0.0
+ *
+ * @return  stdClass[]|null
+ */
+function get_pressable_datacenters(): ?array {
+	static $datacenters = null;
+
+	if ( is_null( $datacenters ) ) {
+		$datacenters = API_Helper::make_pressable_request( 'sites/datacenters' );
+	}
+
+	return $datacenters;
+}
+
+/**
+ * Creates a new Pressable site.
+ *
+ * @param   string $name       The name of the site to create.
+ * @param   string $datacenter The datacenter code to create the site in.
+ *
+ * @return  stdClass|null
+ */
+function create_pressable_site( string $name, string $datacenter ): ?stdClass {
+	return API_Helper::make_pressable_request(
+		'sites',
+		'POST',
+		array(
+			'name'            => $name,
+			'datacenter_code' => $datacenter,
+		)
+	);
 }
 
 // endregion

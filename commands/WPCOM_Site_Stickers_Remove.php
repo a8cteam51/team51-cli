@@ -11,21 +11,21 @@ use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
 
 /**
- * Adds a sticker to a given WPCOM site.
+ * Removes a sticker from a given WPCOM site.
  */
-#[AsCommand( name: 'wpcom:add-site-sticker' )]
-final class WPCOMSiteStickersAdd extends Command {
+#[AsCommand( name: 'wpcom:remove-site-sticker' )]
+final class WPCOM_Site_Stickers_Remove extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**
-	 * WPCOM site definition to add the sticker to.
+	 * WPCOM site definition to remove the sticker from.
 	 *
 	 * @var \stdClass|null
 	 */
 	protected ?\stdClass $site = null;
 
 	/**
-	 * The sticker to add.
+	 * The sticker to remove.
 	 *
 	 * @var string|null
 	 */
@@ -39,11 +39,11 @@ final class WPCOMSiteStickersAdd extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function configure(): void {
-		$this->setDescription( 'Add a given sticker to a WPCOM site.' )
-			->setHelp( 'Use this command to associate a new sticker with a WPCOM site.' );
+		$this->setDescription( 'Removes a given sticker from a WPCOM site.' )
+			->setHelp( 'Use this command to disassociate a sticker from a WPCOM site.' );
 
-		$this->addArgument( 'site', InputArgument::REQUIRED, 'Domain or WPCOM ID of the site to add the sticker to.' )
-			->addArgument( 'sticker', InputArgument::REQUIRED, 'Sticker to add to the site.' );
+		$this->addArgument( 'site', InputArgument::REQUIRED, 'Domain or WPCOM ID of the site to remove the sticker from.' )
+			->addArgument( 'sticker', InputArgument::REQUIRED, 'Sticker to remove from the site.' );
 	}
 
 	/**
@@ -61,7 +61,7 @@ final class WPCOMSiteStickersAdd extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function interact( InputInterface $input, OutputInterface $output ): void {
-		$question = new ConfirmationQuestion( "<question>Are you sure you want to add the sticker '$this->sticker' to {$this->site->name} (ID {$this->site->ID}, URL {$this->site->URL})? [y/N]</question> ", false );
+		$question = new ConfirmationQuestion( "<question>Are you sure you want to remove the sticker '$this->sticker' from {$this->site->name} (ID {$this->site->ID}, URL {$this->site->URL})? [y/N]</question> ", false );
 		if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 			$output->writeln( '<comment>Command aborted by user.</comment>' );
 			exit( 2 );
@@ -72,15 +72,15 @@ final class WPCOMSiteStickersAdd extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
-		$output->writeln( "<fg=magenta;options=bold>Adding sticker '$this->sticker' to {$this->site->name} (ID {$this->site->ID}, URL {$this->site->URL}).</>" );
+		$output->writeln( "<fg=magenta;options=bold>Removing sticker '$this->sticker' from {$this->site->name} (ID {$this->site->ID}, URL {$this->site->URL}).</>" );
 
-		$result = add_wpcom_site_sticker( $this->site->ID, $this->sticker );
+		$result = remove_wpcom_site_sticker( $this->site->ID, $this->sticker );
 		if ( true !== $result ) {
-			$output->writeln( '<fg=red;options=bold>Failed to add sticker.</>' );
+			$output->writeln( '<fg=red;options=bold>Failed to remove sticker.</>' );
 			return Command::FAILURE;
 		}
 
-		$output->writeln( '<fg=green;options=bold>Sticker added successfully.</>' );
+		$output->writeln( '<fg=green;options=bold>Sticker removed successfully.</>' );
 		return Command::SUCCESS;
 	}
 
@@ -97,7 +97,7 @@ final class WPCOMSiteStickersAdd extends Command {
 	 * @return  string|null
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new Question( '<question>Enter the domain or WPCOM site ID to add the sticker to:</question> ' );
+		$question = new Question( '<question>Enter the domain or WPCOM site ID to remove the sticker from:</question> ' );
 		$question->setAutocompleterValues(
 			array_map(
 				static fn( string $url ) => parse_url( $url, PHP_URL_HOST ),
@@ -117,7 +117,7 @@ final class WPCOMSiteStickersAdd extends Command {
 	 * @return  string|null
 	 */
 	private function prompt_sticker_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new Question( '<question>Enter the sticker to add:</question> ' );
+		$question = new Question( '<question>Enter the sticker to remove:</question> ' );
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
 

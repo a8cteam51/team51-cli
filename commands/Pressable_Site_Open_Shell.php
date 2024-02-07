@@ -13,7 +13,7 @@ use Symfony\Component\Console\Question\Question;
  * Opens an SSH or SFTP shell to a given Pressable site.
  */
 #[AsCommand( name: 'pressable:open-site-shell' )]
-final class PressableSiteOpenShell extends Command {
+final class Pressable_Site_Open_Shell extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**
@@ -90,7 +90,7 @@ final class PressableSiteOpenShell extends Command {
 		if ( ! \str_ends_with( $this->email, '@automattic.com' ) ) {
 			$output->writeln( "<comment>Resetting the SFTP password for $this->email on {$this->site->displayName}...</comment>", OutputInterface::VERBOSITY_VERBOSE );
 
-			$new_password = reset_pressable_site_sftp_user_password( $this->site->id, $sftp_user->username );
+			$new_password = rotate_pressable_site_sftp_user_password( $this->site->id, $sftp_user->username );
 			if ( \is_null( $new_password ) ) {
 				$output->writeln( "<error>Could not reset the SFTP password for $this->email on {$this->site->displayName}.</>" );
 				return Command::FAILURE;

@@ -14,7 +14,7 @@ use Symfony\Component\Console\Question\Question;
  * Lists the connected Jetpack sites with a given module either enabled or disabled.
  */
 #[AsCommand( name: 'jetpack:list-sites-with-module' )]
-final class JetpackSitesWithModuleList extends Command {
+final class Jetpack_Sites_With_Module_List extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**

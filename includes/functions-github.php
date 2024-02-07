@@ -1,6 +1,17 @@
 <?php
 
 /**
+ * Returns a given GitHub repository by name.
+ *
+ * @param   string $repository The name of the repository to retrieve.
+ *
+ * @return  stdClass|null
+ */
+function get_github_repository( string $repository ): ?stdClass {
+	return API_Helper::make_github_request( "repositories/$repository" );
+}
+
+/**
  * Creates a new GitHub repository.
  *
  * @param   string      $name        The name of the repository to create.
@@ -21,15 +32,4 @@ function create_github_repository( string $name, ?string $type = null, ?string $
 			)
 		)
 	);
-}
-
-/**
- * Returns a given GitHub repository by name.
- *
- * @param   string $repository The name of the repository to retrieve.
- *
- * @return  stdClass|null
- */
-function get_github_repository( string $repository ): ?stdClass {
-	return API_Helper::make_github_request( "repositories/$repository" );
 }
