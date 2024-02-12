@@ -16,4 +16,7 @@
 	<rule ref="WordPress.Security">
 		<exclude name="WordPress.Security.EscapeOutput"/>
 	</rule>
+	<rule ref="Universal.Operators">
+		<exclude name="Universal.Operators.DisallowShortTernary.Found"/>
+	</rule>
 </ruleset>
