@@ -31,13 +31,13 @@ final class Pressable_Connection_Helper {
 	 * @return  SFTP|null
 	 */
 	public static function get_sftp_connection( string $site_id ): ?SFTP {
-		$login_data = self::get_login_data( $site_id );
-		if ( \is_null( $login_data ) || \is_null( $login_data['password'] ) ) {
+		$credentials = self::get_credentials( $site_id );
+		if ( \is_null( $credentials ) ) {
 			return null;
 		}
 
 		$connection = new SFTP( self::SFTP_HOST );
-		if ( ! $connection->login( $login_data['username'], $login_data['password'] ) ) {
+		if ( ! $connection->login( $credentials->username, $credentials->password ) ) {
 			$connection->isConnected() && $connection->disconnect();
 			return null;
 		}
@@ -53,13 +53,13 @@ final class Pressable_Connection_Helper {
 	 * @return  SFTP|null
 	 */
 	public static function get_ssh_connection( string $site_id ): ?SSH2 {
-		$login_data = self::get_login_data( $site_id );
-		if ( \is_null( $login_data ) || \is_null( $login_data['password'] ) ) {
+		$credentials = self::get_credentials( $site_id );
+		if ( \is_null( $credentials ) ) {
 			return null;
 		}
 
 		$connection = new SSH2( self::SSH_HOST );
-		if ( ! $connection->login( $login_data['username'], $login_data['password'] ) ) {
+		if ( ! $connection->login( $credentials->username, $credentials->password ) ) {
 			$connection->isConnected() && $connection->disconnect();
 			return null;
 		}
@@ -85,22 +85,19 @@ final class Pressable_Connection_Helper {
 	 *
 	 * @param   string $site_id The ID of the Pressable site to get the login data for.
 	 *
-	 * @return  array|null
+	 * @return  stdClass|null
 	 */
-	private static function get_login_data( string $site_id ): ?array {
+	private static function get_credentials( string $site_id ): ?stdClass {
 		static $cache = array();
 
-		if ( ! isset( $cache[ $site_id ] ) ) {
+		if ( empty( $cache[ $site_id ]) ) {
 			$collaborator = get_pressable_site_sftp_user_by_email( $site_id, 'concierge@wordpress.com' );
 			if ( \is_null( $collaborator ) ) {
 				console_writeln( '❌ Could not find the Pressable site collaborator.' );
 				return null;
 			}
 
-			$cache[ $site_id ] = array(
-				'username' => $collaborator->username,
-				'password' => rotate_pressable_site_sftp_user_password( $site_id, $collaborator->username ),
-			);
+			$cache[ $site_id ] = rotate_pressable_site_sftp_user_password( $site_id, $collaborator->username );
 		}
 
 		return $cache[ $site_id ];

@@ -111,10 +111,7 @@ final class API_Helper {
 		);
 
 		if ( ! str_starts_with( (string) $result['headers']['http_code'], '2' ) ) {
-			console_writeln(
-				"❌ API error ({$result['headers']['http_code']} $endpoint): " . encode_json_content( $result['body'] ),
-				404 === $result['headers']['http_code'] ? OutputInterface::VERBOSITY_DEBUG : OutputInterface::VERBOSITY_NORMAL
-			);
+			console_writeln( "❌ API error ({$result['headers']['http_code']} $endpoint): " . encode_json_content( $result['body'] ) );
 			return null;
 		}
 		if ( is_object( $result['body'] ) && property_exists( $result['body'], 'code' ) ) {

@@ -90,13 +90,13 @@ final class Pressable_Site_Open_Shell extends Command {
 		if ( ! \str_ends_with( $this->email, '@automattic.com' ) ) {
 			$output->writeln( "<comment>Resetting the SFTP password for $this->email on {$this->site->displayName}...</comment>", OutputInterface::VERBOSITY_VERBOSE );
 
-			$new_password = rotate_pressable_site_sftp_user_password( $this->site->id, $sftp_user->username );
-			if ( \is_null( $new_password ) ) {
+			$credentials = rotate_pressable_site_sftp_user_password( $this->site->id, $sftp_user->username );
+			if ( \is_null( $credentials ) ) {
 				$output->writeln( "<error>Could not reset the SFTP password for $this->email on {$this->site->displayName}.</>" );
 				return Command::FAILURE;
 			}
 
-			$output->writeln( "<comment>New SFTP user password:</comment> <fg=green;options=bold>$new_password</>" );
+			$output->writeln( "<comment>New SFTP user password:</comment> <fg=green;options=bold>$credentials->password</>" );
 		}
 
 		// Call the system SSH/SFTP application.

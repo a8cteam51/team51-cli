@@ -28,7 +28,7 @@ final class Pressable_Site_Rotate_SFTP_User_Password extends Command {
 	protected ?string $multiple = null;
 
 	/**
-	 * The sites to rotate the SFTP password for.
+	 * The sites to rotate the password on.
 	 *
 	 * @var \stdClass[]|null
 	 */
@@ -42,7 +42,7 @@ final class Pressable_Site_Rotate_SFTP_User_Password extends Command {
 	private ?array $sftp_users = null;
 
 	/**
-	 * Whether to actually rotate the SFTP password or just simulate doing so.
+	 * Whether to actually rotate the password or just simulate doing so.
 	 *
 	 * @var bool|null
 	 */
@@ -63,7 +63,7 @@ final class Pressable_Site_Rotate_SFTP_User_Password extends Command {
 			->addOption( 'user', 'u', InputOption::VALUE_REQUIRED, 'The ID, email, or username of the site SFTP user for which to rotate the password. The default is concierge@wordpress.com.' );
 
 		$this->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Determines whether the \'site\' argument is optional or not. Accepted values are \'related\' and \'all\'.' )
-			->addOption( 'dry-run', null, InputOption::VALUE_NONE, 'Execute a dry run. It will output all the steps, but will keep the current SFTP password. Useful for checking whether a given input is valid.' );
+			->addOption( 'dry-run', null, InputOption::VALUE_NONE, 'Execute a dry run. It will output all the steps, but will keep the current SFTP user password. Useful for checking whether a given input is valid.' );
 	}
 
 	/**
@@ -75,21 +75,18 @@ final class Pressable_Site_Rotate_SFTP_User_Password extends Command {
 		$this->multiple = get_enum_input( $input, $output, 'multiple', array( 'all', 'related' ) );
 
 		// If processing a given site, retrieve it from the input.
-		if ( 'all' !== $this->multiple ) {
-			$site = get_pressable_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
-			$input->setArgument( 'site', $site->id );
-		} else {
-			$site = null;
-		}
+		$site = match ( $this->multiple ) {
+			'all' => null,
+			default => get_pressable_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) ),
+		};
+		$input->setArgument( 'site', $site->id ?? null );
 
 		// If processing a given user, retrieve it from the input.
-		if ( 'all' !== $this->multiple ) {
-			$user = get_pressable_site_sftp_user_input( $input, $output, $input->getArgument( 'site' ), fn() => $this->prompt_user_input( $input, $output ) );
-			$input->setOption( 'user', $user->email );
-		} else {
-			$user = get_email_input( $input, $output, fn() => $this->prompt_user_input( $input, $output ), 'user' );
-			$input->setOption( 'user', $user );
-		}
+		$user = match ( $this->multiple ) {
+			'all' => get_email_input( $input, $output, fn() => $this->prompt_user_input( $input, $output ), 'user' ),
+			default => get_pressable_site_sftp_user_input( $input, $output, $input->getArgument( 'site' ), fn() => $this->prompt_user_input( $input, $output ) ),
+		};
+		$input->setOption( 'user', $user->email ?? $user );
 
 		// Compile the sites and users to process.
 		if ( \is_null( $this->multiple ) ) { // One single, given website.
@@ -163,15 +160,16 @@ final class Pressable_Site_Rotate_SFTP_User_Password extends Command {
 
 			$output->writeln( "<fg=magenta;options=bold>Rotating the SFTP user password of $sftp_user->username (ID $sftp_user->id, email $sftp_user->email) on $site->displayName (ID $site->id, URL $site->url).</>" );
 
-			$new_sftp_user_password = $this->rotate_site_sftp_user_password( $output, $site->id, $sftp_user->username );
-			if ( \is_null( $new_sftp_user_password ) ) {
+			// Rotate the SFTP user password.
+			$credentials = $this->rotate_site_sftp_user_password( $output, $site->id, $sftp_user->username );
+			if ( \is_null( $credentials ) ) {
 				$output->writeln( '<error>Failed to rotate the SFTP user password.</error>' );
 				continue;
 			}
 
 			/* @noinspection DisconnectedForeachInstructionInspection */
 			$output->writeln( '<fg=green;options=bold>SFTP user password rotated.</>' );
-			$output->writeln( "<comment>New SFTP user password:</comment> <fg=green;options=bold>$new_sftp_user_password</>" );
+			$output->writeln( "<comment>New SFTP user password:</comment> <fg=green;options=bold>$credentials->password</>" );
 		}
 
 		return Command::SUCCESS;
@@ -190,7 +188,7 @@ final class Pressable_Site_Rotate_SFTP_User_Password extends Command {
 	 * @return  string|null
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new Question( '<question>Enter the site ID or URL to rotate the SFTP password on:</question> ' );
+		$question = new Question( '<question>Enter the site ID or URL to rotate the SFTP user password on:</question> ' );
 		$question->setAutocompleterValues( \array_map( static fn( object $site ) => $site->url, get_pressable_sites() ?? array() ) );
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
@@ -220,17 +218,20 @@ final class Pressable_Site_Rotate_SFTP_User_Password extends Command {
 	 * @param   string          $site_id  The ID of the site to rotate the SFTP user password on.
 	 * @param   string          $username The username of the SFTP user to rotate the password for.
 	 *
-	 * @return  string|null
+	 * @return  \stdClass|null
 	 */
-	private function rotate_site_sftp_user_password( OutputInterface $output, string $site_id, string $username ): ?string {
+	private function rotate_site_sftp_user_password( OutputInterface $output, string $site_id, string $username ): ?\stdClass {
 		if ( true === $this->dry_run ) {
-			$new_sftp_password = '********';
+			$credentials = (object) array(
+				'username' => $username,
+				'password' => '********',
+			);
 			$output->writeln( '<comment>Dry run: SFTP user password rotation skipped.</comment>', OutputInterface::VERBOSITY_VERBOSE );
 		} else {
-			$new_sftp_password = rotate_pressable_site_sftp_user_password( $site_id, $username );
+			$credentials = rotate_pressable_site_sftp_user_password( $site_id, $username );
 		}
 
-		return $new_sftp_password;
+		return $credentials;
 	}
 
 	// endregion

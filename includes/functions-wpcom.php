@@ -36,8 +36,7 @@ function get_wpcom_sites( array $params = array() ): ?array {
 		$endpoint .= '?' . http_build_query( $params );
 	}
 
-	$sites = API_Helper::make_wpcom_request( $endpoint );
-	return is_null( $sites ) ? null : (array) $sites;
+	return API_Helper::make_wpcom_request( $endpoint );
 }
 
 /**
@@ -52,6 +51,28 @@ function get_wpcom_sites( array $params = array() ): ?array {
  */
 function get_wpcom_site( string $site_id_or_url ): ?stdClass {
 	return API_Helper::make_wpcom_request( "sites/$site_id_or_url" );
+}
+
+/**
+ * Returns the list of users present on given WPCOM site.
+ *
+ * @since   1.0.0
+ * @version 1.0.0
+ *
+ * @param   string $site_id_or_url The site URL or WordPress.com site ID.
+ * @param   array  $params         Optional. Additional parameters to pass to the request.
+ *
+ * @link    https://developer.wordpress.com/docs/api/1.1/get/sites/%24site/users/
+ *
+ * @return  stdClass[]|null
+ */
+function get_wpcom_site_users( string $site_id_or_url, array $params = array() ): ?array {
+	$endpoint = "site-users/$site_id_or_url";
+	if ( ! empty( $params ) ) {
+		$endpoint .= '?' . http_build_query( $params );
+	}
+
+	return API_Helper::make_wpcom_request( $endpoint );
 }
 
 /**

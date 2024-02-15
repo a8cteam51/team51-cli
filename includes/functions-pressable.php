@@ -39,6 +39,9 @@ function get_pressable_related_sites( string $site_id_or_url, bool $find_root = 
 	// If the given site is not the root, maybe find it.
 	while ( $find_root && ! empty( $root_site->clonedFromId ) ) { // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 		$root_site = get_pressable_site( $root_site->clonedFromId ); // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+		if ( is_null( $root_site ) ) {
+			return null;
+		}
 	}
 
 	// Initialize the tree with the root site.
@@ -58,7 +61,7 @@ function get_pressable_related_sites( string $site_id_or_url, bool $find_root = 
 		foreach ( array_keys( $related_sites[ $current_level - 1 ] ) as $parent_site_id ) {
 			foreach ( $all_sites as $maybe_clone_site ) {
 				if ( $maybe_clone_site->clonedFromId !== $parent_site_id ) { // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
-					continue; // Skip if this is not a clone.
+					continue;
 				}
 
 				$related_sites[ $current_level ][ $maybe_clone_site->id ] = $node_generator( $maybe_clone_site );
@@ -172,11 +175,22 @@ function get_pressable_site_sftp_user_by_email( string $site_id_or_url, string $
  * @param   string $site_id_or_url The ID or URL of the Pressable site to reset the SFTP user password on.
  * @param   string $username       The username of the SFTP user to reset the password for.
  *
- * @return  string|null
+ * @return  stdClass|null
  */
-function rotate_pressable_site_sftp_user_password( string $site_id_or_url, string $username ): ?string {
-	$response = API_Helper::make_pressable_request( "site-sftp-users/$site_id_or_url/$username/rotate-password", 'POST' );
-	return $response->password ?? null;
+function rotate_pressable_site_sftp_user_password( string $site_id_or_url, string $username ): ?stdClass {
+	return API_Helper::make_pressable_request( "site-sftp-users/$site_id_or_url/$username/rotate-password", 'POST' );
+}
+
+/**
+ * Rotates the password of the specified WP user on the specified Pressable site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the Pressable site to reset the WP user password on.
+ * @param   string $email          The email of the WP user to reset the password for.
+ *
+ * @return  stdClass|null
+ */
+function rotate_pressable_site_wp_user_password( string $site_id_or_url, string $email ): ?stdClass {
+	return API_Helper::make_pressable_request( "site-wp-users/$site_id_or_url/$email/rotate-password", 'POST' );
 }
 
 /**
