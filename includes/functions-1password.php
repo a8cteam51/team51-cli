@@ -1,5 +1,7 @@
 <?php
 
+// region API
+
 /**
  * List 1Password accounts.
  *
@@ -175,3 +177,45 @@ function _build_1password_command_string( string $command, array $flags, array $
 
 	return $command;
 }
+
+// endregion
+
+// region HELPERS
+
+/**
+ * Returns true if the given 1Password item is a match for the given URL. False otherwise.
+ *
+ * @param   object $op_item   The 1Password item object.
+ * @param   string $match_url The URL to match the item against.
+ *
+ * @return  boolean
+ */
+function is_1password_item_url_match( object $op_item, string $match_url ): bool {
+	$result = false;
+
+	$match_host = trim( $match_url );
+	if ( str_contains( $match_host, 'http' ) ) { // Strip away everything but the domain itself.
+		$match_host = parse_url( $match_host, PHP_URL_HOST );
+	} else { // Strip away endings like /wp-admin or /wp-login.php.
+		$match_host = explode( '/', $match_host, 2 )[0];
+	}
+
+	$op_item_urls = property_exists( $op_item, 'urls' ) ? (array) $op_item->urls : array();
+	foreach ( $op_item_urls as $op_item_url ) {
+		$op_item_host = trim( $op_item_url->href );
+		if ( str_contains( $op_item_host, 'http' ) ) { // Strip away everything but the domain itself.
+			$op_item_host = parse_url( $op_item_host, PHP_URL_HOST );
+		} else { // Strip away endings like /wp-admin or /wp-login.php.
+			$op_item_host = explode( '/', $op_item_host, 2 )[0];
+		}
+
+		$result = is_case_insensitive_match( $match_host, $op_item_host );
+		if ( $result ) {
+			break;
+		}
+	}
+
+	return $result;
+}
+
+// endregion

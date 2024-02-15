@@ -76,6 +76,27 @@ function get_wpcom_site_users( string $site_id_or_url, array $params = array() )
 }
 
 /**
+ * Returns a WPCOM site user on a given WPCOM site.
+ *
+ * @since   1.0.0
+ * @version 1.0.0
+ *
+ * @param   string $site_id_or_url               The site URL or WordPress.com site ID.
+ * @param   string $user_id_or_username_or_email The user ID, username, or email.
+ * @param   array  $params                       Optional. Additional parameters to pass to the request.
+ *
+ * @return  stdClass|null
+ */
+function get_wpcom_site_user( string $site_id_or_url, string $user_id_or_username_or_email, array $params = array() ): ?stdClass {
+	$endpoint = "site-users/$site_id_or_url/$user_id_or_username_or_email";
+	if ( ! empty( $params ) ) {
+		$endpoint .= '?' . http_build_query( $params );
+	}
+
+	return API_Helper::make_wpcom_request( $endpoint );
+}
+
+/**
  * Returns the list of stickers associated with a given WPCOM site.
  *
  * @since   1.0.0

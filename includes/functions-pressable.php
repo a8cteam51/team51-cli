@@ -182,15 +182,38 @@ function rotate_pressable_site_sftp_user_password( string $site_id_or_url, strin
 }
 
 /**
+ * Returns the list of WP users for the specified Pressable site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the Pressable site to retrieve the WP users for.
+ *
+ * @return  stdClass[]|null
+ */
+function get_pressable_site_wp_users( string $site_id_or_url ): ?array {
+	return API_Helper::make_pressable_request( "site-wp-users/$site_id_or_url" );
+}
+
+/**
+ * Returns the WP user with the given username on the specified site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the Pressable site to retrieve the WP user from.
+ * @param   string $user           The email, username, or numeric ID of the WP user.
+ *
+ * @return  object|null
+ */
+function get_pressable_site_wp_user( string $site_id_or_url, string $user ): ?stdClass {
+	return API_Helper::make_pressable_request( "site-wp-users/$site_id_or_url/$user" );
+}
+
+/**
  * Rotates the password of the specified WP user on the specified Pressable site.
  *
  * @param   string $site_id_or_url The ID or URL of the Pressable site to reset the WP user password on.
- * @param   string $email          The email of the WP user to reset the password for.
+ * @param   string $user           The email, username, or numeric ID of the WP user to reset the password for.
  *
  * @return  stdClass|null
  */
-function rotate_pressable_site_wp_user_password( string $site_id_or_url, string $email ): ?stdClass {
-	return API_Helper::make_pressable_request( "site-wp-users/$site_id_or_url/$email/rotate-password", 'POST' );
+function rotate_pressable_site_wp_user_password( string $site_id_or_url, string $user ): ?stdClass {
+	return API_Helper::make_pressable_request( "site-wp-users/$site_id_or_url/$user/rotate-password", 'POST' );
 }
 
 /**
