@@ -24,7 +24,7 @@ final class Pressable_Site_Rotate_WP_User_Password extends Command {
 	 *
 	 * @var string|null
 	 */
-	protected ?string $multiple = null;
+	private ?string $multiple = null;
 
 	/**
 	 * The sites to rotate the password on.
@@ -138,7 +138,7 @@ final class Pressable_Site_Rotate_WP_User_Password extends Command {
 				continue;
 			}
 
-			$output->writeln( '<fg=green;options=bold>WP user password rotated.</>' );
+			$output->writeln( '<fg=green;options=bold>WP user password rotated successfully.</>' );
 			$output->writeln( "<comment>New WP user password:</comment> <fg=green;options=bold>$credentials->password</>", OutputInterface::VERBOSITY_DEBUG );
 
 			// Update the 1Password password value.

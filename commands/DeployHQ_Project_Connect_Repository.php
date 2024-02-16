@@ -11,7 +11,7 @@ use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
 
 /**
- * Creates a new project on DeployHQ.
+ * Connects a DeployHQ project to a GitHub repository.
  */
 #[AsCommand( name: 'deployhq:connect-project-repository', aliases: array( 'deployhq:connect-project-repo' ) )]
 final class DeployHQ_Project_Connect_Repository extends Command {

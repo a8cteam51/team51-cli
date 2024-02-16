@@ -28,6 +28,8 @@ function get_deployhq_project( string $project ): ?stdClass {
 /**
  * Returns the list of DeployHQ project zones.
  *
+ * @link    https://www.deployhq.com/support/api/projects/create-a-new-project#supported-parameters
+ *
  * @return  string[]
  */
 function get_deployhq_zones(): array {
@@ -77,6 +79,18 @@ function create_deployhq_project( string $name, int $zone_id, array $params = ar
 			'zone_id' => $zone_id,
 		) + $params
 	);
+}
+
+/**
+ * Rotates the private key of a DeployHQ project.
+ * The key is set on the central server and this simply triggers an update on DeployHQ's end.
+ *
+ * @param string $project The permalink of the project to rotate the private key for.
+ *
+ * @return stdClass|null
+ */
+function rotate_deployhq_project_private_key( string $project ): ?stdClass {
+	return API_Helper::make_deployhq_request( "projects/$project/rotate-private-key", 'POST' );
 }
 
 /**
