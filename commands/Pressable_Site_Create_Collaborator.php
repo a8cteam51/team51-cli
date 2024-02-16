@@ -80,7 +80,7 @@ final class Pressable_Site_Create_Collaborator extends Command {
 			return Command::FAILURE;
 		}
 
-		$output->writeln( '<info>Collaborator created successfully.</info>' );
+		$output->writeln( '<fg=green;options=bold>Collaborator created successfully.</>' );
 		return Command::SUCCESS;
 	}
 

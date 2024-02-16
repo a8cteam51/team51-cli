@@ -241,7 +241,7 @@ function get_enum_input( InputInterface $input, OutputInterface $output, string 
 	// Validate the option.
 	if ( $option !== $default_value ) {
 		foreach ( (array) $option as $value ) {
-			if ( ! in_array( $value, $valid_values, true ) ) {
+			if ( ! in_array( $value, $valid_values, false ) ) { // phpcs:ignore WordPress.PHP.StrictInArray.FoundNonStrictFalse
 				$output->writeln( "<error>Invalid value for input '$name': $value</error>" );
 				exit( 1 );
 			}
@@ -352,6 +352,23 @@ function get_user_input( InputInterface $input, OutputInterface $output, ?callab
 	}
 
 	return $user;
+}
+
+/**
+ * Validates a given user's choice against a list of choices, and returns the key of the valid choice.
+ * Tries to handle the case where the user input was either the key or the value, and always returns the key.
+ *
+ * @param   mixed $value   The user's input. Expected to be the key or the value of a choice.
+ * @param   array $choices The list of valid choices in key => value format.
+ *
+ * @return  mixed|null
+ */
+function validate_user_choice( mixed $value, array $choices ): mixed {
+	if ( isset( $choices[ $value ] ) ) { // Handle the case where the user's input was the key.
+		return $value;
+	}
+
+	return array_flip( $choices )[ $value ] ?? null;
 }
 
 /**

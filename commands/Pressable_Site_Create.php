@@ -113,15 +113,10 @@ final class Pressable_Site_Create extends Command {
 	 * @return  string|null
 	 */
 	private function prompt_datacenter_input( InputInterface $input, OutputInterface $output ): ?string {
-		foreach ( get_pressable_datacenters() as $datacenter ) {
-			if ( 'DFW' === $datacenter->code ) {
-				$default = $datacenter->name;
-				break;
-			}
-		}
+		$choices = get_pressable_datacenters();
 
-		$question = new ChoiceQuestion( '<question>Please select the datacenter to create the site in:</question> ', array_column( get_pressable_datacenters(), 'name' ), $default ?? null );
-		$question->setValidator( fn( $value ) => $value ? array_column( get_pressable_datacenters(), 'code' )[ array_search( $value, array_column( get_pressable_datacenters(), 'name' ), true ) ] : null );
+		$question = new ChoiceQuestion( '<question>Please select the datacenter to create the site in [' . $choices['DFW'] . ']:</question> ', array_column( get_pressable_datacenters(), 'name' ), 'DFW' );
+		$question->setValidator( fn( $value ) => validate_user_choice( $value, $choices ) );
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
 

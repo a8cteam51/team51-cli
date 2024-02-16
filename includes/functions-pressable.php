@@ -222,13 +222,19 @@ function rotate_pressable_site_wp_user_password( string $site_id_or_url, string 
  * @since   1.0.0
  * @version 1.0.0
  *
- * @return  stdClass[]|null
+ * @return  string[]|null
  */
 function get_pressable_datacenters(): ?array {
 	static $datacenters = null;
 
 	if ( is_null( $datacenters ) ) {
 		$datacenters = API_Helper::make_pressable_request( 'sites/datacenters' );
+		if ( is_array( $datacenters ) ) {
+			$datacenters = array_combine(
+				array_column( $datacenters, 'code' ),
+				array_column( $datacenters, 'name' )
+			);
+		}
 	}
 
 	return $datacenters;

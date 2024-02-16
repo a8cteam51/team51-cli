@@ -91,7 +91,7 @@ final class Jetpack_Site_Module_Set_Status extends Command {
 			return Command::FAILURE;
 		}
 
-		$output->writeln( '<fg=green;options=bold>Successfully updated the module status.</>' );
+		$output->writeln( '<fg=green;options=bold>Module status updated successfully.</>' );
 		return Command::SUCCESS;
 	}
 
