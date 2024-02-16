@@ -3,9 +3,6 @@
 /**
  * Returns the list of Jetpack modules. This is hacky but works...
  *
- * @since   1.0.0
- * @version 1.0.0
- *
  * @return string[]|null
  */
 function get_jetpack_modules(): ?array {
@@ -43,9 +40,6 @@ function get_jetpack_modules(): ?array {
 /**
  * Returns the list of complete Jetpack modules information for a given site.
  *
- * @since   1.0.0
- * @version 1.0.0
- *
  * @param   string $site_id_or_url The site URL or WordPress.com site ID.
  *
  * @return  stdClass[]|null
@@ -57,9 +51,6 @@ function get_jetpack_site_modules( string $site_id_or_url ): ?array {
 
 /**
  * Updates the Jetpack modules settings for a given site.
- *
- * @since   1.0.0
- * @version 1.0.0
  *
  * @param   string $site_id_or_url The site URL or WordPress.com site ID.
  * @param   array  $settings       The settings to update.

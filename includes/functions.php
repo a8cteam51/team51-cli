@@ -210,11 +210,11 @@ function maybe_get_string_input( InputInterface $input, OutputInterface $output,
 		$string = $no_input_func( $input, $output );
 	}
 
-	return $string;
+	return empty( $string ) ? null : $string;
 }
 
 /**
- * Grabs a value from the console input.
+ * Grabs a value from the console input. Exits if no input is given.
  *
  * @param   InputInterface  $input         The input instance.
  * @param   OutputInterface $output        The output instance.
@@ -226,7 +226,6 @@ function maybe_get_string_input( InputInterface $input, OutputInterface $output,
 function get_string_input( InputInterface $input, OutputInterface $output, string $name, ?callable $no_input_func = null ): string {
 	$string = maybe_get_string_input( $input, $output, $name, $no_input_func );
 
-	// If we still don't have a value, abort.
 	if ( empty( $string ) ) {
 		$output->writeln( "<error>No value was provided for the '$name' input. Aborting!</error>" );
 		exit( 1 );
@@ -347,9 +346,6 @@ function validate_user_choice( mixed $value, array $choices ): mixed {
 
 /**
  * Outputs a table to the console. Useful to standardize the output throughout the application.
- *
- * @since   1.0.0
- * @version 1.0.0
  *
  * @param   OutputInterface $output       The console output.
  * @param   array           $rows         The rows to output.

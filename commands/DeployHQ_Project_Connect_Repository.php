@@ -61,7 +61,7 @@ final class DeployHQ_Project_Connect_Repository extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function interact( InputInterface $input, OutputInterface $output ): void {
-		$question = new ConfirmationQuestion( "<question>Are you sure you want to connect the DeployHQ project `{$this->project->name}` to the GitHub repository `{$this->repository->full_name}`? [y/N]</question> ", false );
+		$question = new ConfirmationQuestion( "<question>Are you sure you want to connect the DeployHQ project `{$this->project->name}` (permalink {$this->project->permalink}) to the GitHub repository `{$this->repository->full_name}`? [y/N]</question> ", false );
 		if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 			$output->writeln( '<comment>Command aborted by user.</comment>' );
 			exit( 2 );
@@ -72,7 +72,7 @@ final class DeployHQ_Project_Connect_Repository extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
-		$output->writeln( "<fg=magenta;options=bold>Connecting the DeployHQ project `{$this->project->name}` to the GitHub repository `{$this->repository->full_name}`.</>" );
+		$output->writeln( "<fg=magenta;options=bold>Connecting the DeployHQ project `{$this->project->name}` (permalink {$this->project->permalink}) to the GitHub repository `{$this->repository->full_name}`.</>" );
 
 		$deployhq_project_repository = update_deployhq_project_repository( $this->project->permalink, $this->repository->ssh_url );
 		if ( is_null( $deployhq_project_repository ) ) {

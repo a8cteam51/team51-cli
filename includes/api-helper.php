@@ -20,9 +20,6 @@ final class API_Helper {
 	/**
 	 * Calls a given DeployHQ endpoint and returns the response.
 	 *
-	 * @since   1.0.0
-	 * @version 1.0.0
-	 *
 	 * @param   string $endpoint The endpoint to call.
 	 * @param   string $method   The HTTP method to use. One of 'GET', 'POST', 'PUT', 'DELETE'.
 	 * @param   mixed  $body     The body to send with the request.
@@ -35,9 +32,6 @@ final class API_Helper {
 
 	/**
 	 * Calls a given GitHub endpoint and returns the response.
-	 *
-	 * @since   1.0.0
-	 * @version 1.0.0
 	 *
 	 * @param   string $endpoint The endpoint to call.
 	 * @param   string $method   The HTTP method to use. One of 'GET', 'POST', 'PUT', 'DELETE'.
@@ -52,9 +46,6 @@ final class API_Helper {
 	/**
 	 * Calls a given Jetpack endpoint and returns the response.
 	 *
-	 * @since   1.0.0
-	 * @version 1.0.0
-	 *
 	 * @param   string $endpoint The endpoint to call.
 	 * @param   string $method   The HTTP method to use. One of 'GET', 'POST', 'PUT', 'DELETE'.
 	 * @param   mixed  $body     The body to send with the request.
@@ -68,9 +59,6 @@ final class API_Helper {
 	/**
 	 * Calls a given Pressable endpoint and returns the response.
 	 *
-	 * @since   1.0.0
-	 * @version 1.0.0
-	 *
 	 * @param   string $endpoint The endpoint to call.
 	 * @param   string $method   The HTTP method to use. One of 'GET', 'POST', 'PUT', 'DELETE'.
 	 * @param   mixed  $body     The body to send with the request.
@@ -83,9 +71,6 @@ final class API_Helper {
 
 	/**
 	 * Calls a given WPCOM endpoint and returns the response.
-	 *
-	 * @since   1.0.0
-	 * @version 1.0.0
 	 *
 	 * @param   string $endpoint The endpoint to call.
 	 * @param   string $method   The HTTP method to use. One of 'GET', 'POST', 'PUT', 'DELETE'.
@@ -103,9 +88,6 @@ final class API_Helper {
 
 	/**
 	 * Calls the given endpoint and returns the response.
-	 *
-	 * @since   1.0.0
-	 * @version 1.0.0
 	 *
 	 * @param   string $endpoint The endpoint to call.
 	 * @param   string $method   The HTTP method to use. One of 'GET', 'POST', 'PUT', 'DELETE'.

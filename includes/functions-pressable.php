@@ -9,8 +9,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 /**
  * Returns the list of Pressable sites.
  *
- * @since   1.0.0
- * @version 1.0.0
+ * @param   array $params An array of parameters to filter the results by.
  *
  * @return  stdClass[]|null
  */
@@ -25,9 +24,6 @@ function get_pressable_sites( array $params = array() ): ?array {
 
 /**
  * Returns a tree-like structure of Pressable sites that have been cloned from the specified site.
- *
- * @since   1.0.0
- * @version 1.0.0
  *
  * @param   string        $site_id_or_url The ID or URL of the site to retrieve related sites for.
  * @param   boolean       $find_root      Whether to find the root site of the cloned sites.
@@ -80,9 +76,6 @@ function get_pressable_related_sites( string $site_id_or_url, bool $find_root = 
 
 /**
  * Returns the Pressable site with the specified ID or URL.
- *
- * @since   1.0.0
- * @version 1.0.0
  *
  * @param   string $site_id_or_url The ID or URL of the site to retrieve.
  *
@@ -223,9 +216,6 @@ function rotate_pressable_site_wp_user_password( string $site_id_or_url, string 
 
 /**
  * Returns the list of datacenters available for creating new sites.
- *
- * @since   1.0.0
- * @version 1.0.0
  *
  * @return  string[]|null
  */

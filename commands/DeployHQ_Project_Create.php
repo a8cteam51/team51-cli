@@ -60,7 +60,7 @@ final class DeployHQ_Project_Create extends Command {
 
 		$this->addArgument( 'name', InputArgument::REQUIRED, 'The name of the project to create.' )
 			->addOption( 'zone-id', null, InputOption::VALUE_REQUIRED, 'The ID of the zone to create the project in.' )
-			->addOption( 'template-id', null, InputOption::VALUE_REQUIRED, 'The ID of the template to use for the project.' )
+			->addOption( 'template-id', null, InputOption::VALUE_REQUIRED, 'The ID of the template to use for the project.', 'pressable-included-integration' )
 			->addOption( 'repository', null, InputOption::VALUE_REQUIRED, 'The slug of the GitHub repository to connect the project to.' );
 	}
 
@@ -74,19 +74,19 @@ final class DeployHQ_Project_Create extends Command {
 		$this->zone_id = get_enum_input( $input, $output, 'zone-id', array( 3, 6, 9 ), fn() => $this->prompt_zone_input( $input, $output ), 6 );
 		$input->setOption( 'zone-id', $this->zone_id );
 
-		$this->template_id = get_string_input( $input, $output, 'template-id', fn() => $this->prompt_template_input( $input, $output ) );
-		$this->template_id = 'none' === $this->template_id ? null : $this->template_id;
+		$this->template_id = get_string_input( $input, $output, 'template-id' );
 		$input->setOption( 'template-id', $this->template_id );
 
-		$this->repository = get_github_repository_input( $input, $output, fn() => $this->prompt_repository_input( $input, $output ) );
-		$input->setOption( 'repository', $this->repository->name );
+		$this->repository = maybe_get_github_repository_input( $input, $output, fn() => $this->prompt_repository_input( $input, $output ) );
+		$input->setOption( 'repository', $this->repository->name ?? null );
 	}
 
 	/**
 	 * {@inheritDoc}
 	 */
 	protected function interact( InputInterface $input, OutputInterface $output ): void {
-		$question = new ConfirmationQuestion( "<question>Are you sure you want to create the DeployHQ project `$this->name` in `" . get_deployhq_zones()[ $this->zone_id ] . '` off of `' . ( $this->template_id ? get_deployhq_templates()[ $this->template_id ] : 'no template' ) . '`? [y/N]</question> ', false );
+		$zone_name = get_deployhq_zones()[ $this->zone_id ];
+		$question  = new ConfirmationQuestion( "<question>Are you sure you want to create the DeployHQ project `$this->name` in $zone_name? [y/N]</question> ", false );
 		if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 			$output->writeln( '<comment>Command aborted by user.</comment>' );
 			exit( 2 );
@@ -97,7 +97,8 @@ final class DeployHQ_Project_Create extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
-		$output->writeln( "<fg=magenta;options=bold>Creating DeployHQ project `$this->name` in `" . get_deployhq_zones()[ $this->zone_id ] . '` off of `' . ( $this->template_id ? get_deployhq_templates()[ $this->template_id ] : 'no template' ) . '`.</>' );
+		$zone_name = get_deployhq_zones()[ $this->zone_id ];
+		$output->writeln( "<fg=magenta;options=bold>Creating DeployHQ project `$this->name` in $zone_name.</>" );
 
 		$project = create_deployhq_project( $this->name, $this->zone_id, array_filter( array( 'template_id' => $this->template_id ) ) );
 		if ( \is_null( $project ) ) {
@@ -105,7 +106,7 @@ final class DeployHQ_Project_Create extends Command {
 			return Command::FAILURE;
 		}
 
-		$output->writeln( '<fg=green;options=bold>Project created successfully.</>' );
+		$output->writeln( "<fg=green;options=bold>Project `$project->name` created successfully. Permalink: $project->permalink</>" );
 
 		if ( ! \is_null( $this->repository ) ) {
 			/* @noinspection PhpUnhandledExceptionInspection */
@@ -155,26 +156,7 @@ final class DeployHQ_Project_Create extends Command {
 
 		$question = new ChoiceQuestion( '<question>Please select the zone to create the project in [' . $choices[ $default ] . ']:</question> ', $choices, $default );
 		$question->setValidator( fn( $value ) => validate_user_choice( $value, $choices ) );
-		return $this->getHelper( 'question' )->ask( $input, $output, $question );
-	}
 
-	/**
-	 * Prompts the user for a template ID.
-	 *
-	 * @param   InputInterface  $input  The input object.
-	 * @param   OutputInterface $output The output object.
-	 *
-	 * @return  string|null
-	 */
-	private function prompt_template_input( InputInterface $input, OutputInterface $output ): ?string {
-		$choices = get_deployhq_templates();
-		$default = 'pressable-included-integration';
-
-		// Add a "none" option for those that really know what they're doing.
-		$choices['none'] = 'no template';
-
-		$question = new ChoiceQuestion( '<question>Please select the template to use for the project [' . $choices[ $default ] . ']:</question> ', $choices, $default );
-		$question->setValidator( fn( $value ) => validate_user_choice( $value, $choices ) );
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
 
@@ -187,10 +169,15 @@ final class DeployHQ_Project_Create extends Command {
 	 * @return  string|null
 	 */
 	private function prompt_repository_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new Question( '<question>Please enter the slug of the GitHub repository to connect the project to:</question> ' );
-		$question->setAutocompleterValues( array_column( get_github_repositories() ?? array(), 'name' ) );
+		$question = new ConfirmationQuestion( '<question>Would you like to connect the project to a GitHub repository? [y/N]</question> ', false );
+		if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
+			$question = new Question( '<question>Please enter the slug of the GitHub repository to connect the project to:</question> ' );
+			$question->setAutocompleterValues( array_column( get_github_repositories() ?? array(), 'name' ) );
 
-		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+			return $this->getHelper( 'question' )->ask( $input, $output, $question );
+		}
+
+		return null;
 	}
 
 	// endregion

@@ -8,6 +8,8 @@ use Symfony\Component\Console\Output\OutputInterface;
 /**
  * Gets a list of all GitHub repositories.
  *
+ * @param   array $params An array of parameters to filter the results by.
+ *
  * @return  stdClass[]
  */
 function get_github_repositories( array $params = array() ): array {
@@ -68,7 +70,32 @@ function create_github_repository( string $name, ?string $type = null, ?string $
  * @return  stdClass
  */
 function get_github_repository_input( InputInterface $input, OutputInterface $output, ?callable $no_input_func = null, string $name = 'repository' ): stdClass {
-	$slug = get_string_input( $input, $output, $name, $no_input_func );
+	$repository = maybe_get_github_repository_input( $input, $output, $no_input_func, $name );
+
+	if ( is_null( $repository ) ) {
+		$output->writeln( '<error>Invalid repository. Aborting!</error>' );
+		exit( 1 );
+	}
+
+	return $repository;
+}
+
+/**
+ * Grabs a value from the console input and validates it as a valid identifier for a GitHub repository.
+ * If the input is empty, returns null.
+ *
+ * @param   InputInterface  $input         The console input.
+ * @param   OutputInterface $output        The console output.
+ * @param   callable|null   $no_input_func The function to call if no input is given.
+ * @param   string          $name          The name of the value to grab.
+ *
+ * @return  stdClass|null
+ */
+function maybe_get_github_repository_input( InputInterface $input, OutputInterface $output, ?callable $no_input_func = null, string $name = 'repository' ): ?stdClass {
+	$slug = maybe_get_string_input( $input, $output, $name, $no_input_func );
+	if ( is_null( $slug ) ) {
+		return null;
+	}
 
 	$repository = get_github_repository( $slug );
 	if ( is_null( $repository ) ) {
