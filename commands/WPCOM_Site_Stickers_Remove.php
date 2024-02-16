@@ -76,7 +76,7 @@ final class WPCOM_Site_Stickers_Remove extends Command {
 
 		$result = remove_wpcom_site_sticker( $this->site->ID, $this->sticker );
 		if ( true !== $result ) {
-			$output->writeln( '<fg=red;options=bold>Failed to remove sticker.</>' );
+			$output->writeln( '<error>Failed to remove sticker.</error>' );
 			return Command::FAILURE;
 		}
 

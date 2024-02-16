@@ -76,7 +76,7 @@ final class WPCOM_Site_Stickers_Add extends Command {
 
 		$result = add_wpcom_site_sticker( $this->site->ID, $this->sticker );
 		if ( true !== $result ) {
-			$output->writeln( '<fg=red;options=bold>Failed to add sticker.</>' );
+			$output->writeln( '<error>Failed to add sticker.</error>' );
 			return Command::FAILURE;
 		}
 

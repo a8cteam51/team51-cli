@@ -14,8 +14,13 @@ use Symfony\Component\Console\Output\OutputInterface;
  *
  * @return  stdClass[]|null
  */
-function get_pressable_sites(): ?array {
-	return API_Helper::make_pressable_request( 'sites' );
+function get_pressable_sites( array $params = array() ): ?array {
+	$endpoint = 'sites';
+	if ( ! empty( $params ) ) {
+		$endpoint .= '?' . http_build_query( $params );
+	}
+
+	return API_Helper::make_pressable_request( $endpoint );
 }
 
 /**
@@ -307,7 +312,7 @@ function get_pressable_site_input( InputInterface $input, OutputInterface $outpu
 
 	$site = get_pressable_site( $id_or_url );
 	if ( is_null( $site ) ) {
-		$output->writeln( '<error>Invalid site. Aborting.</error>' );
+		$output->writeln( '<error>Invalid site. Aborting!</error>' );
 		exit( 1 );
 	}
 
@@ -331,7 +336,7 @@ function get_pressable_site_sftp_user_input( InputInterface $input, OutputInterf
 		: ( get_pressable_site_sftp_user_by_username( $site_id, $uname_or_id_or_email ) ?? get_pressable_site_sftp_user_by_email( $site_id, $uname_or_id_or_email ) );
 
 	if ( is_null( $sftp_user ) ) {
-		$output->writeln( '<error>Invalid user. Aborting.</error>' );
+		$output->writeln( '<error>Invalid user. Aborting!</error>' );
 		exit( 1 );
 	}
 

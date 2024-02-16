@@ -29,7 +29,7 @@ final class DeployHQ_Project_Create extends Command {
 	/**
 	 * The ID of the zone to create the project in.
 	 *
-	 * @var string|null
+	 * @var int|null
 	 */
 	protected ?int $zone_id = null;
 
@@ -39,6 +39,13 @@ final class DeployHQ_Project_Create extends Command {
 	 * @var string|null
 	 */
 	protected ?string $template_id = null;
+
+	/**
+	 * The slug of the GitHub repository to connect the project to, if any.
+	 *
+	 * @var \stdClass|null
+	 */
+	protected ?\stdClass $repository = null;
 
 	// endregion
 
@@ -53,7 +60,8 @@ final class DeployHQ_Project_Create extends Command {
 
 		$this->addArgument( 'name', InputArgument::REQUIRED, 'The name of the project to create.' )
 			->addOption( 'zone-id', null, InputOption::VALUE_REQUIRED, 'The ID of the zone to create the project in.' )
-			->addOption( 'template-id', null, InputOption::VALUE_REQUIRED, 'The ID of the template to use for the project.' );
+			->addOption( 'template-id', null, InputOption::VALUE_REQUIRED, 'The ID of the template to use for the project.' )
+			->addOption( 'repository', null, InputOption::VALUE_REQUIRED, 'The slug of the GitHub repository to connect the project to.' );
 	}
 
 	/**
@@ -67,7 +75,11 @@ final class DeployHQ_Project_Create extends Command {
 		$input->setOption( 'zone-id', $this->zone_id );
 
 		$this->template_id = get_string_input( $input, $output, 'template-id', fn() => $this->prompt_template_input( $input, $output ) );
+		$this->template_id = 'none' === $this->template_id ? null : $this->template_id;
 		$input->setOption( 'template-id', $this->template_id );
+
+		$this->repository = get_github_repository_input( $input, $output, fn() => $this->prompt_repository_input( $input, $output ) );
+		$input->setOption( 'repository', $this->repository->name );
 	}
 
 	/**
@@ -94,6 +106,21 @@ final class DeployHQ_Project_Create extends Command {
 		}
 
 		$output->writeln( '<fg=green;options=bold>Project created successfully.</>' );
+
+		if ( ! \is_null( $this->repository ) ) {
+			/* @noinspection PhpUnhandledExceptionInspection */
+			run_app_command(
+				$this->getApplication(),
+				DeployHQ_Project_Connect_Repository::getDefaultName(),
+				array(
+					'project'    => $project->permalink,
+					'repository' => $this->repository->name,
+				),
+				$output,
+				$input->isInteractive()
+			);
+		}
+
 		return Command::SUCCESS;
 	}
 
@@ -124,8 +151,9 @@ final class DeployHQ_Project_Create extends Command {
 	 */
 	private function prompt_zone_input( InputInterface $input, OutputInterface $output ): ?int {
 		$choices = get_deployhq_zones();
+		$default = 6;
 
-		$question = new ChoiceQuestion( '<question>Please select the zone to create the project in [North America (East)]:</question> ', $choices, 6 );
+		$question = new ChoiceQuestion( '<question>Please select the zone to create the project in [' . $choices[ $default ] . ']:</question> ', $choices, $default );
 		$question->setValidator( fn( $value ) => validate_user_choice( $value, $choices ) );
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
@@ -140,9 +168,28 @@ final class DeployHQ_Project_Create extends Command {
 	 */
 	private function prompt_template_input( InputInterface $input, OutputInterface $output ): ?string {
 		$choices = get_deployhq_templates();
+		$default = 'pressable-included-integration';
 
-		$question = new ChoiceQuestion( '<question>Please select the template to use for the project [Pressable | Included Integration]:</question> ', $choices, 'pressable-included-integration' );
+		// Add a "none" option for those that really know what they're doing.
+		$choices['none'] = 'no template';
+
+		$question = new ChoiceQuestion( '<question>Please select the template to use for the project [' . $choices[ $default ] . ']:</question> ', $choices, $default );
 		$question->setValidator( fn( $value ) => validate_user_choice( $value, $choices ) );
+		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+	}
+
+	/**
+	 * Prompts the user for a GitHub repository slug.
+	 *
+	 * @param   InputInterface  $input  The input object.
+	 * @param   OutputInterface $output The output object.
+	 *
+	 * @return  string|null
+	 */
+	private function prompt_repository_input( InputInterface $input, OutputInterface $output ): ?string {
+		$question = new Question( '<question>Please enter the slug of the GitHub repository to connect the project to:</question> ' );
+		$question->setAutocompleterValues( array_column( get_github_repositories() ?? array(), 'name' ) );
+
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
 

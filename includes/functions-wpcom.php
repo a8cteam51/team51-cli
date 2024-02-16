@@ -159,7 +159,7 @@ function get_wpcom_site_input( InputInterface $input, OutputInterface $output, ?
 
 	$wpcom_site = get_wpcom_site( $site_id_or_url );
 	if ( is_null( $wpcom_site ) ) {
-		$output->writeln( '<error>Invalid site. Aborting.</error>' );
+		$output->writeln( '<error>Invalid site. Aborting!</error>' );
 		exit( 1 );
 	}
 

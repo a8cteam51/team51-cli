@@ -53,7 +53,7 @@ final class WPCOM_Site_Stickers_List extends Command {
 
 		$stickers = get_wpcom_site_stickers( $this->site->ID );
 		if ( is_null( $stickers ) ) {
-			$output->writeln( '<fg=red;options=bold>Could not fetch the stickers for the site.</>' );
+			$output->writeln( '<error>Could not fetch the stickers for the site.</error>' );
 			return Command::FAILURE;
 		}
 

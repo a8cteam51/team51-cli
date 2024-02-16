@@ -134,7 +134,8 @@ function encode_json_content( mixed $data, int $flags = 0 ): ?string {
  * @throws ExceptionInterface   If the command does not exist or if the input is invalid.
  */
 function run_app_command( Application $application, string $command_name, array $command_input, OutputInterface $output, bool $interactive = false ): int {
-	$command = $application->find( $command_name );
+	$command_name = explode( '|', $command_name )[0]; // Remove any aliases from the command name.
+	$command      = $application->find( $command_name );
 
 	$input = new ArrayInput( $command_input );
 	$input->setInteractive( $interactive );

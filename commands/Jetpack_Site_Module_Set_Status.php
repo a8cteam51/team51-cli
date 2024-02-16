@@ -87,7 +87,7 @@ final class Jetpack_Site_Module_Set_Status extends Command {
 
 		$result = update_jetpack_site_modules_settings( $this->site->ID, array( $this->module => 'on' === $this->status ) );
 		if ( true !== $result ) {
-			$output->writeln( '<fg=red;options=bold>Failed to update the module status.</>' );
+			$output->writeln( '<error>Failed to update the module status.</error>' );
 			return Command::FAILURE;
 		}
 
