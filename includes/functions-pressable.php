@@ -331,7 +331,7 @@ function get_pressable_site_input( InputInterface $input, OutputInterface $outpu
  * @return  stdClass
  */
 function get_pressable_site_sftp_user_input( InputInterface $input, OutputInterface $output, string $site_id, ?callable $no_input_func = null, string $name = 'user' ): stdClass {
-	$uname_or_id_or_email = get_user_input( $input, $output, $no_input_func, $name, false ); // Pressable SFTP users can also be retrieved by username so no validation is needed.
+	$uname_or_id_or_email = get_string_input( $input, $output, $no_input_func, $name ); // Pressable SFTP users can also be retrieved by username so no validation is needed.
 	$sftp_user            = is_numeric( $uname_or_id_or_email ) ? get_pressable_site_sftp_user_by_id( $site_id, $uname_or_id_or_email )
 		: ( get_pressable_site_sftp_user_by_username( $site_id, $uname_or_id_or_email ) ?? get_pressable_site_sftp_user_by_email( $site_id, $uname_or_id_or_email ) );
 

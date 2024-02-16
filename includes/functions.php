@@ -193,6 +193,27 @@ function console_writeln( string $message, int $verbosity = 0 ): void {
 }
 
 /**
+ * Grabs a value from the console input. Allows for a null value if no input is given.
+ *
+ * @param   InputInterface  $input         The input instance.
+ * @param   OutputInterface $output        The output instance.
+ * @param   string          $name          The name of the value to grab.
+ * @param   callable|null   $no_input_func The function to call if no input is given.
+ *
+ * @return  string|null
+ */
+function maybe_get_string_input( InputInterface $input, OutputInterface $output, string $name, ?callable $no_input_func = null ): ?string {
+	$string = $input->hasOption( $name ) ? $input->getOption( $name ) : $input->getArgument( $name );
+
+	// If we don't have a value, prompt for one.
+	if ( empty( $string ) && is_callable( $no_input_func ) ) {
+		$string = $no_input_func( $input, $output );
+	}
+
+	return $string;
+}
+
+/**
  * Grabs a value from the console input.
  *
  * @param   InputInterface  $input         The input instance.
@@ -203,12 +224,7 @@ function console_writeln( string $message, int $verbosity = 0 ): void {
  * @return  string
  */
 function get_string_input( InputInterface $input, OutputInterface $output, string $name, ?callable $no_input_func = null ): string {
-	$string = $input->hasOption( $name ) ? $input->getOption( $name ) : $input->getArgument( $name );
-
-	// If we don't have a value, prompt for one.
-	if ( empty( $string ) && is_callable( $no_input_func ) ) {
-		$string = $no_input_func( $input, $output );
-	}
+	$string = maybe_get_string_input( $input, $output, $name, $no_input_func );
 
 	// If we still don't have a value, abort.
 	if ( empty( $string ) ) {
@@ -232,14 +248,8 @@ function get_string_input( InputInterface $input, OutputInterface $output, strin
  * @return  string|null
  */
 function get_enum_input( InputInterface $input, OutputInterface $output, string $name, array $valid_values, ?callable $no_input_func = null, ?string $default_value = null ): ?string {
-	$option = $input->hasOption( $name ) ? $input->getOption( $name ) : $input->getArgument( $name );
+	$option = maybe_get_string_input( $input, $output, $name, $no_input_func );
 
-	// If we don't have a value, prompt for one.
-	if ( empty( $option ) && is_callable( $no_input_func ) ) {
-		$option = $no_input_func( $input, $output );
-	}
-
-	// Validate the option.
 	if ( $option !== $default_value ) {
 		foreach ( (array) $option as $value ) {
 			if ( ! in_array( $value, $valid_values, false ) ) { // phpcs:ignore WordPress.PHP.StrictInArray.FoundNonStrictFalse
@@ -263,20 +273,8 @@ function get_enum_input( InputInterface $input, OutputInterface $output, string 
  * @return  string
  */
 function get_email_input( InputInterface $input, OutputInterface $output, ?callable $no_input_func = null, string $name = 'email' ): string {
-	$email = $input->hasOption( $name ) ? $input->getOption( $name ) : $input->getArgument( $name );
+	$email = get_string_input( $input, $output, $name, $no_input_func );
 
-	// If we don't have an email, prompt for one.
-	if ( empty( $email ) && is_callable( $no_input_func ) ) {
-		$email = $no_input_func( $input, $output );
-	}
-
-	// If we still don't have an email, abort.
-	if ( empty( $email ) ) {
-		$output->writeln( '<error>No email was provided. Aborting!</error>' );
-		exit( 1 );
-	}
-
-	// Check email for validity.
 	if ( false === filter_var( $email, FILTER_VALIDATE_EMAIL ) ) {
 		$output->writeln( '<error>The provided email is invalid. Aborting!</error>' );
 		exit( 1 );
@@ -296,20 +294,8 @@ function get_email_input( InputInterface $input, OutputInterface $output, ?calla
  * @return  string
  */
 function get_site_input( InputInterface $input, OutputInterface $output, ?callable $no_input_func = null, string $name = 'site' ): string {
-	$site_id_or_url = $input->hasOption( $name ) ? $input->getOption( $name ) : $input->getArgument( $name );
+	$site_id_or_url = get_string_input( $input, $output, $name, $no_input_func );
 
-	// If we don't have a site, prompt for one.
-	if ( empty( $site_id_or_url ) && is_callable( $no_input_func ) ) {
-		$site_id_or_url = $no_input_func( $input, $output );
-	}
-
-	// If we still don't have a site, abort.
-	if ( empty( $site_id_or_url ) ) {
-		$output->writeln( '<error>No site was provided. Aborting!</error>' );
-		exit( 1 );
-	}
-
-	// Strip out everything but the hostname if we have a URL.
 	if ( str_contains( $site_id_or_url, 'http' ) ) {
 		$site_id_or_url = parse_url( $site_id_or_url, PHP_URL_HOST );
 		if ( false === $site_id_or_url ) {
@@ -328,26 +314,13 @@ function get_site_input( InputInterface $input, OutputInterface $output, ?callab
  * @param   OutputInterface $output        The console output.
  * @param   callable|null   $no_input_func The function to call if no input is given.
  * @param   string          $name          The name of the value to grab.
- * @param   boolean         $validate      Whether to validate the input as an email or number.
  *
  * @return  string
  */
-function get_user_input( InputInterface $input, OutputInterface $output, ?callable $no_input_func = null, string $name = 'user', bool $validate = true ): string {
-	$user = $input->hasOption( $name ) ? $input->getOption( $name ) : $input->getArgument( $name );
+function get_user_input( InputInterface $input, OutputInterface $output, ?callable $no_input_func = null, string $name = 'user' ): string {
+	$user = get_string_input( $input, $output, $name, $no_input_func );
 
-	// If we don't have a user, prompt for one.
-	if ( empty( $user ) && is_callable( $no_input_func ) ) {
-		$user = $no_input_func( $input, $output );
-	}
-
-	// If we still don't have a user, abort.
-	if ( empty( $user ) ) {
-		$output->writeln( '<error>No user was provided. Aborting!</error>' );
-		exit( 1 );
-	}
-
-	// Check user for validity.
-	if ( true === $validate && ! is_numeric( $user ) && false === filter_var( $user, FILTER_VALIDATE_EMAIL ) ) {
+	if ( ! is_numeric( $user ) && false === filter_var( $user, FILTER_VALIDATE_EMAIL ) ) {
 		$output->writeln( '<error>The provided user is invalid. Aborting!</error>' );
 		exit( 1 );
 	}
