@@ -26,12 +26,12 @@ final class Pressable_Connection_Helper {
 	/**
 	 * Opens a new SFTP connection to a Pressable site.
 	 *
-	 * @param   string $site_id The ID of the Pressable site to open a connection to.
+	 * @param   string $site_id_or_url The ID or URL of the Pressable site to open a connection to.
 	 *
 	 * @return  SFTP|null
 	 */
-	public static function get_sftp_connection( string $site_id ): ?SFTP {
-		$credentials = self::get_credentials( $site_id );
+	public static function get_sftp_connection( string $site_id_or_url ): ?SFTP {
+		$credentials = self::get_credentials( $site_id_or_url );
 		if ( \is_null( $credentials ) ) {
 			return null;
 		}
@@ -48,12 +48,12 @@ final class Pressable_Connection_Helper {
 	/**
 	 * Opens a new SSH connection to a Pressable site.
 	 *
-	 * @param   string $site_id The ID of the Pressable site to open a connection to.
+	 * @param   string $site_id_or_url The ID or URL of the Pressable site to open a connection to.
 	 *
 	 * @return  SFTP|null
 	 */
-	public static function get_ssh_connection( string $site_id ): ?SSH2 {
-		$credentials = self::get_credentials( $site_id );
+	public static function get_ssh_connection( string $site_id_or_url ): ?SSH2 {
+		$credentials = self::get_credentials( $site_id_or_url );
 		if ( \is_null( $credentials ) ) {
 			return null;
 		}
@@ -83,24 +83,24 @@ final class Pressable_Connection_Helper {
 	/**
 	 * Returns the SFTP/SSH login data for the concierge user on a given Pressable site.
 	 *
-	 * @param   string $site_id The ID of the Pressable site to get the login data for.
+	 * @param   string $site_id_or_url The ID or URL of the Pressable site to get the login data for.
 	 *
 	 * @return  stdClass|null
 	 */
-	private static function get_credentials( string $site_id ): ?stdClass {
+	private static function get_credentials( string $site_id_or_url ): ?stdClass {
 		static $cache = array();
 
-		if ( empty( $cache[ $site_id ] ) ) {
-			$collaborator = get_pressable_site_sftp_user_by_email( $site_id, 'concierge@wordpress.com' );
+		if ( empty( $cache[ $site_id_or_url ] ) ) {
+			$collaborator = get_pressable_site_sftp_user_by_email( $site_id_or_url, 'concierge@wordpress.com' );
 			if ( \is_null( $collaborator ) ) {
 				console_writeln( '❌ Could not find the Pressable site collaborator.' );
 				return null;
 			}
 
-			$cache[ $site_id ] = rotate_pressable_site_sftp_user_password( $site_id, $collaborator->username );
+			$cache[ $site_id_or_url ] = rotate_pressable_site_sftp_user_password( $site_id_or_url, $collaborator->username );
 		}
 
-		return $cache[ $site_id ];
+		return $cache[ $site_id_or_url ];
 	}
 
 	// endregion

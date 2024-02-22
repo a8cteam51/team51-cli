@@ -55,6 +55,59 @@ function create_github_repository( string $name, ?string $type = null, ?string $
 	);
 }
 
+/**
+ * Returns a list of branches for a given GitHub repository.
+ *
+ * @param   string $repository The name of the repository to retrieve the branches for.
+ *
+ * @return  stdClass[]
+ */
+function get_github_repository_branches( string $repository ): array {
+	return API_Helper::make_github_request( "repositories/$repository/branches" );
+}
+
+/**
+ * Creates a new branch in a given GitHub repository.
+ *
+ * @param   string $repository The name of the repository to create the branch in.
+ * @param   string $name       The name of the branch to create.
+ * @param   string $source     The name of the branch to create the new branch from.
+ *
+ * @return  stdClass|null
+ */
+function create_github_repository_branch( string $repository, string $name, string $source ): ?stdClass {
+	return API_Helper::make_github_request(
+		"repositories/$repository/branches",
+		'POST',
+		array(
+			'name'   => $name,
+			'source' => $source,
+		)
+	);
+}
+
+/**
+ * Creates a new webhook for a given GitHub repository.
+ *
+ * @param   string  $repository The name of the repository to create the webhook for.
+ * @param   array   $config     The configuration of the webhook.
+ * @param   array   $events     The events the webhook should trigger for.
+ * @param   boolean $active     Whether the webhook is active.
+ *
+ * @return  stdClass|null
+ */
+function create_github_repository_webhook( string $repository, array $config, array $events, bool $active = true ): ?stdClass {
+	return API_Helper::make_github_request(
+		"repositories/$repository/webhooks",
+		'POST',
+		array(
+			'config' => $config,
+			'events' => $events,
+			'active' => $active,
+		)
+	);
+}
+
 // endregion
 
 // region CONSOLE
@@ -104,6 +157,44 @@ function maybe_get_github_repository_input( InputInterface $input, OutputInterfa
 	}
 
 	return $repository;
+}
+
+// endregion
+
+// region HELPERS
+
+/**
+ * Parses a GitHub repository URL into its components.
+ *
+ * @param   string $url The URL of the repository to parse.
+ *
+ * @return  stdClass|null
+ */
+function parse_github_remote_repository_url( string $url ): ?stdClass {
+	$components = null;
+
+	if ( str_starts_with( $url, 'git@github.com' ) && str_ends_with( $url, '.git' ) ) {
+		$components = (object) array(
+			'scheme' => 'ssh',
+			'host'   => 'github.com',
+			'path'   => explode( ':', $url )[1],
+		);
+
+		$components->user = explode( '/', $components->path )[0];
+		$components->repo = explode( '/', $components->path )[1];
+		$components->repo = substr( $components->repo, 0, -4 );
+	} elseif ( str_starts_with( $url, 'https://github.com' ) && str_ends_with( $url, '.git' ) ) {
+		$components = (object) parse_url( $url );
+		if ( empty( $components->path ) ) {
+			return null;
+		}
+
+		$components->user = explode( '/', $components->path )[1];
+		$components->repo = explode( '/', $components->path )[2];
+		$components->repo = substr( $components->repo, 0, -4 );
+	}
+
+	return $components;
 }
 
 // endregion

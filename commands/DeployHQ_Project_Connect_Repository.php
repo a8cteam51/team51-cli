@@ -74,9 +74,22 @@ final class DeployHQ_Project_Connect_Repository extends Command {
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		$output->writeln( "<fg=magenta;options=bold>Connecting the DeployHQ project `{$this->project->name}` (permalink {$this->project->permalink}) to the GitHub repository `{$this->repository->full_name}`.</>" );
 
-		$deployhq_project_repository = update_deployhq_project_repository( $this->project->permalink, $this->repository->ssh_url );
-		if ( is_null( $deployhq_project_repository ) ) {
+		$project_repository = update_deployhq_project_repository( $this->project->permalink, $this->repository->ssh_url );
+		if ( \is_null( $project_repository ) ) {
 			$output->writeln( '<error>Failed to connect the project to the repository.</error>' );
+			return Command::FAILURE;
+		}
+
+		$repo_webhook = create_github_repository_webhook(
+			$this->repository->name,
+			array(
+				'url'          => $this->project->auto_deploy_url,
+				'content_type' => 'form',
+			),
+			array( 'push' )
+		);
+		if ( \is_null( $repo_webhook ) ) {
+			$output->writeln( '<error>Failed to register the project\'s webhook URL with the repository.</error>' );
 			return Command::FAILURE;
 		}
 

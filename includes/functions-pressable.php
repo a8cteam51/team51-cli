@@ -1,5 +1,7 @@
 <?php
 
+use phpseclib3\Net\SSH2;
+use Symfony\Component\Console\Helper\ProgressBar;
 use Symfony\Component\Console\Helper\TableSeparator;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -107,6 +109,28 @@ function create_pressable_site_collaborator( string $site_id_or_url, string $col
  */
 function get_pressable_site_sftp_users( string $site_id_or_url ): ?array {
 	return API_Helper::make_pressable_request( "site-sftp-users/$site_id_or_url" );
+}
+
+/**
+ * Returns the SFTP user who is the owner of the specified Pressable site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the Pressable site to retrieve the SFTP owner for.
+ *
+ * @return  stdClass|null
+ */
+function get_pressable_site_sftp_owner( string $site_id_or_url ): ?stdClass {
+	$sftp_users = get_pressable_site_sftp_users( $site_id_or_url );
+	if ( ! is_array( $sftp_users ) ) {
+		return null;
+	}
+
+	foreach ( $sftp_users as $sftp_user ) {
+		if ( true === $sftp_user->owner ) {
+			return $sftp_user;
+		}
+	}
+
+	return null;
 }
 
 /**
@@ -252,6 +276,64 @@ function create_pressable_site( string $name, string $datacenter ): ?stdClass {
 			'datacenter_code' => $datacenter,
 		)
 	);
+}
+
+/**
+ * Periodically checks the status of a Pressable site until it's no longer in the given state.
+ *
+ * @param   string          $site_id_or_url The ID or URL of the Pressable site to check the state of.
+ * @param   string          $state          The state to wait for the site to exit.
+ * @param   OutputInterface $output         The output instance.
+ *
+ * @return  stdClass|null
+ */
+function wait_on_pressable_site_state( string $site_id_or_url, string $state, OutputInterface $output ): ?stdClass {
+	$output->writeln( "<comment>Waiting for Pressable site $site_id_or_url to exit $state state.</comment>" );
+
+	$progress_bar = new ProgressBar( $output );
+	$progress_bar->start();
+
+	do {
+		$site = get_pressable_site( $site_id_or_url );
+
+		$progress_bar->advance();
+		sleep( 'deploying' === $state ? 3 : 10 );
+	} while ( $site && $state === $site->state );
+
+	$progress_bar->finish();
+	$output->writeln( '' ); // Empty line for UX purposes.
+
+	return $site;
+}
+
+/**
+ * Periodically checks the status of a Pressable site until it accepts SSH connections.
+ *
+ * @param   string          $site_id_or_url The ID or URL of the Pressable site to check the state of.
+ * @param   OutputInterface $output         The output instance.
+ *
+ * @return  SSH2|null
+ */
+function wait_on_pressable_site_ssh( string $site_id_or_url, OutputInterface $output ): ?SSH2 {
+	$output->writeln( "<comment>Waiting for Pressable site $site_id_or_url to accept SSH connections.</comment>" );
+
+	$progress_bar = new ProgressBar( $output );
+	$progress_bar->start();
+
+	for ( $try = 0, $delay = 5; $try <= 24; $try++ ) {
+		$ssh_connection = Pressable_Connection_Helper::get_ssh_connection( $site_id_or_url );
+		if ( ! \is_null( $ssh_connection ) ) {
+			break;
+		}
+
+		$progress_bar->advance();
+		sleep( $delay );
+	}
+
+	$progress_bar->finish();
+	$output->writeln( '' ); // Empty line for UX purposes.
+
+	return $ssh_connection;
 }
 
 // endregion

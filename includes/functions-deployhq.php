@@ -41,6 +41,21 @@ function get_deployhq_zones(): array {
 }
 
 /**
+ * Returns the DeployHQ zone ID for a given Pressable datacenter.
+ *
+ * @param   string $datacenter The Pressable datacenter to get the DeployHQ zone for.
+ *
+ * @return  integer
+ */
+function get_deployhq_zone_for_pressable_datacenter( string $datacenter ): int {
+	return match ( $datacenter ) {
+		'AMS' => 3,
+		'BUR' => 9,
+		default => 6,
+	};
+}
+
+/**
  * Returns a list of DeployHQ templates.
  *
  * @return  string[]|null
@@ -110,6 +125,46 @@ function update_deployhq_project_repository( string $project, string $repository
 			'url'      => $repository,
 			'branch'   => 'trunk',
 		)
+	);
+}
+
+/**
+ * Returns the list of servers configured for a DeployHQ project.
+ *
+ * @param   string $project The permalink of the project to retrieve servers for.
+ *
+ * @return  stdClass[]|null
+ */
+function get_deployhq_project_servers( string $project ): ?array {
+	return API_Helper::make_deployhq_request( "projects/$project/servers" );
+}
+
+/**
+ * Returns a single server configured for a DeployHQ project.
+ *
+ * @param   string $project The permalink of the project to retrieve the server for.
+ * @param   string $server  The ID of the server to retrieve.
+ *
+ * @return  stdClass|null
+ */
+function get_deployhq_project_server( string $project, string $server ): ?stdClass {
+	return API_Helper::make_deployhq_request( "projects/$project/servers/$server" );
+}
+
+/**
+ * Creates a new server for a DeployHQ project.
+ *
+ * @param   string $project The permalink of the project to create the server for.
+ * @param   string $name    The name of the new server.
+ * @param   array  $params  The parameters to include in the request.
+ *
+ * @return  stdClass|null
+ */
+function create_deployhq_project_server( string $project, string $name, array $params ): ?stdClass {
+	return API_Helper::make_deployhq_request(
+		"projects/$project/servers",
+		'POST',
+		array( 'name' => $name ) + $params
 	);
 }
 

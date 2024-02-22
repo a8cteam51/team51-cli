@@ -391,11 +391,22 @@ function is_case_insensitive_match( string $string_1, string $string_2 ): bool {
  * @return  string
  */
 function slugify( string $value ): string {
-	$slug = strtolower( $value ); // Lowercase the string.
-	$slug = preg_replace( '/[^a-z0-9\-]+/', '-', $slug ); // Replace non-alphanumeric characters with hyphens.
-	$slug = preg_replace( '/-+/', '-', $slug ); // Replace multiple contiguous hyphens with a single hyphen.
+	$value = strtolower( $value ); // Lowercase the string.
+	return dashify( $value );
+}
 
-	return trim( $slug, '-' ); // Trim any leading or trailing hyphens.
+/**
+ * Returns a dashified version of a given string.
+ *
+ * @param   string $value The string to dashify.
+ *
+ * @return  string
+ */
+function dashify( string $value ): string {
+	$value = preg_replace( '/[^A-Za-z0-9\-]+/', '-', $value ); // Replace non-alphanumeric characters with hyphens.
+	$value = preg_replace( '/-+/', '-', $value ); // Replace multiple contiguous hyphens with a single hyphen.
+
+	return trim( $value, '-' ); // Trim any leading or trailing hyphens.
 }
 
 // endregion
