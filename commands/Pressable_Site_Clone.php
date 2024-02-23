@@ -256,6 +256,7 @@ final class Pressable_Site_Clone extends Command {
 				);
 			}
 		}
+		$ssh_connection?->disconnect();
 
 		// Create a DeployHQ server for the site.
 		if ( ! \is_null( $this->deployhq_project ) ) {
