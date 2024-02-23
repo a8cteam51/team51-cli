@@ -89,6 +89,43 @@ function get_pressable_site( string $site_id_or_url ): ?stdClass {
 }
 
 /**
+ * Returns the list of notes for the specified Pressable site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the Pressable site to retrieve the notes for.
+ * @param   array  $params         An array of parameters to filter the results by.
+ *
+ * @return  stdClass[]|null
+ */
+function get_pressable_site_notes( string $site_id_or_url, array $params = array() ): ?stdClass {
+	$endpoint = "site-notes/$site_id_or_url";
+	if ( ! empty( $params ) ) {
+		$endpoint .= '?' . http_build_query( $params );
+	}
+
+	return API_Helper::make_pressable_request( $endpoint );
+}
+
+/**
+ * Creates a new note on the specified Pressable site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the Pressable site to create the note on.
+ * @param   string $subject        The subject of the note.
+ * @param   string $content        The content of the note.
+ *
+ * @return  stdClass|null
+ */
+function create_pressable_site_note( string $site_id_or_url, string $subject, string $content ): ?stdClass {
+	return API_Helper::make_pressable_request(
+		"site-notes/$site_id_or_url",
+		'POST',
+		array(
+			'subject' => $subject,
+			'content' => $content,
+		)
+	);
+}
+
+/**
  * Creates a new collaborator on the specified Pressable site.
  *
  * @param   string $site_id_or_url     The ID or URL of the Pressable site to create the collaborator on.
@@ -293,12 +330,15 @@ function wait_on_pressable_site_state( string $site_id_or_url, string $state, Ou
 	$progress_bar = new ProgressBar( $output );
 	$progress_bar->start();
 
-	do {
+	for ( $try = 0, $delay = 'deploying' === $state ? 3 : 10; true; $try++ ) {
 		$site = get_pressable_site( $site_id_or_url );
+		if ( is_null( $site ) || $state !== $site->state ) {
+			break;
+		}
 
 		$progress_bar->advance();
-		sleep( 'deploying' === $state ? 3 : 10 );
-	} while ( $site && $state === $site->state );
+		sleep( $delay );
+	}
 
 	$progress_bar->finish();
 	$output->writeln( '' ); // Empty line for UX purposes.
@@ -320,9 +360,9 @@ function wait_on_pressable_site_ssh( string $site_id_or_url, OutputInterface $ou
 	$progress_bar = new ProgressBar( $output );
 	$progress_bar->start();
 
-	for ( $try = 0, $delay = 5; $try <= 24; $try++ ) {
+	for ( $try = 0, $delay = 5; true; $try++ ) { // Infinite loop until SSH connection is established.
 		$ssh_connection = Pressable_Connection_Helper::get_ssh_connection( $site_id_or_url );
-		if ( ! \is_null( $ssh_connection ) ) {
+		if ( ! is_null( $ssh_connection ) ) {
 			break;
 		}
 

@@ -106,6 +106,7 @@ final class DeployHQ_Project_Create extends Command {
 			return Command::FAILURE;
 		}
 
+		dispatch_event( 'deployhq.project.created', $project, array( 'input' => $input ) );
 		$output->writeln( "<fg=green;options=bold>Project `$project->name` created successfully. Permalink: $project->permalink</>" );
 
 		if ( ! \is_null( $this->repository ) ) {

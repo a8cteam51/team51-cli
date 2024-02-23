@@ -5,14 +5,16 @@ use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Input\ArgvInput;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\ConsoleOutput;
+use Symfony\Component\EventDispatcher\EventDispatcher;
 
 const TEAM51_CLI_ROOT_DIR = __DIR__;
 require_once TEAM51_CLI_ROOT_DIR . '/self-update.php';
 require_once TEAM51_CLI_ROOT_DIR . '/vendor/autoload.php';
 
-$team51_cli_app    = new Application();
-$team51_cli_input  = new ArgvInput();
-$team51_cli_output = new ConsoleOutput();
+$team51_cli_app        = new Application();
+$team51_cli_input      = new ArgvInput();
+$team51_cli_output     = new ConsoleOutput();
+$team51_cli_dispatcher = new EventDispatcher();
 
 // Must be loaded after the application is instantiated, so we can use all the helper functions.
 require_once TEAM51_CLI_ROOT_DIR . '/load-identity.php';

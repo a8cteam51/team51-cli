@@ -6,6 +6,7 @@ use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\EventDispatcher\GenericEvent;
 use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Process\Process;
 
@@ -119,6 +120,38 @@ function encode_json_content( mixed $data, int $flags = 0 ): ?string {
 		console_writeln( $exception->getTraceAsString() );
 		return null;
 	}
+}
+
+/**
+ * Dispatches an action to the application's event dispatcher.
+ * Similar to WordPress's `do_action` function.
+ *
+ * @param   string $event   The action to dispatch.
+ * @param   mixed  $subject The subject of the action.
+ * @param   mixed  $args    The arguments to pass to the action.
+ *
+ * @return  void
+ */
+function dispatch_event( string $event, mixed $subject, array $args = array() ): void {
+	global $team51_cli_dispatcher;
+
+	$generic_event = new GenericEvent( $subject, $args );
+	$team51_cli_dispatcher->dispatch( $generic_event, $event );
+}
+
+/**
+ * Adds a listener to the application's event dispatcher.
+ * Similar to WordPress's `add_action` function.
+ *
+ * @param   string   $event    The action to listen for.
+ * @param   callable $callback The callback to run when the action is dispatched.
+ * @param   integer  $priority The priority of the callback. Default 0.
+ *
+ * @return  void
+ */
+function add_event_listener( string $event, callable $callback, int $priority = 0 ): void {
+	global $team51_cli_dispatcher;
+	$team51_cli_dispatcher->addListener( $event, $callback, $priority );
 }
 
 /**

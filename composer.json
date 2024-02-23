@@ -8,8 +8,9 @@
   "require": {
     "ext-json": "*",
     "phpseclib/phpseclib": "^3.0",
-    "symfony/console": "^v6.4",
-    "symfony/process": "^v6.4"
+    "symfony/console": "^v7.0",
+    "symfony/event-dispatcher": "^v7.0",
+    "symfony/process": "^v7.0"
   },
   "require-dev": {
     "a8cteam51/team51-configs": "dev-trunk",
