@@ -242,7 +242,7 @@ final class Pressable_Site_Create extends Command {
 		$repository = get_github_repository( $name );
 
 		if ( \is_null( $repository ) ) {
-			$question = new ConfirmationQuestion( "<question>Could not find GitHub repository `$name`. Would you like to create it? [Y/n]</question>", true );
+			$question = new ConfirmationQuestion( "<question>Could not find GitHub repository `$name`. Would you like to create it? [Y/n]</question> ", true );
 			if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 				/* @noinspection PhpUnhandledExceptionInspection */
 				$status = run_app_command(
