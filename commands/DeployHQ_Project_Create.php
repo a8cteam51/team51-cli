@@ -59,9 +59,9 @@ final class DeployHQ_Project_Create extends Command {
 			->setHelp( 'Use this command to create a new project on DeployHQ.' );
 
 		$this->addArgument( 'name', InputArgument::REQUIRED, 'The name of the project to create.' )
-			->addOption( 'zone-id', null, InputOption::VALUE_REQUIRED, 'The ID of the zone to create the project in.' )
+			->addOption( 'zone-id', null, InputOption::VALUE_REQUIRED, 'The ID of the zone to create the project in. Defaults to `North America (East)`.' )
 			->addOption( 'template-id', null, InputOption::VALUE_REQUIRED, 'The ID of the template to use for the project.', 'pressable-included-integration' )
-			->addOption( 'repository', null, InputOption::VALUE_REQUIRED, 'The slug of the GitHub repository to connect the project to.' );
+			->addOption( 'repository', null, InputOption::VALUE_REQUIRED, 'The slug of the GitHub repository to connect the project to, if any.' );
 	}
 
 	/**

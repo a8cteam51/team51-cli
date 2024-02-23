@@ -53,7 +53,7 @@ final class Pressable_Site_Create extends Command {
 			->setHelp( 'Use this command to create a new production site on Pressable.' );
 
 		$this->addArgument( 'name', InputArgument::REQUIRED, 'The name of the site to create. Probably the same as the project name.' )
-			->addOption( 'datacenter', null, InputArgument::OPTIONAL, 'The datacenter to create the site in.' )
+			->addOption( 'datacenter', null, InputArgument::OPTIONAL, 'The datacenter to create the site in. Defaults to `Dallas, Texas`.' )
 			->addOption( 'repository', null, InputOption::VALUE_REQUIRED, 'The GitHub repository to deploy to the site from.' );
 	}
 
@@ -136,11 +136,7 @@ final class Pressable_Site_Create extends Command {
 				static function ( GenericEvent $event ) use ( $site, $output, &$deployhq_project ) {
 					$deployhq_project = $event->getSubject();
 
-					$note = create_pressable_site_note(
-						$site->id,
-						'DeployHQ Project Permalink',
-						$deployhq_project->permalink
-					);
+					$note = create_pressable_site_note( $site->id, 'DeployHQ Project Permalink', $deployhq_project->permalink );
 					if ( \is_null( $note ) ) {
 						$output->writeln( '<error>Failed to create the Pressable site note for the DeployHQ project permalink.</error>' );
 					}
@@ -160,6 +156,18 @@ final class Pressable_Site_Create extends Command {
 			);
 
 			if ( ! \is_null( $deployhq_project ) ) {
+				add_event_listener(
+					'deployhq.project.server.created',
+					static function ( GenericEvent $event ) use ( $site, $output ) {
+						$server = $event->getSubject();
+
+						$note = create_pressable_site_note( $site->id, 'DeployHQ Project Server ID', $server->identifier );
+						if ( \is_null( $note ) ) {
+							$output->writeln( '<error>Failed to create the Pressable site note for the DeployHQ server ID.</error>' );
+						}
+					}
+				);
+
 				run_app_command(
 					$this->getApplication(),
 					DeployHQ_Project_Create_Server::getDefaultName(),

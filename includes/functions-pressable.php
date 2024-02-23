@@ -114,7 +114,7 @@ function get_pressable_site( string $site_id_or_url ): ?stdClass {
  *
  * @return  stdClass[]|null
  */
-function get_pressable_site_notes( string $site_id_or_url, array $params = array() ): ?stdClass {
+function get_pressable_site_notes( string $site_id_or_url, array $params = array() ): ?array {
 	$endpoint = "site-notes/$site_id_or_url";
 	if ( ! empty( $params ) ) {
 		$endpoint .= '?' . http_build_query( $params );
@@ -494,6 +494,27 @@ function get_pressable_site_sftp_user_input( InputInterface $input, OutputInterf
 	}
 
 	return $sftp_user;
+}
+
+// endregion
+
+// region HELPERS
+
+/**
+ * Returns the root name of a given Pressable site. The root name is defined as the site name without
+ * the "-production" or "-development" or any other suffix.
+ *
+ * @param   string $site_id_or_url The ID or URL of the site to retrieve the root site name for.
+ *
+ * @return  string|null
+ */
+function get_pressable_site_root_name( string $site_id_or_url ): ?string {
+	$site = get_pressable_root_site( $site_id_or_url );
+	if ( is_null( $site ) ) {
+		return null;
+	}
+
+	return str_replace( '-production', '', $site->name );
 }
 
 // endregion

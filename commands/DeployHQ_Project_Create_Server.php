@@ -133,7 +133,7 @@ final class DeployHQ_Project_Create_Server extends Command {
 
 		$branches = get_github_repository_branches( $this->gh_repository->name );
 		if ( ! \in_array( $this->gh_repo_branch, array_column( $branches, 'name' ), true ) ) {
-			$output->writeln( "<info>Branch `$this->gh_repo_branch` does not exist in repository {$this->gh_repository->full_name}. Creating...</info>" );
+			$output->writeln( "<comment>Branch `$this->gh_repo_branch` does not exist in repository {$this->gh_repository->full_name}. Creating...</comment>" );
 
 			$branch_source = get_enum_input(
 				$input,

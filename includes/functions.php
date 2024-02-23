@@ -128,7 +128,7 @@ function encode_json_content( mixed $data, int $flags = 0 ): ?string {
  *
  * @param   string $event   The action to dispatch.
  * @param   mixed  $subject The subject of the action.
- * @param   mixed  $args    The arguments to pass to the action.
+ * @param   array  $args    The arguments to pass to the action.
  *
  * @return  void
  */
