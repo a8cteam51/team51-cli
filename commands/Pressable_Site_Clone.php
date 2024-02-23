@@ -183,37 +183,37 @@ final class Pressable_Site_Clone extends Command {
 		$output->writeln( "<fg=magenta;options=bold>Creating a development clone with the suffix `$this->label` of the Pressable site {$this->site->displayName} (ID {$this->site->id}, URL {$this->site->url}) in the $this->datacenter datacenter $repo_text.</>" );
 
 		// Create the site and wait for it to be deployed+cloned.
-		$site = create_pressable_site_clone( $this->site->id, "$this->site_root_name-$this->label", $this->datacenter );
-		if ( \is_null( $site ) ) {
+		$site_clone = create_pressable_site_clone( $this->site->id, "$this->site_root_name-$this->label", $this->datacenter );
+		if ( \is_null( $site_clone ) ) {
 			$output->writeln( '<error>Failed to clone the site. Aborting!</error>' );
 			return Command::FAILURE;
 		}
 
-		$site = wait_on_pressable_site_state( $site->id, 'deploying', $output );
-		if ( \is_null( $site ) ) {
+		$site_clone = wait_on_pressable_site_state( $site_clone->id, 'deploying', $output );
+		if ( \is_null( $site_clone ) ) {
 			$output->writeln( '<error>Failed to check on site deployment status.</error>' );
 			return Command::FAILURE;
 		}
 
-		$site = wait_on_pressable_site_state( $site->id, 'cloning', $output );
-		if ( \is_null( $site ) ) {
+		$site_clone = wait_on_pressable_site_state( $site_clone->id, 'cloning', $output );
+		if ( \is_null( $site_clone ) ) {
 			$output->writeln( '<error>Failed to check on site deployment status.</error>' );
 			return Command::FAILURE;
 		}
 
-		$ssh_connection = wait_on_pressable_site_ssh( $site->id, $output );
+		$ssh_connection = wait_on_pressable_site_ssh( $site_clone->id, $output );
 
 		// Run a few commands to set up the site.
 		run_app_command(
 			Pressable_Site_Rotate_WP_User_Password::getDefaultName(),
 			array(
-				'site'   => $site->id,
+				'site'   => $site_clone->id,
 				'--user' => 'concierge@wordpress.com',
 			),
 		);
-		run_pressable_site_wp_cli_command( $site->id, 'config set WP_ENVIRONMENT_TYPE development --type=constant' );
-		run_pressable_site_wp_cli_command( $site->id, "search-replace {$this->site->url} $site->url" );
-		run_pressable_site_wp_cli_command( $site->id, 'cache flush' );
+		run_pressable_site_wp_cli_command( $site_clone->id, 'config set WP_ENVIRONMENT_TYPE development --type=constant' );
+		run_pressable_site_wp_cli_command( $site_clone->id, "search-replace {$this->site->url} $site_clone->url" );
+		run_pressable_site_wp_cli_command( $site_clone->id, 'cache flush' );
 
 		if ( $this->skip_safety_net ) {
 			$output->writeln( '<comment>Skipping the installation of SafetyNet as a mu-plugin.</comment>' );
@@ -233,16 +233,16 @@ final class Pressable_Site_Clone extends Command {
 			);
 
 			if ( ! $safety_net_installed ) {
-				run_pressable_site_wp_cli_command( $site->id, 'plugin install https://github.com/a8cteam51/safety-net/releases/latest/download/safety-net.zip' );
+				run_pressable_site_wp_cli_command( $site_clone->id, 'plugin install https://github.com/a8cteam51/safety-net/releases/latest/download/safety-net.zip' );
 				$ssh_connection->exec( 'mv -f htdocs/wp-content/plugins/safety-net htdocs/wp-content/mu-plugins/safety-net' );
 				$ssh_connection->exec(
 					'ls htdocs/wp-content/mu-plugins',
-					function ( $stream ) use ( $site, $output ) {
+					function ( $stream ) use ( $site_clone, $output ) {
 						if ( ! str_contains( $stream, 'safety-net' ) ) {
 							$output->writeln( '<error>Failed to install SafetyNet!</error>' );
 						}
 						if ( ! str_contains( $stream, 'load-safety-net.php' ) ) {
-							$sftp = \Pressable_Connection_Helper::get_sftp_connection( $site->id );
+							$sftp = \Pressable_Connection_Helper::get_sftp_connection( $site_clone->id );
 							if ( \is_null( $sftp ) ) {
 								$output->writeln( '<error>Failed to connect to the site via SFTP. Cannot copy SafetyNet loader!</error>' );
 							} else {
@@ -261,7 +261,7 @@ final class Pressable_Site_Clone extends Command {
 		// Create a DeployHQ server for the site.
 		if ( ! \is_null( $this->deployhq_project ) ) {
 			create_deployhq_project_server_for_pressable_site(
-				$site,
+				$site_clone,
 				$this->deployhq_project,
 				'Development' . ( 'development' !== $this->label ? "-$this->label" : '' ),
 				$this->gh_repo_branch,
