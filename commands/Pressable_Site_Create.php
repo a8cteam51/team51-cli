@@ -135,13 +135,17 @@ final class Pressable_Site_Create extends Command {
 			$deployhq_project = null;
 			add_event_listener(
 				'deployhq.project.created',
-				static function ( GenericEvent $event ) use ( $site, &$deployhq_project ) {
+				static function ( GenericEvent $event ) use ( $site, $output, &$deployhq_project ) {
 					$deployhq_project = $event->getSubject();
-					create_pressable_site_note(
+
+					$note = create_pressable_site_note(
 						$site->id,
 						'DeployHQ Project Permalink',
 						$deployhq_project->permalink
 					);
+					if ( \is_null( $note ) ) {
+						$output->writeln( '<error>Failed to create the Pressable site note for the DeployHQ project permalink.</error>' );
+					}
 				}
 			);
 
