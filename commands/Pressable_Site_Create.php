@@ -15,8 +15,6 @@ use Symfony\Component\EventDispatcher\GenericEvent;
 
 /**
  * Creates a new production site on Pressable.
- *
- * WORK IN PROGRESS
  */
 #[AsCommand( name: 'pressable:create-site', aliases: array( 'pressable:create-production-site' ) )]
 final class Pressable_Site_Create extends Command {
@@ -27,21 +25,21 @@ final class Pressable_Site_Create extends Command {
 	 *
 	 * @var string|null
 	 */
-	protected ?string $name = null;
+	private ?string $name = null;
 
 	/**
 	 * The datacenter to create the site in.
 	 *
 	 * @var string|null
 	 */
-	protected ?string $datacenter = null;
+	private ?string $datacenter = null;
 
 	/**
-	 * The repository to deploy to the site from.
+	 * The GitHub repository to deploy to the site from.
 	 *
 	 * @var \stdClass|null
 	 */
-	protected ?\stdClass $repository = null;
+	private ?\stdClass $gh_repository = null;
 
 	// endregion
 
@@ -69,16 +67,16 @@ final class Pressable_Site_Create extends Command {
 		$this->datacenter = get_enum_input( $input, $output, 'datacenter', array_keys( get_pressable_datacenters() ), fn() => $this->prompt_datacenter_input( $input, $output ), 'DFW' );
 		$input->setOption( 'datacenter', $this->datacenter );
 
-		$repository       = maybe_get_string_input( $input, $output, 'repository', fn() => $this->prompt_repository_input( $input, $output ) );
-		$this->repository = $repository ? $this->create_or_get_repository( $input, $output, $repository ) : null;
-		$input->setOption( 'repository', $this->repository->name ?? null );
+		$repository          = maybe_get_string_input( $input, $output, 'repository', fn() => $this->prompt_repository_input( $input, $output ) );
+		$this->gh_repository = $repository ? $this->create_or_get_repository( $input, $output, $repository ) : null;
+		$input->setOption( 'repository', $this->gh_repository->name ?? null );
 	}
 
 	/**
 	 * {@inheritDoc}
 	 */
 	protected function interact( InputInterface $input, OutputInterface $output ): void {
-		$repo_query = $this->repository ? "and to connect it to the `{$this->repository->full_name}` repository via DeployHQ" : 'without connecting it to a GitHub repository';
+		$repo_query = $this->gh_repository ? "and to connect it to the `{$this->gh_repository->full_name}` repository via DeployHQ" : 'without connecting it to a GitHub repository';
 		$question   = new ConfirmationQuestion( "<question>Are you sure you want to create a new Pressable site named `$this->name` in the $this->datacenter datacenter $repo_query? [y/N]</question> ", false );
 		if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 			$output->writeln( '<comment>Command aborted by user.</comment>' );
@@ -92,7 +90,7 @@ final class Pressable_Site_Create extends Command {
 	 * @noinspection PhpUnhandledExceptionInspection
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
-		$repo_text = $this->repository ? "and connecting it to the `{$this->repository->full_name}` repository via DeployHQ" : 'without connecting it to a GitHub repository';
+		$repo_text = $this->gh_repository ? "and connecting it to the `{$this->gh_repository->full_name}` repository via DeployHQ" : 'without connecting it to a GitHub repository';
 		$output->writeln( "<fg=magenta;options=bold>Creating new Pressable site named `$this->name` in the $this->datacenter datacenter $repo_text.</>" );
 
 		// Create the site and wait for it to be deployed.
@@ -131,7 +129,7 @@ final class Pressable_Site_Create extends Command {
 		);
 
 		// Create a DeployHQ project and server for the site.
-		if ( ! \is_null( $this->repository ) ) {
+		if ( ! \is_null( $this->gh_repository ) ) {
 			$deployhq_project = null;
 			add_event_listener(
 				'deployhq.project.created',
@@ -156,7 +154,7 @@ final class Pressable_Site_Create extends Command {
 					'name'          => $this->name,
 					'--zone-id'     => get_deployhq_zone_for_pressable_datacenter( $this->datacenter ),
 					'--template-id' => 'pressable-included-integration',
-					'--repository'  => $this->repository->name,
+					'--repository'  => $this->gh_repository->name,
 				),
 				$output
 			);

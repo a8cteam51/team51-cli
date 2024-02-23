@@ -33,25 +33,26 @@ final class DeployHQ_Project_Create_Server extends Command {
 	private ?string $name = null;
 
 	/**
-	 * The repository connected to the project.
+	 * The GitHub repository connected to the project.
 	 *
 	 * @var \stdClass|null
 	 */
-	private ?\stdClass $repository = null;
+	private ?\stdClass $gh_repository = null;
 
 	/**
 	 * The branch to deploy from.
 	 *
 	 * @var string|null
 	 */
-	private ?string $branch = null;
+	private ?string $gh_repo_branch = null;
 
 	/**
 	 * The site to connect the server to.
+	 * Currently, we only support Pressable sites.
 	 *
 	 * @var \stdClass|null
 	 */
-	private ?\stdClass $site = null;
+	private ?\stdClass $pressable_site = null;
 
 	/**
 	 * The SFTP owner for the server.
@@ -59,7 +60,7 @@ final class DeployHQ_Project_Create_Server extends Command {
 	 *
 	 * @var \stdClass|null
 	 */
-	private ?\stdClass $sftp_owner = null;
+	private ?\stdClass $pressable_site_sftp_owner = null;
 
 	// endregion
 
@@ -75,7 +76,8 @@ final class DeployHQ_Project_Create_Server extends Command {
 		$this->addArgument( 'project', InputArgument::REQUIRED, 'The permalink of the project to create the server for.' )
 			->addArgument( 'site', InputArgument::REQUIRED, 'The domain or numeric Pressable ID of the site to connect the server to.' )
 			->addArgument( 'name', InputArgument::REQUIRED, 'The name of the server to create.' )
-			->addOption( 'branch', null, InputOption::VALUE_REQUIRED, 'The branch to deploy from.' );
+			->addOption( 'branch', null, InputOption::VALUE_REQUIRED, 'The branch to deploy from.' )
+			->addOption( 'branch-source', null, InputOption::VALUE_REQUIRED, 'The existing branch to create the new one off of if it does not exist.' );
 	}
 
 	/**
@@ -83,33 +85,27 @@ final class DeployHQ_Project_Create_Server extends Command {
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
 		$this->project = get_deployhq_project_input( $input, $output, fn() => $this->prompt_project_input( $input, $output ) );
-		$input->setArgument( 'project', $this->project->permalink );
+		$input->setArgument( 'project', $this->project );
 
 		if ( \is_null( $this->project->repository ) ) {
 			$output->writeln( '<error>The project does not have a repository connected to it.</error>' );
 			exit( 1 );
 		}
 
-		$gh_repo_url = parse_github_remote_repository_url( $this->project->repository->url );
-		if ( \is_null( $gh_repo_url ) ) {
-			$output->writeln( '<error>Connected repository is not from GitHub. Aborting!</error>' );
+		$this->gh_repository = get_github_repository_from_deployhq_project( $this->project->permalink );
+		if ( \is_null( $this->gh_repository ) ) {
+			$output->writeln( '<error>Failed to get the GitHub repository connected to the project or invalid connected repository. Aborting!</error>' );
 			exit( 1 );
 		}
 
-		$this->repository = get_github_repository( $gh_repo_url->repo );
-		if ( \is_null( $this->repository ) ) {
-			$output->writeln( '<error>Connected repository is invalid. Aborting!</error>' );
-			exit( 1 );
-		}
+		$this->gh_repo_branch = get_string_input( $input, $output, 'branch', fn() => $this->prompt_branch_input( $input, $output ) );
+		$input->setOption( 'branch', $this->gh_repo_branch );
 
-		$this->branch = get_string_input( $input, $output, 'branch', fn() => $this->prompt_branch_input( $input, $output ) );
-		$input->setOption( 'branch', $this->branch );
+		$this->pressable_site = get_pressable_site_input( $input, $output, fn() => $this->prompt_pressable_site_input( $input, $output ) );
+		$input->setArgument( 'site', $this->pressable_site );
 
-		$this->site = get_pressable_site_input( $input, $output, fn() => $this->prompt_pressable_site_input( $input, $output ) );
-		$input->setArgument( 'site', $this->site->id );
-
-		$this->sftp_owner = get_pressable_site_sftp_owner( $this->site->id );
-		if ( \is_null( $this->sftp_owner ) ) {
+		$this->pressable_site_sftp_owner = get_pressable_site_sftp_owner( $this->pressable_site->id );
+		if ( \is_null( $this->pressable_site_sftp_owner ) ) {
 			$output->writeln( '<error>Could not find the SFTP owner for the site. Aborting!</error>' );
 			exit( 1 );
 		}
@@ -122,7 +118,7 @@ final class DeployHQ_Project_Create_Server extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function interact( InputInterface $input, OutputInterface $output ): void {
-		$question = new ConfirmationQuestion( "<question>Are you sure you want to create a new DeployHQ server `$this->name` for the project `{$this->project->name}` (permalink {$this->project->permalink}) deploying to {$this->site->displayName} (ID {$this->site->id}, URL {$this->site->url}) from GitHub branch $this->branch of the repository {$this->repository->full_name}? [y/N]</question> ", false );
+		$question = new ConfirmationQuestion( "<question>Are you sure you want to create a new DeployHQ server `$this->name` for the project `{$this->project->name}` (permalink {$this->project->permalink}) deploying to {$this->pressable_site->displayName} (ID {$this->pressable_site->id}, URL {$this->pressable_site->url}) from GitHub branch $this->gh_repo_branch of the repository {$this->gh_repository->full_name}? [y/N]</question> ", false );
 		if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 			$output->writeln( '<comment>Command aborted by user.</comment>' );
 			exit( 2 );
@@ -133,19 +129,28 @@ final class DeployHQ_Project_Create_Server extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
-		$output->writeln( "<fg=magenta;options=bold>Creating new DeployHQ server `$this->name` for the project `{$this->project->name}` (permalink {$this->project->permalink}) deploying to {$this->site->displayName} (ID {$this->site->id}, URL {$this->site->url}) from GitHub branch $this->branch of the repository {$this->repository->full_name}.</>" );
+		$output->writeln( "<fg=magenta;options=bold>Creating new DeployHQ server `$this->name` for the project `{$this->project->name}` (permalink {$this->project->permalink}) deploying to {$this->pressable_site->displayName} (ID {$this->pressable_site->id}, URL {$this->pressable_site->url}) from GitHub branch $this->gh_repo_branch of the repository {$this->gh_repository->full_name}.</>" );
 
-		$branches = get_github_repository_branches( $this->repository->name );
-		if ( ! \in_array( $this->branch, array_column( $branches, 'name' ), true ) ) {
-			$output->writeln( "<info>Branch `$this->branch` does not exist in repository {$this->repository->full_name}. Creating...</info>" );
+		$branches = get_github_repository_branches( $this->gh_repository->name );
+		if ( ! \in_array( $this->gh_repo_branch, array_column( $branches, 'name' ), true ) ) {
+			$output->writeln( "<info>Branch `$this->gh_repo_branch` does not exist in repository {$this->gh_repository->full_name}. Creating...</info>" );
 
-			$branch = create_github_repository_branch( $this->repository->name, $this->branch, 'trunk' );
+			$branch_source = get_enum_input(
+				$input,
+				$output,
+				'branch-source',
+				array_column( get_github_repository_branches( $this->gh_repository->name ) ?? array(), 'name' ),
+				fn() => $this->prompt_branch_source_input( $input, $output ),
+				'trunk'
+			);
+
+			$branch = create_github_repository_branch( $this->gh_repository->name, $this->gh_repo_branch, $branch_source );
 			if ( \is_null( $branch ) ) {
-				$output->writeln( "<error>Failed to create branch $this->branch in the repository. Aborting!</error>" );
+				$output->writeln( "<error>Failed to create branch $this->gh_repo_branch in the repository. Aborting!</error>" );
 				return Command::FAILURE;
 			}
 
-			$output->writeln( "<fg=green;options=bold>Branch $this->branch created successfully.</>" );
+			$output->writeln( "<fg=green;options=bold>Branch $this->gh_repo_branch created successfully.</>" );
 		}
 
 		$server = create_deployhq_project_server(
@@ -158,11 +163,11 @@ final class DeployHQ_Project_Create_Server extends Command {
 				'root_path'          => '',
 				'auto_deploy'        => true,
 				'notification_email' => '',
-				'branch'             => $this->branch,
-				'environment'        => 'trunk' === $this->branch ? 'production' : 'development',
+				'branch'             => $this->gh_repo_branch,
+				'environment'        => 'trunk' === $this->gh_repo_branch ? 'production' : 'development',
 
 				'hostname'           => \Pressable_Connection_Helper::SSH_HOST,
-				'username'           => $this->sftp_owner->username,
+				'username'           => $this->pressable_site_sftp_owner->username,
 				'port'               => 22,
 				'use_ssh_keys'       => true,
 			)
@@ -178,8 +183,8 @@ final class DeployHQ_Project_Create_Server extends Command {
 			array(
 				'input'      => $input,
 				'project'    => $this->project,
-				'repository' => $this->repository,
-				'site'       => $this->site,
+				'repository' => $this->gh_repository,
+				'site'       => $this->pressable_site,
 			)
 		);
 		$output->writeln( "<fg=green;options=bold>Server $this->name created successfully.</>" );
@@ -216,7 +221,24 @@ final class DeployHQ_Project_Create_Server extends Command {
 	 */
 	private function prompt_branch_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the branch to deploy from:</question> ' );
-		$question->setAutocompleterValues( array_column( get_github_repository_branches( $this->repository->name ) ?? array(), 'name' ) );
+		$question->setAutocompleterValues( array_column( get_github_repository_branches( $this->gh_repository->name ) ?? array(), 'name' ) );
+
+		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+	}
+
+	/**
+	 * Prompts the user for a branch source.
+	 *
+	 * @param   InputInterface  $input  The input object.
+	 * @param   OutputInterface $output The output object.
+	 *
+	 * @return  string|null
+	 */
+	private function prompt_branch_source_input( InputInterface $input, OutputInterface $output ): ?string {
+		$existing_branches = array_column( get_github_repository_branches( $this->gh_repository->name ) ?? array(), 'name' );
+
+		$question = new Question( '<question>Enter the branch to create the new one off of [trunk]:</question> ', 'trunk' );
+		$question->setAutocompleterValues( array_column( $existing_branches, 'name' ) );
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

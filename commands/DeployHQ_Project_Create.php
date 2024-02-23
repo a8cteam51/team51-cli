@@ -41,11 +41,11 @@ final class DeployHQ_Project_Create extends Command {
 	protected ?string $template_id = null;
 
 	/**
-	 * The slug of the GitHub repository to connect the project to, if any.
+	 * The GitHub repository to connect the project to, if any.
 	 *
 	 * @var \stdClass|null
 	 */
-	protected ?\stdClass $repository = null;
+	protected ?\stdClass $gh_repository = null;
 
 	// endregion
 
@@ -77,8 +77,8 @@ final class DeployHQ_Project_Create extends Command {
 		$this->template_id = get_string_input( $input, $output, 'template-id' );
 		$input->setOption( 'template-id', $this->template_id );
 
-		$this->repository = maybe_get_github_repository_input( $input, $output, fn() => $this->prompt_repository_input( $input, $output ) );
-		$input->setOption( 'repository', $this->repository->name ?? null );
+		$this->gh_repository = maybe_get_github_repository_input( $input, $output, fn() => $this->prompt_repository_input( $input, $output ) );
+		$input->setOption( 'repository', $this->gh_repository );
 	}
 
 	/**
@@ -109,14 +109,14 @@ final class DeployHQ_Project_Create extends Command {
 		dispatch_event( 'deployhq.project.created', $project, array( 'input' => $input ) );
 		$output->writeln( "<fg=green;options=bold>Project `$project->name` created successfully. Permalink: $project->permalink</>" );
 
-		if ( ! \is_null( $this->repository ) ) {
+		if ( ! \is_null( $this->gh_repository ) ) {
 			/* @noinspection PhpUnhandledExceptionInspection */
 			run_app_command(
 				$this->getApplication(),
 				DeployHQ_Project_Connect_Repository::getDefaultName(),
 				array(
 					'project'    => $project->permalink,
-					'repository' => $this->repository->name,
+					'repository' => $this->gh_repository->name,
 				),
 				$output,
 				$input->isInteractive()

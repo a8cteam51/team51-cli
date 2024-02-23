@@ -79,7 +79,7 @@ final class Pressable_Site_Rotate_SFTP_User_Password extends Command {
 			'all' => null,
 			default => get_pressable_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) ),
 		};
-		$input->setArgument( 'site', $site->id ?? null );
+		$input->setArgument( 'site', $site );
 
 		// If processing a given user, retrieve it from the input.
 		$user = match ( $this->multiple ) {

@@ -25,11 +25,11 @@ final class DeployHQ_Project_Connect_Repository extends Command {
 	private ?\stdClass $project = null;
 
 	/**
-	 * The repository to connect.
+	 * The GitHub repository to connect.
 	 *
 	 * @var \stdClass|null
 	 */
-	private ?\stdClass $repository = null;
+	private ?\stdClass $gh_repository = null;
 
 	// endregion
 
@@ -51,17 +51,17 @@ final class DeployHQ_Project_Connect_Repository extends Command {
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
 		$this->project = get_deployhq_project_input( $input, $output, fn() => $this->prompt_project_input( $input, $output ) );
-		$input->setArgument( 'project', $this->project->permalink );
+		$input->setArgument( 'project', $this->project );
 
-		$this->repository = get_github_repository_input( $input, $output, fn() => $this->prompt_repository_input( $input, $output ) );
-		$input->setArgument( 'repository', $this->repository->name );
+		$this->gh_repository = get_github_repository_input( $input, $output, fn() => $this->prompt_repository_input( $input, $output ) );
+		$input->setArgument( 'repository', $this->gh_repository );
 	}
 
 	/**
 	 * {@inheritDoc}
 	 */
 	protected function interact( InputInterface $input, OutputInterface $output ): void {
-		$question = new ConfirmationQuestion( "<question>Are you sure you want to connect the DeployHQ project `{$this->project->name}` (permalink {$this->project->permalink}) to the GitHub repository `{$this->repository->full_name}`? [y/N]</question> ", false );
+		$question = new ConfirmationQuestion( "<question>Are you sure you want to connect the DeployHQ project `{$this->project->name}` (permalink {$this->project->permalink}) to the GitHub repository `{$this->gh_repository->full_name}`? [y/N]</question> ", false );
 		if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 			$output->writeln( '<comment>Command aborted by user.</comment>' );
 			exit( 2 );
@@ -72,16 +72,16 @@ final class DeployHQ_Project_Connect_Repository extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
-		$output->writeln( "<fg=magenta;options=bold>Connecting the DeployHQ project `{$this->project->name}` (permalink {$this->project->permalink}) to the GitHub repository `{$this->repository->full_name}`.</>" );
+		$output->writeln( "<fg=magenta;options=bold>Connecting the DeployHQ project `{$this->project->name}` (permalink {$this->project->permalink}) to the GitHub repository `{$this->gh_repository->full_name}`.</>" );
 
-		$project_repository = update_deployhq_project_repository( $this->project->permalink, $this->repository->ssh_url );
+		$project_repository = update_deployhq_project_repository( $this->project->permalink, $this->gh_repository->ssh_url );
 		if ( \is_null( $project_repository ) ) {
 			$output->writeln( '<error>Failed to connect the project to the repository.</error>' );
 			return Command::FAILURE;
 		}
 
 		$repo_webhook = create_github_repository_webhook(
-			$this->repository->name,
+			$this->gh_repository->name,
 			array(
 				'url'          => $this->project->auto_deploy_url,
 				'content_type' => 'form',

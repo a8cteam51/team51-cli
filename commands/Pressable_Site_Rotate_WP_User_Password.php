@@ -78,7 +78,7 @@ final class Pressable_Site_Rotate_WP_User_Password extends Command {
 			'all' => null,
 			default => get_pressable_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) ),
 		};
-		$input->setArgument( 'site', $site->id ?? null );
+		$input->setArgument( 'site', $site );
 
 		// Retrieve the WP user email.
 		$this->wp_user_email = get_email_input( $input, $output, fn() => $this->prompt_user_input( $input, $output ), 'user' );

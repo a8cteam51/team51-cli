@@ -25,6 +25,29 @@ function get_pressable_sites( array $params = array() ): ?array {
 }
 
 /**
+ * Returns the root/production site of the specified Pressable site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the site to retrieve the root site for.
+ *
+ * @return  stdClass|null
+ */
+function get_pressable_root_site( string $site_id_or_url ): ?stdClass {
+	$site = get_pressable_site( $site_id_or_url );
+	if ( is_null( $site ) ) {
+		return null;
+	}
+
+	while ( ! empty( $site->clonedFromId ) ) { // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+		$site = get_pressable_site( $site->clonedFromId ); // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+		if ( is_null( $site ) ) {
+			return null;
+		}
+	}
+
+	return $site;
+}
+
+/**
  * Returns a tree-like structure of Pressable sites that have been cloned from the specified site.
  *
  * @param   string        $site_id_or_url The ID or URL of the site to retrieve related sites for.
@@ -40,12 +63,7 @@ function get_pressable_related_sites( string $site_id_or_url, bool $find_root = 
 	}
 
 	// If the given site is not the root, maybe find it.
-	while ( $find_root && ! empty( $root_site->clonedFromId ) ) { // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
-		$root_site = get_pressable_site( $root_site->clonedFromId ); // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
-		if ( is_null( $root_site ) ) {
-			return null;
-		}
-	}
+	$root_site = $find_root ? get_pressable_root_site( $root_site->id ) : $root_site;
 
 	// Initialize the tree with the root site.
 	$node_generator = is_callable( $node_generator ) ? $node_generator : static fn( object $site ) => $site;
@@ -311,6 +329,29 @@ function create_pressable_site( string $name, string $datacenter ): ?stdClass {
 		array(
 			'name'            => $name,
 			'datacenter_code' => $datacenter,
+		)
+	);
+}
+
+/**
+ * Creates a new Pressable site clone.
+ *
+ * @param   string      $site_id_or_url The ID or URL of the site to clone.
+ * @param   string      $name           The name of the site to create.
+ * @param   string|null $datacenter     The datacenter code to create the site in.
+ * @param   boolean     $staging        Whether to create the site as a staging site.
+ *
+ * @return  stdClass|null
+ */
+function create_pressable_site_clone( string $site_id_or_url, string $name, ?string $datacenter = null, bool $staging = true ): ?stdClass {
+	return API_Helper::make_pressable_request(
+		'sites',
+		'POST',
+		array(
+			'name'            => $name,
+			'datacenter_code' => $datacenter,
+			'staging'         => $staging,
+			'template'        => $site_id_or_url,
 		)
 	);
 }

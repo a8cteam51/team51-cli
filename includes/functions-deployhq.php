@@ -41,21 +41,6 @@ function get_deployhq_zones(): array {
 }
 
 /**
- * Returns the DeployHQ zone ID for a given Pressable datacenter.
- *
- * @param   string $datacenter The Pressable datacenter to get the DeployHQ zone for.
- *
- * @return  integer
- */
-function get_deployhq_zone_for_pressable_datacenter( string $datacenter ): int {
-	return match ( $datacenter ) {
-		'AMS' => 3,
-		'BUR' => 9,
-		default => 6,
-	};
-}
-
-/**
  * Returns a list of DeployHQ templates.
  *
  * @return  string[]|null
@@ -192,6 +177,75 @@ function get_deployhq_project_input( InputInterface $input, OutputInterface $out
 	}
 
 	return $project;
+}
+
+// endregion
+
+// region HELPERS
+
+/**
+ * Returns the DeployHQ zone ID for a given Pressable datacenter.
+ *
+ * @param   string $datacenter The Pressable datacenter to get the DeployHQ zone for.
+ *
+ * @return  integer
+ */
+function get_deployhq_zone_for_pressable_datacenter( string $datacenter ): int {
+	return match ( $datacenter ) {
+		'AMS' => 3,
+		'BUR' => 9,
+		default => 6,
+	};
+}
+
+/**
+ * Returns the DeployHQ project for a given Pressable site.
+ *
+ * @param   string $site_id The ID of the Pressable site to get the DeployHQ project for.
+ *
+ * @return  stdClass|null
+ */
+function get_deployhq_project_for_pressable_site( string $site_id ): ?stdClass {
+	$site = get_pressable_site( $site_id );
+	if ( is_null( $site ) ) {
+		return null;
+	}
+
+	// First check the site's notes for a DeployHQ project.
+	$notes = get_pressable_site_notes( $site->id ) ?? array();
+	foreach ( $notes as $note ) {
+		if ( 'DeployHQ Project Permalink' === $note->subject ) {
+			$project = get_deployhq_project( $note->body );
+			if ( ! is_null( $project ) ) {
+				return $project;
+			}
+		}
+	}
+
+	// If no (valid) note was found, try the legacy way.
+	$site = get_pressable_root_site( $site->id ) ?? $site;
+	return get_deployhq_project( str_replace( '-production', '', $site->name ) );
+}
+
+/**
+ * Returns the GitHub repository for a given DeployHQ project.
+ *
+ * @param   string $project The permalink of the project to get the GitHub repository for.
+ *
+ * @return  stdClass|null
+ */
+function get_github_repository_from_deployhq_project( string $project ): ?stdClass {
+	$deployhq_project = get_deployhq_project( $project );
+	if ( is_null( $deployhq_project ) ) {
+		return null;
+	}
+
+	$gh_repo_url = parse_github_remote_repository_url( $deployhq_project->repository->url );
+	if ( is_null( $gh_repo_url ) ) {
+		return null;
+	}
+
+	return get_github_repository( $gh_repo_url->repo );
 }
 
 // endregion
