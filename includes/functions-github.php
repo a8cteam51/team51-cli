@@ -197,4 +197,25 @@ function parse_github_remote_repository_url( string $url ): ?stdClass {
 	return $components;
 }
 
+/**
+ * Returns the GitHub repository for a given DeployHQ project.
+ *
+ * @param   string $project The permalink of the project to get the GitHub repository for.
+ *
+ * @return  stdClass|null
+ */
+function get_github_repository_from_deployhq_project( string $project ): ?stdClass {
+	$deployhq_project = get_deployhq_project( $project );
+	if ( is_null( $deployhq_project ) ) {
+		return null;
+	}
+
+	$gh_repo_url = parse_github_remote_repository_url( $deployhq_project->repository->url );
+	if ( is_null( $gh_repo_url ) ) {
+		return null;
+	}
+
+	return get_github_repository( $gh_repo_url->repo );
+}
+
 // endregion

@@ -143,6 +143,7 @@ final class DeployHQ_Project_Create_Server extends Command {
 				fn() => $this->prompt_branch_source_input( $input, $output ),
 				'trunk'
 			);
+			$output->writeln( "<comment>Creating branch $this->gh_repo_branch off of $branch_source...</comment>" );
 
 			$branch = create_github_repository_branch( $this->gh_repository->name, $this->gh_repo_branch, $branch_source );
 			if ( \is_null( $branch ) ) {
@@ -181,7 +182,6 @@ final class DeployHQ_Project_Create_Server extends Command {
 			'deployhq.project.server.created',
 			$server,
 			array(
-				'input'      => $input,
 				'project'    => $this->project,
 				'repository' => $this->gh_repository,
 				'site'       => $this->pressable_site,

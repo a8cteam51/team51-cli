@@ -106,19 +106,17 @@ final class DeployHQ_Project_Create extends Command {
 			return Command::FAILURE;
 		}
 
-		dispatch_event( 'deployhq.project.created', $project, array( 'input' => $input ) );
+		dispatch_event( 'deployhq.project.created', $project );
 		$output->writeln( "<fg=green;options=bold>Project `$project->name` created successfully. Permalink: $project->permalink</>" );
 
 		if ( ! \is_null( $this->gh_repository ) ) {
 			/* @noinspection PhpUnhandledExceptionInspection */
 			run_app_command(
-				$this->getApplication(),
 				DeployHQ_Project_Connect_Repository::getDefaultName(),
 				array(
 					'project'    => $project->permalink,
 					'repository' => $this->gh_repository->name,
 				),
-				$output,
 				$input->isInteractive()
 			);
 		}

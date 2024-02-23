@@ -155,25 +155,39 @@ function add_event_listener( string $event, callable $callback, int $priority = 
 }
 
 /**
+ * Removes a listener from the application's event dispatcher.
+ * Similar to WordPress's `remove_action` function.
+ *
+ * @param   string   $event    The action to remove the listener from.
+ * @param   callable $callback The callback to remove from the action.
+ *
+ * @return  void
+ */
+function remove_event_listener( string $event, callable $callback ): void {
+	global $team51_cli_dispatcher;
+	$team51_cli_dispatcher->removeListener( $event, $callback );
+}
+
+/**
  * Runs a command and returns the exit code.
  *
- * @param   Application     $application   The application instance.
- * @param   string          $command_name  The name of the command to run.
- * @param   array           $command_input The input to pass to the command.
- * @param   OutputInterface $output        The output to use for the command.
- * @param   boolean         $interactive   Whether to run the command in interactive mode.
+ * @param   string  $command_name  The name of the command to run.
+ * @param   array   $command_input The input to pass to the command.
+ * @param   boolean $interactive   Whether to run the command in interactive mode.
  *
- * @return integer  The command exit code.
- * @throws ExceptionInterface   If the command does not exist or if the input is invalid.
+ * @return  integer  The command exit code.
+ * @throws  ExceptionInterface If the command does not exist or if the input is invalid.
  */
-function run_app_command( Application $application, string $command_name, array $command_input, OutputInterface $output, bool $interactive = false ): int {
+function run_app_command( string $command_name, array $command_input, bool $interactive = false ): int {
+	global $team51_cli_app, $team51_cli_output;
+
 	$command_name = explode( '|', $command_name )[0]; // Remove any aliases from the command name.
-	$command      = $application->find( $command_name );
+	$command      = $team51_cli_app->find( $command_name );
 
 	$input = new ArrayInput( $command_input );
 	$input->setInteractive( $interactive );
 
-	return $command->run( $input, $output );
+	return $command->run( $input, $team51_cli_output );
 }
 
 /**

@@ -1,10 +1,15 @@
 <?php
 
 use phpseclib3\Net\SSH2;
+use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Helper\ProgressBar;
 use Symfony\Component\Console\Helper\TableSeparator;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\EventDispatcher\GenericEvent;
+use WPCOMSpecialProjects\CLI\Command\DeployHQ_Project_Create;
+use WPCOMSpecialProjects\CLI\Command\DeployHQ_Project_Create_Server;
+use WPCOMSpecialProjects\CLI\Command\Pressable_Site_Run_WP_CLI_Command;
 
 // region API
 
@@ -32,19 +37,7 @@ function get_pressable_sites( array $params = array() ): ?array {
  * @return  stdClass|null
  */
 function get_pressable_root_site( string $site_id_or_url ): ?stdClass {
-	$site = get_pressable_site( $site_id_or_url );
-	if ( is_null( $site ) ) {
-		return null;
-	}
-
-	while ( ! empty( $site->clonedFromId ) ) { // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
-		$site = get_pressable_site( $site->clonedFromId ); // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
-		if ( is_null( $site ) ) {
-			return null;
-		}
-	}
-
-	return $site;
+	return API_Helper::make_pressable_request( "sites/$site_id_or_url/root" );
 }
 
 /**
@@ -57,39 +50,17 @@ function get_pressable_root_site( string $site_id_or_url ): ?stdClass {
  * @return  stdClass[]|null
  */
 function get_pressable_related_sites( string $site_id_or_url, bool $find_root = true, ?callable $node_generator = null ): ?array {
-	$root_site = get_pressable_site( $site_id_or_url );
-	if ( is_null( $root_site ) ) {
+	$related_sites = API_Helper::make_pressable_request( "sites/$site_id_or_url/related?find_root=$find_root" );
+	if ( ! is_array( $related_sites ) ) {
 		return null;
 	}
 
-	// If the given site is not the root, maybe find it.
-	$root_site = $find_root ? get_pressable_root_site( $root_site->id ) : $root_site;
-
-	// Initialize the tree with the root site.
 	$node_generator = is_callable( $node_generator ) ? $node_generator : static fn( object $site ) => $site;
-	$related_sites  = array( 0 => array( $root_site->id => $node_generator( $root_site ) ) );
-
-	// Identify the related sites by level.
-	$all_sites = get_pressable_sites();
-	if ( ! is_array( $all_sites ) ) {
-		return null;
-	}
-
-	do {
-		$has_next_level = false;
-		$current_level  = count( $related_sites );
-
-		foreach ( array_keys( $related_sites[ $current_level - 1 ] ) as $parent_site_id ) {
-			foreach ( $all_sites as $maybe_clone_site ) {
-				if ( $maybe_clone_site->clonedFromId !== $parent_site_id ) { // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
-					continue;
-				}
-
-				$related_sites[ $current_level ][ $maybe_clone_site->id ] = $node_generator( $maybe_clone_site );
-				$has_next_level = true;
-			}
+	foreach ( $related_sites as $level => $sites ) {
+		foreach ( $sites as $id => $site ) {
+			$related_sites[ $level ][ $id ] = $node_generator( $site );
 		}
-	} while ( true === $has_next_level );
+	}
 
 	return $related_sites;
 }
@@ -102,7 +73,7 @@ function get_pressable_related_sites( string $site_id_or_url, bool $find_root = 
  * @return  stdClass|null
  */
 function get_pressable_site( string $site_id_or_url ): ?stdClass {
-	$site_id_or_url = is_numeric( $site_id_or_url ) ? $site_id_or_url : urlencode( $site_id_or_url );
+	$site_id_or_url = is_numeric( $site_id_or_url ) ? (string) $site_id_or_url : urlencode( $site_id_or_url );
 	return API_Helper::make_pressable_request( "sites/$site_id_or_url" );
 }
 
@@ -139,6 +110,64 @@ function create_pressable_site_note( string $site_id_or_url, string $subject, st
 		array(
 			'subject' => $subject,
 			'content' => $content,
+		)
+	);
+}
+
+/**
+ * Returns the DeployHQ project and server configuration for the specified Pressable site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the Pressable site to retrieve the DeployHQ configuration for.
+ *
+ * @return  stdClass|null
+ */
+function get_pressable_site_deployhq_config( string $site_id_or_url ): ?stdClass {
+	$config = API_Helper::make_pressable_request( "sites/$site_id_or_url/deployhq" );
+	if ( is_null( $config ) ) {
+		return null;
+	}
+
+	if ( isset( $config->server->errors ) ) {
+		$config->server = null; // The server configuration can be a WP_Error object.
+	}
+
+	return $config;
+}
+
+/**
+ * Updates the DeployHQ project for the specified Pressable site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the Pressable site to update the DeployHQ project for.
+ * @param   string $project        The new DeployHQ project.
+ *
+ * @return  stdClass|null
+ */
+function update_pressable_site_deployhq_project( string $site_id_or_url, string $project ): ?stdClass {
+	return API_Helper::make_pressable_request(
+		"sites/$site_id_or_url/deployhq",
+		'POST',
+		array(
+			'project' => $project,
+		)
+	);
+}
+
+/**
+ * Updates the DeployHQ project server for the specified Pressable site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the Pressable site to update the DeployHQ server for.
+ * @param   string $project        The new DeployHQ project permalink.
+ * @param   string $server         The new DeployHQ server identifier.
+ *
+ * @return  stdClass|null
+ */
+function update_pressable_site_deployhq_server( string $site_id_or_url, string $project, string $server ): ?stdClass {
+	return API_Helper::make_pressable_request(
+		"sites/$site_id_or_url/deployhq",
+		'POST',
+		array(
+			'project' => $project,
+			'server'  => $server,
 		)
 	);
 }
@@ -494,6 +523,119 @@ function get_pressable_site_sftp_user_input( InputInterface $input, OutputInterf
 	}
 
 	return $sftp_user;
+}
+
+// endregion
+
+// region WRAPPERS
+
+/**
+ * Runs a WP-CLI command on the specified Pressable site.
+ *
+ * @param   string  $site_id_or_url The ID or URL of the site to run the WP-CLI command on.
+ * @param   string  $wp_cli_command The WP-CLI command to run.
+ * @param   boolean $interactive    Whether to run the command interactively.
+ *
+ * @return  integer
+ * @noinspection PhpDocMissingThrowsInspection
+ */
+function run_pressable_site_wp_cli_command( string $site_id_or_url, string $wp_cli_command, bool $interactive = false ): int {
+	/* @noinspection PhpUnhandledExceptionInspection */
+	return run_app_command(
+		Pressable_Site_Run_WP_CLI_Command::getDefaultName(),
+		array(
+			'site'           => $site_id_or_url,
+			'wp-cli-command' => $wp_cli_command,
+		),
+		$interactive
+	);
+}
+
+/**
+ * Creates a new DeployHQ project for the specified Pressable site.
+ *
+ * @param   stdClass $pressable_site        The Pressable site to create the DeployHQ project for.
+ * @param   stdClass $github_repository     The name of the GitHub repository to connect to the project.
+ * @param   string   $deployhq_project_name The name of the DeployHQ project to create.
+ *
+ * @return  stdClass|null
+ * @noinspection PhpDocMissingThrowsInspection
+ */
+function create_deployhq_project_for_pressable_site( stdClass $pressable_site, stdClass $github_repository, string $deployhq_project_name ): ?stdClass {
+	$deployhq_project = null;
+
+	$listener = static function ( GenericEvent $event ) use ( &$deployhq_project, $pressable_site, &$listener ) {
+		global $team51_cli_output;
+		$deployhq_project = $event->getSubject();
+
+		$note = update_pressable_site_deployhq_project( $pressable_site->id, $deployhq_project->permalink );
+		if ( is_null( $note ) ) {
+			$team51_cli_output->writeln( '<error>Failed to set the Pressable site note for the DeployHQ project permalink.</error>' );
+		}
+
+		remove_event_listener( 'deployhq.project.created', $listener );
+	};
+	add_event_listener( 'deployhq.project.created', $listener );
+
+	/* @noinspection PhpUnhandledExceptionInspection */
+	run_app_command(
+		DeployHQ_Project_Create::getDefaultName(),
+		array(
+			'name'          => $deployhq_project_name,
+			'--zone-id'     => match ( $pressable_site->datacenterCode ) {
+				'AMS' => 3,
+				'BUR' => 9,
+				default => 6,
+			},
+			'--template-id' => 'pressable-included-integration',
+			'--repository'  => $github_repository->name,
+		),
+	);
+
+	return $deployhq_project;
+}
+
+/**
+ * Creates a new DeployHQ project server for the specified Pressable site.
+ *
+ * @param   stdClass $pressable_site       The Pressable site to create the DeployHQ project server for.
+ * @param   stdClass $deployhq_project     The DeployHQ project to create the server for.
+ * @param   string   $deployhq_server_name The name of the DeployHQ server to create.
+ * @param   string   $github_branch        The GitHub branch to deploy to the server.
+ * @param   string   $github_branch_source The GitHub branch to create the deployment from, if applicable.
+ *
+ * @return  stdClass|null
+ * @noinspection PhpDocMissingThrowsInspection
+ */
+function create_deployhq_project_server_for_pressable_site( stdClass $pressable_site, stdClass $deployhq_project, string $deployhq_server_name, string $github_branch, string $github_branch_source = 'trunk' ): ?stdClass {
+	$deployhq_project_server = null;
+
+	$listener = static function ( GenericEvent $event ) use ( &$deployhq_project_server, $deployhq_project, $pressable_site, &$listener ) {
+		global $team51_cli_output;
+		$deployhq_project_server = $event->getSubject();
+
+		$note = update_pressable_site_deployhq_server( $pressable_site->id, $deployhq_project->permalink, $deployhq_project_server->identifier );
+		if ( is_null( $note ) ) {
+			$team51_cli_output->writeln( '<error>Failed to set the Pressable site note for the DeployHQ project server ID.</error>' );
+		}
+
+		remove_event_listener( 'deployhq.project.server.created', $listener );
+	};
+	add_event_listener( 'deployhq.project.server.created', $listener );
+
+	/* @noinspection PhpUnhandledExceptionInspection */
+	run_app_command(
+		DeployHQ_Project_Create_Server::getDefaultName(),
+		array(
+			'project'         => $deployhq_project->permalink,
+			'site'            => $pressable_site->id,
+			'name'            => $deployhq_server_name,
+			'--branch'        => $github_branch,
+			'--branch-source' => $github_branch_source,
+		),
+	);
+
+	return $deployhq_project_server;
 }
 
 // endregion

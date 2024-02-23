@@ -11,7 +11,6 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
-use Symfony\Component\EventDispatcher\GenericEvent;
 
 /**
  * Creates a development clone of an existing Pressable site.
@@ -115,8 +114,8 @@ final class Pressable_Site_Clone extends Command {
 			exit( 1 );
 		}
 
-		$this->deployhq_project = get_deployhq_project_for_pressable_site( $this->site->id );
-		if ( \is_null( $this->deployhq_project ) ) {
+		$deployhq_config = get_pressable_site_deployhq_config( $this->site->id );
+		if ( \is_null( $deployhq_config ) ) {
 			$output->writeln( '<error>Unable to find a DeployHQ project for the site.</error>' );
 
 			$question = new ConfirmationQuestion( '<question>Do you want to continue anyway? [y/N]</question> ', false );
@@ -125,9 +124,10 @@ final class Pressable_Site_Clone extends Command {
 				exit( 1 );
 			}
 		} else {
+			$this->deployhq_project = $deployhq_config->project;
 			$output->writeln( "<comment>Found DeployHQ project {$this->deployhq_project->name} (permalink {$this->deployhq_project->permalink}) for the given site.</comment>", OutputInterface::VERBOSITY_VERBOSE );
 
-			$this->site_deployhq_project_server = get_deployhq_project_server_for_pressable_site( $this->site->id );
+			$this->site_deployhq_project_server = $deployhq_config->server;
 			if ( \is_null( $this->site_deployhq_project_server ) ) {
 				$output->writeln( '<error>Failed to get the DeployHQ project server connected to the site. Aborting!</error>' );
 				exit( 1 );
@@ -205,23 +205,15 @@ final class Pressable_Site_Clone extends Command {
 
 		// Run a few commands to set up the site.
 		run_app_command(
-			$this->getApplication(),
 			Pressable_Site_Rotate_WP_User_Password::getDefaultName(),
 			array(
 				'site'   => $site->id,
 				'--user' => 'concierge@wordpress.com',
 			),
-			$output
 		);
-		run_app_command(
-			$this->getApplication(),
-			Pressable_Site_Run_WP_CLI_Command::getDefaultName(),
-			array(
-				'site'           => $site->id,
-				'wp-cli-command' => 'config set WP_ENVIRONMENT_TYPE staging --type=constant',
-			),
-			$output
-		);
+		run_pressable_site_wp_cli_command( $site->id, 'config set WP_ENVIRONMENT_TYPE development --type=constant' );
+		run_pressable_site_wp_cli_command( $site->id, "search-replace {$this->site->url} $site->url" );
+		run_pressable_site_wp_cli_command( $site->id, 'cache flush' );
 
 		if ( $this->skip_safety_net ) {
 			$output->writeln( '<comment>Skipping the installation of SafetyNet as a mu-plugin.</comment>' );
@@ -241,16 +233,7 @@ final class Pressable_Site_Clone extends Command {
 			);
 
 			if ( ! $safety_net_installed ) {
-				run_app_command(
-					$this->getApplication(),
-					Pressable_Site_Run_WP_CLI_Command::getDefaultName(),
-					array(
-						'site'           => $site->id,
-						'wp-cli-command' => 'plugin install https://github.com/a8cteam51/safety-net/releases/latest/download/safety-net.zip',
-					),
-					$output
-				);
-
+				run_pressable_site_wp_cli_command( $site->id, 'plugin install https://github.com/a8cteam51/safety-net/releases/latest/download/safety-net.zip' );
 				$ssh_connection->exec( 'mv -f htdocs/wp-content/plugins/safety-net htdocs/wp-content/mu-plugins/safety-net' );
 				$ssh_connection->exec(
 					'ls htdocs/wp-content/mu-plugins',
@@ -276,34 +259,12 @@ final class Pressable_Site_Clone extends Command {
 
 		// Create a DeployHQ server for the site.
 		if ( ! \is_null( $this->deployhq_project ) ) {
-			$note = create_pressable_site_note( $site->id, 'DeployHQ Project Permalink', $this->deployhq_project->permalink );
-			if ( \is_null( $note ) ) {
-				$output->writeln( '<error>Failed to create the Pressable site note for the DeployHQ project permalink.</error>' );
-			}
-
-			add_event_listener(
-				'deployhq.project.server.created',
-				static function ( GenericEvent $event ) use ( $site, $output ) {
-					$server = $event->getSubject();
-
-					$note = create_pressable_site_note( $site->id, 'DeployHQ Project Server ID', $server->identifier );
-					if ( \is_null( $note ) ) {
-						$output->writeln( '<error>Failed to create the Pressable site note for the DeployHQ server ID.</error>' );
-					}
-				}
-			);
-
-			run_app_command(
-				$this->getApplication(),
-				DeployHQ_Project_Create_Server::getDefaultName(),
-				array(
-					'project'         => $this->deployhq_project->permalink,
-					'site'            => $site->id,
-					'name'            => 'Development' . ( 'development' !== $this->label ? "-$this->label" : '' ),
-					'--branch'        => $this->gh_repo_branch,
-					'--branch-source' => $this->site_deployhq_project_server->branch,
-				),
-				$output
+			create_deployhq_project_server_for_pressable_site(
+				$site,
+				$this->deployhq_project,
+				'Development' . ( 'development' !== $this->label ? "-$this->label" : '' ),
+				$this->gh_repo_branch,
+				$this->site_deployhq_project_server->branch,
 			);
 		}
 

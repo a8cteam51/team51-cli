@@ -11,7 +11,6 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
-use Symfony\Component\EventDispatcher\GenericEvent;
 
 /**
  * Creates a new production site on Pressable.
@@ -110,75 +109,22 @@ final class Pressable_Site_Create extends Command {
 
 		// Run a few commands to set up the site.
 		run_app_command(
-			$this->getApplication(),
 			Pressable_Site_Rotate_WP_User_Password::getDefaultName(),
 			array(
 				'site'   => $site->id,
 				'--user' => 'concierge@wordpress.com',
-			),
-			$output
+			)
 		);
-		run_app_command(
-			$this->getApplication(),
-			Pressable_Site_Run_WP_CLI_Command::getDefaultName(),
-			array(
-				'site'           => $site->id,
-				'wp-cli-command' => 'plugin install https://github.com/a8cteam51/plugin-autoupdate-filter/releases/latest/download/plugin-autoupdate-filter.zip --activate',
-			),
-			$output
+		run_pressable_site_wp_cli_command(
+			$site->id,
+			'plugin install https://github.com/a8cteam51/plugin-autoupdate-filter/releases/latest/download/plugin-autoupdate-filter.zip --activate',
 		);
 
 		// Create a DeployHQ project and server for the site.
 		if ( ! \is_null( $this->gh_repository ) ) {
-			$deployhq_project = null;
-			add_event_listener(
-				'deployhq.project.created',
-				static function ( GenericEvent $event ) use ( $site, $output, &$deployhq_project ) {
-					$deployhq_project = $event->getSubject();
-
-					$note = create_pressable_site_note( $site->id, 'DeployHQ Project Permalink', $deployhq_project->permalink );
-					if ( \is_null( $note ) ) {
-						$output->writeln( '<error>Failed to create the Pressable site note for the DeployHQ project permalink.</error>' );
-					}
-				}
-			);
-
-			run_app_command(
-				$this->getApplication(),
-				DeployHQ_Project_Create::getDefaultName(),
-				array(
-					'name'          => $this->name,
-					'--zone-id'     => get_deployhq_zone_for_pressable_datacenter( $this->datacenter ),
-					'--template-id' => 'pressable-included-integration',
-					'--repository'  => $this->gh_repository->name,
-				),
-				$output
-			);
-
+			$deployhq_project = create_deployhq_project_for_pressable_site( $site, $this->gh_repository, $this->name );
 			if ( ! \is_null( $deployhq_project ) ) {
-				add_event_listener(
-					'deployhq.project.server.created',
-					static function ( GenericEvent $event ) use ( $site, $output ) {
-						$server = $event->getSubject();
-
-						$note = create_pressable_site_note( $site->id, 'DeployHQ Project Server ID', $server->identifier );
-						if ( \is_null( $note ) ) {
-							$output->writeln( '<error>Failed to create the Pressable site note for the DeployHQ server ID.</error>' );
-						}
-					}
-				);
-
-				run_app_command(
-					$this->getApplication(),
-					DeployHQ_Project_Create_Server::getDefaultName(),
-					array(
-						'project'  => $deployhq_project->permalink,
-						'site'     => $site->id,
-						'name'     => 'Production',
-						'--branch' => 'trunk',
-					),
-					$output
-				);
+				create_deployhq_project_server_for_pressable_site( $site, $deployhq_project, 'Production', 'trunk' );
 			}
 		}
 
@@ -256,13 +202,11 @@ final class Pressable_Site_Create extends Command {
 			if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 				/* @noinspection PhpUnhandledExceptionInspection */
 				$status = run_app_command(
-					$this->getApplication(),
 					GitHub_Repository_Create::getDefaultName(),
 					array(
 						'name'   => $name,
 						'--type' => 'project',
 					),
-					$output
 				);
 
 				if ( Command::SUCCESS !== $status ) {
