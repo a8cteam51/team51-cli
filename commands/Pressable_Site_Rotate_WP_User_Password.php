@@ -61,7 +61,7 @@ final class Pressable_Site_Rotate_WP_User_Password extends Command {
 		$this->addArgument( 'site', InputArgument::OPTIONAL, 'The domain or numeric Pressable ID of the site on which to rotate the WP user password.' )
 			->addOption( 'user', 'u', InputOption::VALUE_REQUIRED, 'The email of the site WP user for which to rotate the password. The default is concierge@wordpress.com.' );
 
-		$this->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Determines whether the \'site\' argument is optional or not. Accepted values are \'related\' and \'all\'.' )
+		$this->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Determines whether the `site` argument is optional or not. Accepted values are `related` and `all`.' )
 			->addOption( 'dry-run', null, InputOption::VALUE_NONE, 'Execute a dry run. It will output all the steps, but will keep the current WP user password. Useful for checking whether a given input is valid.' );
 	}
 
@@ -169,7 +169,7 @@ final class Pressable_Site_Rotate_WP_User_Password extends Command {
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the site ID or URL to rotate the WP user password on:</question> ' );
-		$question->setAutocompleterValues( \array_map( static fn( object $site ) => $site->url, get_pressable_sites() ?? array() ) );
+		$question->setAutocompleterValues( \array_column( get_pressable_sites() ?? array(), 'url' ) );
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

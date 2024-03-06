@@ -1,7 +1,6 @@
 <?php
 
 use phpseclib3\Net\SSH2;
-use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Helper\ProgressBar;
 use Symfony\Component\Console\Helper\TableSeparator;
 use Symfony\Component\Console\Input\InputInterface;
@@ -12,6 +11,15 @@ use WPCOMSpecialProjects\CLI\Command\DeployHQ_Project_Create_Server;
 use WPCOMSpecialProjects\CLI\Command\Pressable_Site_Run_WP_CLI_Command;
 
 // region API
+
+/**
+ * Returns the list of Pressable collaborators.
+ *
+ * @return  stdClass[]|null
+ */
+function get_pressable_collaborators(): ?array {
+	return API_Helper::make_pressable_request( 'collaborators' );
+}
 
 /**
  * Returns the list of Pressable sites.
@@ -57,7 +65,8 @@ function get_pressable_related_sites( string $site_id_or_url, bool $find_root = 
 
 	$node_generator = is_callable( $node_generator ) ? $node_generator : static fn( object $site ) => $site;
 	foreach ( $related_sites as $level => $sites ) {
-		foreach ( $sites as $id => $site ) {
+		$related_sites[ $level ] = (array) $sites;
+		foreach ( $related_sites[ $level ] as $id => $site ) {
 			$related_sites[ $level ][ $id ] = $node_generator( $site );
 		}
 	}
@@ -344,6 +353,19 @@ function get_pressable_datacenters(): ?array {
 }
 
 /**
+ * Deletes the specified collaborator from the specified Pressable site.
+ *
+ * @param   string  $site_id_or_url The ID or URL of the Pressable site to delete the collaborator from.
+ * @param   string  $collaborator   The email, username, or numeric ID of the collaborator to delete.
+ * @param   boolean $delete_wp_user Whether to delete the WP user associated with the collaborator.
+ *
+ * @return  true|null
+ */
+function delete_pressable_site_collaborator( string $site_id_or_url, string $collaborator, bool $delete_wp_user = false ): true|null {
+	return API_Helper::make_pressable_request( "site-collaborators/$site_id_or_url/$collaborator", 'DELETE', array( 'delete_wp_user' => $delete_wp_user ) );
+}
+
+/**
  * Creates a new Pressable site.
  *
  * @param   string $name       The name of the site to create.
@@ -582,7 +604,7 @@ function create_deployhq_project_for_pressable_site( stdClass $pressable_site, s
 		DeployHQ_Project_Create::getDefaultName(),
 		array(
 			'name'          => $deployhq_project_name,
-			'--zone-id'     => match ( $pressable_site->datacenterCode ) {
+			'--zone-id'     => match ( $pressable_site->datacenterCode ) { // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 				'AMS' => 3,
 				'BUR' => 9,
 				default => 6,
