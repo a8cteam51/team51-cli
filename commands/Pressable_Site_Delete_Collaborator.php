@@ -12,7 +12,7 @@ use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
 
 /**
- * Deletes a Pressable collaborator from Pressable sites.
+ * Deletes a collaborator from Pressable sites.
  */
 #[AsCommand( name: 'pressable:delete-site-collaborator' )]
 final class Pressable_Site_Delete_Collaborator extends Command {
@@ -47,8 +47,8 @@ final class Pressable_Site_Delete_Collaborator extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function configure(): void {
-		$this->setDescription( 'Deletes a Pressable collaborator from all sites.' )
-			->setHelp( 'Use this command to delete a Pressable collaborator from all sites.' );
+		$this->setDescription( 'Deletes a collaborator from Pressable sites.' )
+			->setHelp( 'Use this command to delete a collaborator from Pressable sites.' );
 
 		$this->addArgument( 'email', InputArgument::REQUIRED, 'The email address of the collaborator to delete.' )
 			->addArgument( 'site', InputArgument::OPTIONAL, 'The site ID or domain to delete the collaborator from.' );
@@ -92,7 +92,7 @@ final class Pressable_Site_Delete_Collaborator extends Command {
 			}
 		);
 		if ( empty( $this->collaborators ) ) {
-			$output->writeln( '<error>No collaborator found with the provided email address.</error>' );
+			$output->writeln( '<error>No collaborators found with the given email address.</error>' );
 			exit( 1 );
 		}
 	}

@@ -101,7 +101,7 @@ final class WPCOM_Site_Stickers_Remove extends Command {
 		$question->setAutocompleterValues(
 			array_map(
 				static fn( string $url ) => parse_url( $url, PHP_URL_HOST ),
-				array_column( get_wpcom_sites( array( 'fields' => 'ID,name,URL' ) ) ?? array(), 'URL' )
+				array_column( get_wpcom_sites( array( 'fields' => 'ID,URL' ) ) ?? array(), 'URL' )
 			)
 		);
 

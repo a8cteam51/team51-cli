@@ -30,7 +30,8 @@ function get_wpcom_sites( array $params = array() ): ?array {
 		$endpoint .= '?' . http_build_query( $params );
 	}
 
-	return API_Helper::make_wpcom_request( $endpoint );
+	$sites = API_Helper::make_wpcom_request( $endpoint );
+	return is_null( $sites ) ? null : (array) $sites;
 }
 
 /**
@@ -42,6 +43,18 @@ function get_wpcom_sites( array $params = array() ): ?array {
  */
 function get_wpcom_site( string $site_id_or_url ): ?stdClass {
 	return API_Helper::make_wpcom_request( "sites/$site_id_or_url" );
+}
+
+/**
+ * Returns a batch of sites by their domains or numeric WPCOM IDs.
+ *
+ * @param   array $site_ids_or_urls The list of site domains or numeric WPCOM IDs.
+ *
+ * @return  stdClass[]|null
+ */
+function get_wpcom_site_batch( array $site_ids_or_urls ): ?array {
+	$sites = API_Helper::make_wpcom_request( 'sites/batch', 'POST', array( 'sites' => $site_ids_or_urls ) );
+	return is_null( $sites ) ? null : (array) $sites;
 }
 
 /**
@@ -64,6 +77,23 @@ function get_wpcom_site_users( string $site_id_or_url, array $params = array() )
 }
 
 /**
+ * Returns a batch of users present on given WPCOM sites.
+ *
+ * @param   array $site_ids_or_urls The list of site domains or numeric WPCOM IDs.
+ * @param   array $params           Optional. Additional parameters to pass to the request.
+ *
+ * @return  stdClass[]|null
+ */
+function get_wpcom_site_users_batch( array $site_ids_or_urls, array $params = array() ): ?array {
+	$body        = array(
+		'sites'  => $site_ids_or_urls,
+		'params' => $params,
+	);
+	$sites_users = API_Helper::make_wpcom_request( 'site-users/batch', 'POST', $body );
+	return is_null( $sites_users ) ? null : (array) $sites_users;
+}
+
+/**
  * Returns a WPCOM site user on a given WPCOM site.
  *
  * @param   string $site_id_or_url               The site URL or WordPress.com site ID.
@@ -79,6 +109,18 @@ function get_wpcom_site_user( string $site_id_or_url, string $user_id_or_usernam
 	}
 
 	return API_Helper::make_wpcom_request( $endpoint );
+}
+
+/**
+ * Deletes a WPCOM site user from a given WPCOM site.
+ *
+ * @param   string $site_id_or_url               The site URL or WordPress.com site ID.
+ * @param   string $user_id_or_username_or_email The user ID, username, or email.
+ *
+ * @return  true|null
+ */
+function delete_wpcom_site_user( string $site_id_or_url, string $user_id_or_username_or_email ): true|null {
+	return API_Helper::make_wpcom_request( "site-users/$site_id_or_url/$user_id_or_username_or_email", 'DELETE' );
 }
 
 /**
@@ -140,6 +182,44 @@ function get_wpcom_site_input( InputInterface $input, OutputInterface $output, ?
 	}
 
 	return $wpcom_site;
+}
+
+/**
+ * Outputs a table of WPCOM sites that failed to be processed.
+ *
+ * @param   OutputInterface $output       The console output.
+ * @param   stdClass[]      $errors       The list of errors indexed by the site ID.
+ * @param   stdClass[]|null $sites        The WPCOM sites that were processed.
+ * @param   string|null     $header_title Optional. The title to use for the table header.
+ *
+ * @return  void
+ */
+function maybe_output_wpcom_failed_sites_table( OutputInterface $output, array $errors, ?array $sites = null, ?string $header_title = null ): void {
+	if ( empty( $errors ) ) {
+		return;
+	}
+
+	$sites        = $sites ?? get_wpcom_sites( array( 'fields' => 'ID,URL' ) );
+	$header_title = $header_title ?? 'Sites that failed to be processed';
+
+	output_table(
+		$output,
+		array_map(
+			static function ( string $site_id, stdClass $wp_error ) use ( $sites ) {
+				$site = $sites[ $site_id ];
+				return array(
+					$site->ID,
+					$site->URL, // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+					encode_json_content( $wp_error->errors ),
+
+				);
+			},
+			array_keys( $errors ),
+			$errors
+		),
+		array( 'WPCOM Site ID', 'Site URL', 'Error' ),
+		$header_title
+	);
 }
 
 // endregion
