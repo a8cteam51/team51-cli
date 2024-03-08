@@ -25,14 +25,14 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 	 *
 	 * @var string|null
 	 */
-	protected ?string $email = null;
+	private ?string $email = null;
 
 	/**
 	 * The list of user objects to process.
 	 *
 	 * @var \stdClass[]|null
 	 */
-	protected ?array $users = null;
+	private ?array $users = null;
 
 	// endregion
 

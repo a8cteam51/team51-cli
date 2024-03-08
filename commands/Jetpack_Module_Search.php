@@ -23,14 +23,14 @@ final class Jetpack_Module_Search extends Command {
 	 *
 	 * @var string|null
 	 */
-	protected ?string $module = null;
+	private ?string $module = null;
 
 	/**
 	 * The status to search for.
 	 *
 	 * @var string|null
 	 */
-	protected ?string $status = null;
+	private ?string $status = null;
 
 	// endregion
 

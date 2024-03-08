@@ -22,14 +22,14 @@ final class Jetpack_Site_Module_Status_Set extends Command {
 	 *
 	 * @var \stdClass|null
 	 */
-	protected ?\stdClass $site = null;
+	private ?\stdClass $site = null;
 
 	/**
 	 * The module to set the status for.
 	 *
 	 * @var string|null
 	 */
-	protected ?string $module = null;
+	private ?string $module = null;
 
 	/**
 	 * The status to set the module to.

@@ -23,21 +23,21 @@ final class Pressable_Site_Collaborator_Delete extends Command {
 	 *
 	 * @var string|null
 	 */
-	protected ?string $email = null;
+	private ?string $email = null;
 
 	/**
 	 * The list of collaborator objects to process.
 	 *
 	 * @var \stdClass[]|null
 	 */
-	protected ?array $collaborators = null;
+	private ?array $collaborators = null;
 
 	/**
 	 * Whether to also delete the WordPress user associated with the collaborator.
 	 *
 	 * @var bool|null
 	 */
-	protected ?bool $delete_wp_user = null;
+	private ?bool $delete_wp_user = null;
 
 	// endregion
 

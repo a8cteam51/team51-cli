@@ -21,7 +21,7 @@ final class WPCOM_Site_Stickers_List extends Command {
 	 *
 	 * @var \stdClass|null
 	 */
-	protected ?\stdClass $site = null;
+	private ?\stdClass $site = null;
 
 	// endregion
 

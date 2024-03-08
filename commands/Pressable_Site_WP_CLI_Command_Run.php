@@ -22,14 +22,14 @@ final class Pressable_Site_WP_CLI_Command_Run extends Command {
 	 *
 	 * @var \stdClass|null
 	 */
-	protected ?\stdClass $site = null;
+	private ?\stdClass $site = null;
 
 	/**
 	 * The WP-CLI command to run.
 	 *
 	 * @var string|null
 	 */
-	protected ?string $wp_command = null;
+	private ?string $wp_command = null;
 
 	// endregion
 

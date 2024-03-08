@@ -25,21 +25,21 @@ final class GitHub_Repository_Create extends Command {
 	 *
 	 * @var string|null
 	 */
-	protected ?string $name = null;
+	private ?string $name = null;
 
 	/**
 	 * The type of repository to create aka the name of the template repository to use.
 	 *
 	 * @var string|null
 	 */
-	protected ?string $type = null;
+	private ?string $type = null;
 
 	/**
 	 * A short, human-friendly description for this project.
 	 *
 	 * @var string|null
 	 */
-	protected ?string $description = null;
+	private ?string $description = null;
 
 	// endregion
 

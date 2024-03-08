@@ -8,7 +8,6 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
 
 /**
@@ -48,7 +47,7 @@ final class Jetpack_Site_Plugins_Export extends Command {
 	 */
 	protected function configure(): void {
 		$this->setDescription( 'Export a list of plugins installed on WPCOM or Jetpack-connected sites.' )
-			->setHelp( 'Use this command to export a list of plugins installed on WPCOM or Jetpack-connected sites.' );
+			->setHelp( 'Use this command to export a list of plugins installed on sites. Only sites with an active Jetpack connection to WPCOM are included.' );
 
 		$this->addArgument( 'site', InputArgument::OPTIONAL, 'Domain or WPCOM ID of the site to list the plugins for.' );
 
@@ -107,10 +106,10 @@ final class Jetpack_Site_Plugins_Export extends Command {
 				)
 			);
 		}
-		$output->writeln( '<info>Successfully fetched ' . count( $this->sites ) . ' Jetpack site(s).</info>' );
+		$output->writeln( '<comment>Successfully fetched ' . \count( $this->sites ) . ' Jetpack site(s).</comment>' );
 
 		// Compile the list of plugins to process.
-		$this->plugins = get_wpcom_site_plugins_batch( array_column( $this->sites, 'blog_id' ) );
+		$this->plugins = get_wpcom_site_plugins_batch( \array_column( $this->sites, 'blog_id' ) );
 
 		$failed_sites = \array_filter( $this->plugins, static fn( $plugins ) => \is_object( $plugins ) );
 		maybe_output_wpcom_failed_sites_table( $output, $failed_sites, $this->sites, 'Sites that could NOT be searched' );
@@ -132,17 +131,17 @@ final class Jetpack_Site_Plugins_Export extends Command {
 
 		\fputcsv( $csv, array( 'Site ID', 'Site URL', 'Plugin Name', 'Plugin Slug', 'Plugin Version', 'Plugin Status' ) );
 		foreach ( $this->plugins as $site_id => $plugins ) {
-			foreach ( $plugins as $plugin_file => $plugin ) {
+			foreach ( $plugins as $plugin => $plugin_data ) {
 				\fputcsv(
 					$csv,
 					array(
 						$this->sites[ $site_id ]->blog_id,
 						$this->sites[ $site_id ]->site_url,
 						// phpcs:disable WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
-						$plugin->Name,
-						\dirname( $plugin_file ),
-						$plugin->Version,
-						$plugin->active ? 'Active' : 'Inactive',
+						$plugin_data->Name,
+						\dirname( $plugin ),
+						$plugin_data->Version,
+						$plugin_data->active ? 'Active' : 'Inactive',
 						// phpcs:enable WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 					)
 				);

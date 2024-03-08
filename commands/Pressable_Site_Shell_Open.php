@@ -21,21 +21,21 @@ final class Pressable_Site_Shell_Open extends Command {
 	 *
 	 * @var \stdClass|null
 	 */
-	protected ?\stdClass $site = null;
+	private ?\stdClass $site = null;
 
 	/**
 	 * The email address of the Pressable collaborator to connect as.
 	 *
 	 * @var string|null
 	 */
-	protected ?string $email = null;
+	private ?string $email = null;
 
 	/**
 	 * The interactive hell type to open.
 	 *
 	 * @var string|null
 	 */
-	protected ?string $shell_type = null;
+	private ?string $shell_type = null;
 
 	// endregion
 

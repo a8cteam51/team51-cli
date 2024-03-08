@@ -21,7 +21,7 @@ final class WPCOM_Site_Plugins_List extends Command {
 	 *
 	 * @var \stdClass|null
 	 */
-	protected ?\stdClass $site = null;
+	private ?\stdClass $site = null;
 
 	// endregion
 
@@ -60,12 +60,12 @@ final class WPCOM_Site_Plugins_List extends Command {
 		output_table(
 			$output,
 			\array_map(
-				static fn( string $plugin_file, \stdClass $plugin ) => array(
+				static fn( string $plugin, \stdClass $plugin_data ) => array(
 					// phpcs:disable WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
-					$plugin->Name,
-					\dirname( $plugin_file ),
-					$plugin->Version,
-					$plugin->active ? 'Active' : 'Inactive',
+					$plugin_data->Name,
+					\dirname( $plugin ),
+					$plugin_data->Version,
+					$plugin_data->active ? 'Active' : 'Inactive',
 					// phpcs:enable WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 				),
 				\array_keys( $site_plugins ),

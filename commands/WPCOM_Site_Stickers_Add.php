@@ -22,14 +22,14 @@ final class WPCOM_Site_Stickers_Add extends Command {
 	 *
 	 * @var \stdClass|null
 	 */
-	protected ?\stdClass $site = null;
+	private ?\stdClass $site = null;
 
 	/**
 	 * The sticker to add.
 	 *
 	 * @var string|null
 	 */
-	protected ?string $sticker = null;
+	private ?string $sticker = null;
 
 	// endregion
 

@@ -21,7 +21,7 @@ final class Jetpack_Site_Modules_List extends Command {
 	 *
 	 * @var \stdClass|null
 	 */
-	protected ?\stdClass $site = null;
+	private ?\stdClass $site = null;
 
 	// endregion
 

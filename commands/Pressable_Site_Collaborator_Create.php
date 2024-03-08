@@ -22,14 +22,14 @@ final class Pressable_Site_Collaborator_Create extends Command {
 	 *
 	 * @var \stdClass|null
 	 */
-	protected ?\stdClass $site = null;
+	private ?\stdClass $site = null;
 
 	/**
 	 * The email address of the collaborator to create.
 	 *
 	 * @var string|null
 	 */
-	protected ?string $email = null;
+	private ?string $email = null;
 
 	// endregion
 

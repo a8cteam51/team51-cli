@@ -24,28 +24,28 @@ final class DeployHQ_Project_Create extends Command {
 	 *
 	 * @var string|null
 	 */
-	protected ?string $name = null;
+	private ?string $name = null;
 
 	/**
 	 * The ID of the zone to create the project in.
 	 *
 	 * @var int|null
 	 */
-	protected ?int $zone_id = null;
+	private ?int $zone_id = null;
 
 	/**
 	 * The ID of the template to use for the project, if any.
 	 *
 	 * @var string|null
 	 */
-	protected ?string $template_id = null;
+	private ?string $template_id = null;
 
 	/**
 	 * The GitHub repository to connect the project to, if any.
 	 *
 	 * @var \stdClass|null
 	 */
-	protected ?\stdClass $gh_repository = null;
+	private ?\stdClass $gh_repository = null;
 
 	// endregion
 

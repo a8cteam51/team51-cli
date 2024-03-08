@@ -25,7 +25,7 @@ final class Pressable_Site_SFTP_User_Password_Rotate extends Command {
 	 *
 	 * @var string|null
 	 */
-	protected ?string $multiple = null;
+	private ?string $multiple = null;
 
 	/**
 	 * The sites to rotate the password on.
