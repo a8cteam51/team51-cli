@@ -91,7 +91,7 @@ final class Pressable_Connection_Helper {
 		static $cache = array();
 
 		if ( empty( $cache[ $site_id_or_url ] ) ) {
-			$collaborator = get_pressable_site_sftp_user_by_email( $site_id_or_url, 'concierge@wordpress.com' );
+			$collaborator = get_pressable_site_sftp_user( $site_id_or_url, 'concierge@wordpress.com' );
 			if ( \is_null( $collaborator ) ) {
 				console_writeln( '❌ Could not find the Pressable site collaborator.' );
 				return null;

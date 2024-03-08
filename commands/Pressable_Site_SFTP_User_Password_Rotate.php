@@ -107,7 +107,7 @@ final class Pressable_Site_SFTP_User_Password_Rotate extends Command {
 			$this->sftp_users = \array_map(
 				static function ( object $site ) use ( $user, $progress_bar ): ?\stdClass {
 					$progress_bar->advance();
-					return get_pressable_site_sftp_user_by_email( $site->id, $user->email ?? $user );
+					return get_pressable_site_sftp_user( $site->id, $user->email ?? $user );
 				},
 				$this->sites
 			);

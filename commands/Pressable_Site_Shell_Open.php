@@ -72,7 +72,7 @@ final class Pressable_Site_Shell_Open extends Command {
 		$output->writeln( "<fg=magenta;options=bold>Opening an interactive $this->shell_type shell for {$this->site->displayName} (ID {$this->site->id}, URL {$this->site->url}) as $this->email.</>" );
 
 		// Retrieve the SFTP user for the current user.
-		$sftp_user = get_pressable_site_sftp_user_by_email( $this->site->id, $this->email );
+		$sftp_user = get_pressable_site_sftp_user( $this->site->id, $this->email );
 		if ( \is_null( $sftp_user ) ) {
 			$output->writeln( "<comment>Could not find a Pressable SFTP user with the email $this->email on {$this->site->displayName}. Creating...</comment>", OutputInterface::VERBOSITY_VERBOSE );
 
@@ -83,7 +83,7 @@ final class Pressable_Site_Shell_Open extends Command {
 			}
 
 			// SFTP users are different from collaborator users. We need to query the API again to get the SFTP user.
-			$sftp_user = get_pressable_site_sftp_user_by_email( $this->site->id, $this->email );
+			$sftp_user = get_pressable_site_sftp_user( $this->site->id, $this->email );
 		}
 
 		// WPCOMSP users are logged-in through AutoProxxy, but for everyone else we must first reset their password and display it.

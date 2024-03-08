@@ -152,13 +152,7 @@ function get_pressable_site_deployhq_config( string $site_id_or_url ): ?stdClass
  * @return  stdClass|null
  */
 function update_pressable_site_deployhq_project( string $site_id_or_url, string $project ): ?stdClass {
-	return API_Helper::make_pressable_request(
-		"sites/$site_id_or_url/deployhq",
-		'POST',
-		array(
-			'project' => $project,
-		)
-	);
+	return API_Helper::make_pressable_request( "sites/$site_id_or_url/deployhq", 'POST', array( 'project' => $project ) );
 }
 
 /**
@@ -212,76 +206,19 @@ function get_pressable_site_sftp_users( string $site_id_or_url ): ?array {
  * @return  stdClass|null
  */
 function get_pressable_site_sftp_owner( string $site_id_or_url ): ?stdClass {
-	$sftp_users = get_pressable_site_sftp_users( $site_id_or_url );
-	if ( ! is_array( $sftp_users ) ) {
-		return null;
-	}
-
-	foreach ( $sftp_users as $sftp_user ) {
-		if ( true === $sftp_user->owner ) {
-			return $sftp_user;
-		}
-	}
-
-	return null;
+	return API_Helper::make_pressable_request( "site-sftp-users/$site_id_or_url/owner" );
 }
 
 /**
- * Returns the SFTP user with the given username on the specified site.
+ * Returns the SFTP user with the given username, email, or ID on the specified site.
  *
- * @param   string $site_id_or_url The ID or URL of the Pressable site to retrieve the SFTP user emails for.
- * @param   string $username       The username of the site SFTP user.
- *
- * @return  string[]|null
- */
-function get_pressable_site_sftp_user_by_username( string $site_id_or_url, string $username ): ?stdClass {
-	return API_Helper::make_pressable_request( "site-sftp-users/$site_id_or_url/$username" );
-}
-
-/**
- * Returns the SFTP user with the given ID on the specified site.
- *
- * @param   string $site_id_or_url The ID or URL of the Pressable site to retrieve the SFTP user from.
- * @param   string $user_id        The ID of the site SFTP user.
+ * @param   string $site_id_or_url       The ID or URL of the Pressable site to retrieve the SFTP user from.
+ * @param   string $uname_or_email_or_id The username, email, or numeric ID of the site SFTP user.
  *
  * @return  object|null
  */
-function get_pressable_site_sftp_user_by_id( string $site_id_or_url, string $user_id ): ?stdClass {
-	$sftp_users = get_pressable_site_sftp_users( $site_id_or_url );
-	if ( ! is_array( $sftp_users ) ) {
-		return null;
-	}
-
-	foreach ( $sftp_users as $sftp_user ) {
-		if ( $user_id === (string) $sftp_user->id ) {
-			return $sftp_user;
-		}
-	}
-
-	return null;
-}
-
-/**
- * Returns the SFTP user with the given email on the specified site.
- *
- * @param   string $site_id_or_url The ID or URL of the Pressable site to retrieve the SFTP user from.
- * @param   string $user_email     The email of the site SFTP user.
- *
- * @return  object|null
- */
-function get_pressable_site_sftp_user_by_email( string $site_id_or_url, string $user_email ): ?stdClass {
-	$sftp_users = get_pressable_site_sftp_users( $site_id_or_url );
-	if ( ! is_array( $sftp_users ) ) {
-		return null;
-	}
-
-	foreach ( $sftp_users as $sftp_user ) {
-		if ( ! empty( $sftp_user->email ) && true === is_case_insensitive_match( $sftp_user->email, $user_email ) ) {
-			return $sftp_user;
-		}
-	}
-
-	return null;
+function get_pressable_site_sftp_user( string $site_id_or_url, string $uname_or_email_or_id ): ?stdClass {
+	return API_Helper::make_pressable_request( "site-sftp-users/$site_id_or_url/$uname_or_email_or_id" );
 }
 
 /**
@@ -536,8 +473,7 @@ function get_pressable_site_input( InputInterface $input, OutputInterface $outpu
  */
 function get_pressable_site_sftp_user_input( InputInterface $input, OutputInterface $output, string $site_id, ?callable $no_input_func = null, string $name = 'user' ): stdClass {
 	$uname_or_id_or_email = get_string_input( $input, $output, $no_input_func, $name ); // Pressable SFTP users can also be retrieved by username so no validation is needed.
-	$sftp_user            = is_numeric( $uname_or_id_or_email ) ? get_pressable_site_sftp_user_by_id( $site_id, $uname_or_id_or_email )
-		: ( get_pressable_site_sftp_user_by_username( $site_id, $uname_or_id_or_email ) ?? get_pressable_site_sftp_user_by_email( $site_id, $uname_or_id_or_email ) );
+	$sftp_user            = get_pressable_site_sftp_user( $site_id, $uname_or_id_or_email );
 
 	if ( is_null( $sftp_user ) ) {
 		$output->writeln( '<error>Invalid user. Aborting!</error>' );
