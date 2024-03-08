@@ -4,7 +4,6 @@ namespace WPCOMSpecialProjects\CLI\Command;
 
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
-use Symfony\Component\Console\Helper\ProgressBar;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -55,7 +54,7 @@ final class Jetpack_Module_Search extends Command {
 		$input->setArgument( 'module', $this->module );
 
 		$this->status = get_enum_input( $input, $output, 'status', array( 'on', 'off' ), fn() => $this->prompt_status_input( $input, $output ), 'on' );
-		$input->setArgument( 'status', $this->status );
+		$input->setOption( 'status', $this->status );
 	}
 
 	/**
@@ -65,56 +64,42 @@ final class Jetpack_Module_Search extends Command {
 		$output->writeln( "<fg=magenta;options=bold>Listing connected sites where the status of the Jetpack module $this->module is $this->status.</>" );
 
 		$sites = get_wpcom_jetpack_sites();
-		if ( empty( $sites ) ) {
-			$output->writeln( '<error>Failed to fetch sites.<error>' );
-			return Command::FAILURE;
-		}
+		$output->writeln( '<comment>Successfully fetched ' . \count( $sites ) . ' Jetpack site(s).</comment>' );
 
-		$sites_count = count( $sites );
-		$output->writeln( "<info>$sites_count sites found.<info>" );
-		$output->writeln( "<info>Checking each site for the Jetpack module: $this->module<info>" );
-		$output->writeln( '<info>Expected duration: 20 - 30 minutes. Use Ctrl+C to abort.</info>' );
+		// If we try to retrieve the modules for all sites at once, we might hit an out-of-memory error.
+		$sites_found  = array();
+		$failed_sites = array();
 
-		$progress_bar = new ProgressBar( $output, $sites_count );
-		$progress_bar->start();
+		foreach ( array_chunk( $sites, 100, true ) as $sites_chunk ) {
+			$modules        = get_jetpack_site_modules_batch( \array_column( $sites_chunk, 'userblog_id' ) );
+			$failed_sites[] = \array_filter( $modules, static fn( $site_modules ) => \is_object( $site_modules ) );
 
-		$sites_not_checked = array();
-		$sites_found       = array();
-		foreach ( $sites as $site ) {
-			/* @noinspection DisconnectedForeachInstructionInspection */
-			$progress_bar->advance();
-
-			$site_modules = get_jetpack_site_modules( $site->userblog_id );
-			if ( ! is_null( $site_modules ) ) {
-				if ( 'on' === $this->status && $site_modules[ $this->module ]->activated ) {
-					$sites_found[] = $site;
-				} elseif ( 'off' === $this->status && ! $site_modules[ $this->module ]->activated ) {
-					$sites_found[] = $site;
+			$modules = \array_filter( $modules, static fn( $site_modules ) => \is_array( $site_modules ) );
+			foreach ( $modules as $site_id => $site_modules ) {
+				$module_data = $site_modules[ $this->module ] ?? null;
+				if ( is_null( $module_data ) ) {
+					continue; // Module not found. Maybe Jetpack version too old?
 				}
-			} else {
-				$sites_not_checked[] = $site;
+
+				if ( 'on' === $this->status && $module_data->activated ) {
+					$sites_found[] = $sites[ $site_id ];
+				} elseif ( 'off' === $this->status && ! $module_data->activated ) {
+					$sites_found[] = $sites[ $site_id ];
+				}
 			}
 		}
+		$failed_sites = \array_replace( ...$failed_sites ); // Flatten the array while keeping the keys.
 
-		$progress_bar->finish();
-
+		// Output the results.
+		maybe_output_wpcom_failed_sites_table( $output, $failed_sites, $sites, 'Sites that could NOT be searched' );
 		output_table(
 			$output,
 			array_map(
-				static fn( \stdClass $site ) => array( $site->userblog_id, $site->domain ),
+				fn( \stdClass $site ) => array( $site->userblog_id, $site->domain, $this->status ),
 				$sites_found
 			),
-			array( 'Site ID', 'Site URL' ),
+			array( 'Site ID', 'Site URL', 'Status' ),
 			"Sites with the Jetpack module '$this->module' turned $this->status"
-		);
-		output_table(
-			$output,
-			array_map(
-				static fn( \stdClass $site ) => array( $site->userblog_id, $site->domain ),
-				$sites_not_checked
-			),
-			array( 'Site ID', 'Site URL' ),
-			'Sites not checked either due to an error or due to the Jetpack API module being turned off'
 		);
 
 		return Command::SUCCESS;
