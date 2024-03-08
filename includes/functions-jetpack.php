@@ -50,6 +50,28 @@ function get_jetpack_site_modules( string $site_id_or_url ): ?array {
 }
 
 /**
+ * Returns the list of complete Jetpack modules information for a list of sites
+ *
+ * @param   array $site_ids_or_urls The site URLs or WordPress.com site IDs.
+ *
+ * @return  stdClass[][]|null
+ */
+function get_jetpack_site_modules_batch( array $site_ids_or_urls ): ?array {
+	$sites_module_list = API_Helper::make_jetpack_request( 'modules/batch', 'POST', array( 'sites' => $site_ids_or_urls ) );
+	if ( is_null( $sites_module_list ) ) {
+		return null;
+	}
+
+	return array_map(
+		static function ( stdClass|array $site_module_list ) {
+			return is_object( $site_module_list ) && property_exists( $site_module_list, 'errors' )
+				? $site_module_list : (array) $site_module_list;
+		},
+		(array) $sites_module_list
+	);
+}
+
+/**
  * Updates the Jetpack modules settings for a given site.
  *
  * @param   string $site_id_or_url The site URL or WordPress.com site ID.

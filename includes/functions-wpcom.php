@@ -76,8 +76,8 @@ function get_wpcom_site_plugins( string $site_id_or_domain ): ?array {
  * @return  stdClass[][]|null
  */
 function get_wpcom_site_plugins_batch( array $site_ids_or_urls ): ?array {
-	$plugins = API_Helper::make_wpcom_request( 'sites/batch/plugins', 'POST', array( 'sites' => $site_ids_or_urls ) );
-	if ( is_null( $plugins ) ) {
+	$sites_plugins = API_Helper::make_wpcom_request( 'sites/batch/plugins', 'POST', array( 'sites' => $site_ids_or_urls ) );
+	if ( is_null( $sites_plugins ) ) {
 		return null;
 	}
 
@@ -86,7 +86,7 @@ function get_wpcom_site_plugins_batch( array $site_ids_or_urls ): ?array {
 			return is_object( $site_plugins ) && property_exists( $site_plugins, 'errors' )
 				? $site_plugins : (array) $site_plugins;
 		},
-		(array) $plugins
+		(array) $sites_plugins
 	);
 }
 
