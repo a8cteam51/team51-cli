@@ -82,7 +82,7 @@ final class Jetpack_Site_Modules_List extends Command {
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the domain or WPCOM site ID to fetch the information for:</question> ' );
-		$question->setAutocompleterValues( array_column( get_wpcom_jetpack_sites() ?? array(), 'domain' ) );
+		$question->setAutocompleterValues( \array_column( get_wpcom_jetpack_sites() ?? array(), 'domain' ) );
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

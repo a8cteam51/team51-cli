@@ -99,9 +99,9 @@ final class WPCOM_Site_Stickers_Add extends Command {
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the domain or WPCOM site ID to add the sticker to:</question> ' );
 		$question->setAutocompleterValues(
-			array_map(
-				static fn( string $url ) => parse_url( $url, PHP_URL_HOST ),
-				array_column( get_wpcom_sites( array( 'fields' => 'ID,URL' ) ) ?? array(), 'URL' )
+			\array_map(
+				static fn( string $url ) => \parse_url( $url, PHP_URL_HOST ),
+				\array_column( get_wpcom_sites( array( 'fields' => 'ID,URL' ) ) ?? array(), 'URL' )
 			)
 		);
 

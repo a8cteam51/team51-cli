@@ -60,11 +60,13 @@ final class WPCOM_Site_Plugins_List extends Command {
 		output_table(
 			$output,
 			\array_map(
-				static fn( string $slug, \stdClass $plugin ) => array(
+				static fn( string $plugin_file, \stdClass $plugin ) => array(
+					// phpcs:disable WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 					$plugin->Name,
-					$slug,
+					\dirname( $plugin_file ),
 					$plugin->Version,
 					$plugin->active ? 'Active' : 'Inactive',
+					// phpcs:enable WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 				),
 				\array_keys( $site_plugins ),
 				$site_plugins
@@ -91,9 +93,9 @@ final class WPCOM_Site_Plugins_List extends Command {
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the domain or WPCOM site ID to list the plugins for:</question> ' );
 		$question->setAutocompleterValues(
-			array_map(
-				static fn( string $url ) => parse_url( $url, PHP_URL_HOST ),
-				array_column( get_wpcom_sites( array( 'fields' => 'ID,URL' ) ) ?? array(), 'URL' )
+			\array_map(
+				static fn( string $url ) => \parse_url( $url, PHP_URL_HOST ),
+				\array_column( get_wpcom_sites( array( 'fields' => 'ID,URL' ) ) ?? array(), 'URL' )
 			)
 		);
 

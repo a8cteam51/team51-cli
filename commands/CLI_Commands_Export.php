@@ -117,7 +117,7 @@ final class CLI_Commands_Export extends Command {
 	private function prompt_destination_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new ConfirmationQuestion( '<question>Would you like to save the output to a file? [y/N]</question> ', false );
 		if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
-			$default = getcwd() . '/team51-commands';
+			$default = \getcwd() . '/team51-commands';
 
 			$question = new Question( "<question>Please enter the path to the file you want to save the output to [$default]:</question> ", $default );
 			return $this->getHelper( 'question' )->ask( $input, $output, $question );

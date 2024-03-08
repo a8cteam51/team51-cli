@@ -65,12 +65,12 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 			$site = get_wpcom_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
 			$input->setArgument( 'site', $site );
 
-			$sites = array( $site );
+			$sites = array( $site->ID => $site );
 		} else {
 			$sites = \array_filter(
 				get_wpcom_sites( array( 'fields' => 'ID,URL' ) ),
 				static function ( \stdClass $site ) {
-					$exclude_sites = array( 'woocommerce.com' );
+					$exclude_sites = array( 'woocommerce.com', 'woo.com' );
 					$site_domain   = \parse_url( $site->URL, PHP_URL_HOST );
 
 					return ! \in_array( $site_domain, $exclude_sites, true );
@@ -95,7 +95,7 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 			),
 		);
 
-		$failed_sites = array_filter( $this->users, static fn( $users ) => \is_object( $users ) );
+		$failed_sites = \array_filter( $this->users, static fn( $users ) => \is_object( $users ) );
 		maybe_output_wpcom_failed_sites_table( $output, $failed_sites, $sites, 'Sites that could NOT be searched' );
 
 		$this->users = \array_filter(
@@ -200,9 +200,9 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the domain or WPCOM site ID to remove the user from:</question> ' );
 		$question->setAutocompleterValues(
-			array_map(
-				static fn( string $url ) => parse_url( $url, PHP_URL_HOST ),
-				array_column( get_wpcom_sites( array( 'fields' => 'ID,URL' ) ) ?? array(), 'URL' )
+			\array_map(
+				static fn( string $url ) => \parse_url( $url, PHP_URL_HOST ),
+				\array_column( get_wpcom_sites( array( 'fields' => 'ID,URL' ) ) ?? array(), 'URL' )
 			)
 		);
 

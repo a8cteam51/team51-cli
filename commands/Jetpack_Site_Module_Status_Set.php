@@ -109,7 +109,7 @@ final class Jetpack_Site_Module_Status_Set extends Command {
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the domain or WPCOM site ID to set the module status on:</question> ' );
-		$question->setAutocompleterValues( array_column( get_wpcom_jetpack_sites() ?? array(), 'domain' ) );
+		$question->setAutocompleterValues( \array_column( get_wpcom_jetpack_sites() ?? array(), 'domain' ) );
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

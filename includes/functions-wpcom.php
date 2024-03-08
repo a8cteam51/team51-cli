@@ -11,8 +11,7 @@ use Symfony\Component\Console\Output\OutputInterface;
  * @return  stdClass[]|null
  */
 function get_wpcom_jetpack_sites(): ?array {
-	$sites = API_Helper::make_wpcom_request( 'sites?type=jetpack' );
-	return is_null( $sites ) ? null : (array) $sites;
+	return get_wpcom_sites( array( 'type' => 'jetpack' ) );
 }
 
 /**
@@ -67,6 +66,28 @@ function get_wpcom_site_batch( array $site_ids_or_urls ): ?array {
 function get_wpcom_site_plugins( string $site_id_or_domain ): ?array {
 	$plugins = API_Helper::make_wpcom_request( "sites/$site_id_or_domain/plugins" );
 	return is_null( $plugins ) ? null : (array) $plugins;
+}
+
+/**
+ * Returns a batch of plugins installed on given WPCOM sites.
+ *
+ * @param   array $site_ids_or_urls The list of site domains or numeric WPCOM IDs.
+ *
+ * @return  stdClass[][]|null
+ */
+function get_wpcom_site_plugins_batch( array $site_ids_or_urls ): ?array {
+	$plugins = API_Helper::make_wpcom_request( 'sites/batch/plugins', 'POST', array( 'sites' => $site_ids_or_urls ) );
+	if ( is_null( $plugins ) ) {
+		return null;
+	}
+
+	return array_map(
+		static function ( stdClass|array $site_plugins ) {
+			return is_object( $site_plugins ) && property_exists( $site_plugins, 'errors' )
+				? $site_plugins : (array) $site_plugins;
+		},
+		(array) $plugins
+	);
 }
 
 /**
@@ -220,10 +241,9 @@ function maybe_output_wpcom_failed_sites_table( OutputInterface $output, array $
 			static function ( string $site_id, stdClass $wp_error ) use ( $sites ) {
 				$site = $sites[ $site_id ];
 				return array(
-					$site->ID,
-					$site->URL, // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+					$site->ID ?? $site->userblog_id ?? $site->blog_id,
+					$site->URL ?? $site->siteurl ?? $site->site_url, // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 					encode_json_content( $wp_error->errors ),
-
 				);
 			},
 			array_keys( $errors ),

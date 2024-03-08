@@ -7,14 +7,15 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\ProgressBar;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\Question;
 
 /**
  * Lists the connected Jetpack sites with a given module either enabled or disabled.
  */
-#[AsCommand( name: 'jetpack:list-sites-with-module' )]
-final class Jetpack_Sites_With_Module_List extends Command {
+#[AsCommand( name: 'jetpack:module-search' )]
+final class Jetpack_Module_Search extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**
@@ -43,14 +44,14 @@ final class Jetpack_Sites_With_Module_List extends Command {
 			->setHelp( 'Use this command to find which sites have a given Jetpack module in a given status. Only sites with an active Jetpack connection to WPCOM are searched through.' );
 
 		$this->addArgument( 'module', InputArgument::REQUIRED, 'The module to check the status of.' )
-			->addArgument( 'status', InputArgument::OPTIONAL, 'The status to check for. Must be one of \'on\' or \'off\'. By default, \'on\'.' );
+			->addOption( 'status', null, InputOption::VALUE_REQUIRED, 'The status to check for. Must be one of \'on\' or \'off\'. By default, \'on\'.' );
 	}
 
 	/**
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->module = get_enum_input( $input, $output, 'module', array_keys( get_jetpack_modules() ?? array() ), fn() => $this->prompt_module_input( $input, $output ) );
+		$this->module = get_enum_input( $input, $output, 'module', \array_keys( get_jetpack_modules() ?? array() ), fn() => $this->prompt_module_input( $input, $output ) );
 		$input->setArgument( 'module', $this->module );
 
 		$this->status = get_enum_input( $input, $output, 'status', array( 'on', 'off' ), fn() => $this->prompt_status_input( $input, $output ), 'on' );

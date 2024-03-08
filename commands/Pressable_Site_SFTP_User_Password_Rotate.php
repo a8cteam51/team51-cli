@@ -189,7 +189,7 @@ final class Pressable_Site_SFTP_User_Password_Rotate extends Command {
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the site ID or URL to rotate the SFTP user password on:</question> ' );
-		$question->setAutocompleterValues( \array_map( static fn( object $site ) => $site->url, get_pressable_sites() ?? array() ) );
+		$question->setAutocompleterValues( \array_column( get_pressable_sites() ?? array(), 'url' ) );
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
