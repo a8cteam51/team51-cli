@@ -14,7 +14,7 @@ use Symfony\Component\Console\Question\Question;
  * Runs a given WP-CLI command on a given Pressable site.
  */
 #[AsCommand( name: 'pressable:run-site-wp-cli-command' )]
-final class Pressable_Site_Run_WP_CLI_Command extends Command {
+final class Pressable_Site_WP_CLI_Command_Run extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**

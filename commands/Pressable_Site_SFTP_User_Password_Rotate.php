@@ -16,7 +16,7 @@ use Symfony\Component\Console\Question\Question;
  * Rotates the SFTP password of users on Pressable sites.
  */
 #[AsCommand( name: 'pressable:rotate-site-sftp-user-password' )]
-final class Pressable_Site_Rotate_SFTP_User_Password extends Command {
+final class Pressable_Site_SFTP_User_Password_Rotate extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**

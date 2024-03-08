@@ -15,7 +15,7 @@ use Symfony\Component\Console\Question\Question;
  * Deletes a collaborator from Pressable sites.
  */
 #[AsCommand( name: 'pressable:delete-site-collaborator' )]
-final class Pressable_Site_Delete_Collaborator extends Command {
+final class Pressable_Site_Collaborator_Delete extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**

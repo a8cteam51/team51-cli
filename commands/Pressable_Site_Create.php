@@ -109,7 +109,7 @@ final class Pressable_Site_Create extends Command {
 
 		// Run a few commands to set up the site.
 		run_app_command(
-			Pressable_Site_Rotate_WP_User_Password::getDefaultName(),
+			Pressable_Site_WP_User_Password_Rotate::getDefaultName(),
 			array(
 				'site'   => $site->id,
 				'--user' => 'concierge@wordpress.com',

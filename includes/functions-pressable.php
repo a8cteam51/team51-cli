@@ -7,8 +7,8 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\EventDispatcher\GenericEvent;
 use WPCOMSpecialProjects\CLI\Command\DeployHQ_Project_Create;
-use WPCOMSpecialProjects\CLI\Command\DeployHQ_Project_Create_Server;
-use WPCOMSpecialProjects\CLI\Command\Pressable_Site_Run_WP_CLI_Command;
+use WPCOMSpecialProjects\CLI\Command\DeployHQ_Project_Server_Create;
+use WPCOMSpecialProjects\CLI\Command\Pressable_Site_WP_CLI_Command_Run;
 
 // region API
 
@@ -564,7 +564,7 @@ function get_pressable_site_sftp_user_input( InputInterface $input, OutputInterf
 function run_pressable_site_wp_cli_command( string $site_id_or_url, string $wp_cli_command, bool $interactive = false ): int {
 	/* @noinspection PhpUnhandledExceptionInspection */
 	return run_app_command(
-		Pressable_Site_Run_WP_CLI_Command::getDefaultName(),
+		Pressable_Site_WP_CLI_Command_Run::getDefaultName(),
 		array(
 			'site'           => $site_id_or_url,
 			'wp-cli-command' => $wp_cli_command,
@@ -647,7 +647,7 @@ function create_deployhq_project_server_for_pressable_site( stdClass $pressable_
 
 	/* @noinspection PhpUnhandledExceptionInspection */
 	run_app_command(
-		DeployHQ_Project_Create_Server::getDefaultName(),
+		DeployHQ_Project_Server_Create::getDefaultName(),
 		array(
 			'project'         => $deployhq_project->permalink,
 			'site'            => $pressable_site->id,

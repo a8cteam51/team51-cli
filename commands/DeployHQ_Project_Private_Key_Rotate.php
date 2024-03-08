@@ -8,7 +8,6 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
 
@@ -16,7 +15,7 @@ use Symfony\Component\Console\Question\Question;
  * Rotates the private key in a DeployHQ project.
  */
 #[AsCommand( name: 'deployhq:rotate-project-private-key' )]
-final class DeployHQ_Project_Rotate_Private_Key extends Command {
+final class DeployHQ_Project_Private_Key_Rotate extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**

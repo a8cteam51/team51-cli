@@ -112,7 +112,7 @@ final class DeployHQ_Project_Create extends Command {
 		if ( ! \is_null( $this->gh_repository ) ) {
 			/* @noinspection PhpUnhandledExceptionInspection */
 			run_app_command(
-				DeployHQ_Project_Connect_Repository::getDefaultName(),
+				DeployHQ_Project_Repository_Connect::getDefaultName(),
 				array(
 					'project'    => $project->permalink,
 					'repository' => $this->gh_repository->name,

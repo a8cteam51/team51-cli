@@ -15,7 +15,7 @@ use Symfony\Component\Console\Question\Question;
  * Creates a new server for a project on DeployHQ.
  */
 #[AsCommand( name: 'deployhq:create-project-server' )]
-final class DeployHQ_Project_Create_Server extends Command {
+final class DeployHQ_Project_Server_Create extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**

@@ -13,7 +13,7 @@ use Symfony\Component\Console\Question\Question;
  * Opens an SSH or SFTP shell to a given Pressable site.
  */
 #[AsCommand( name: 'pressable:open-site-shell' )]
-final class Pressable_Site_Open_Shell extends Command {
+final class Pressable_Site_Shell_Open extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**

@@ -14,7 +14,7 @@ use Symfony\Component\Console\Question\Question;
  * Creates a new Pressable site collaborator.
  */
 #[AsCommand( name: 'pressable:create-site-collaborator' )]
-final class Pressable_Site_Create_Collaborator extends Command {
+final class Pressable_Site_Collaborator_Create extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**

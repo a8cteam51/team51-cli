@@ -205,11 +205,11 @@ final class Pressable_Site_Clone extends Command {
 
 		// Run a few commands to set up the site.
 		run_app_command(
-			Pressable_Site_Rotate_WP_User_Password::getDefaultName(),
+			Pressable_Site_WP_User_Password_Rotate::getDefaultName(),
 			array(
 				'site'   => $site_clone->id,
 				'--user' => 'concierge@wordpress.com',
-			),
+			)
 		);
 		run_pressable_site_wp_cli_command( $site_clone->id, 'config set WP_ENVIRONMENT_TYPE development --type=constant' );
 		run_pressable_site_wp_cli_command( $site_clone->id, "search-replace {$this->site->url} $site_clone->url" );

@@ -15,7 +15,7 @@ use Symfony\Component\Console\Question\Question;
  * Rotates the WP password of users on Pressable sites.
  */
 #[AsCommand( name: 'pressable:rotate-site-wp-user-password' )]
-final class Pressable_Site_Rotate_WP_User_Password extends Command {
+final class Pressable_Site_WP_User_Password_Rotate extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**

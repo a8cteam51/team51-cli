@@ -14,7 +14,7 @@ use Symfony\Component\Console\Question\Question;
  * Connects a DeployHQ project to a GitHub repository.
  */
 #[AsCommand( name: 'deployhq:connect-project-repository', aliases: array( 'deployhq:connect-project-repo' ) )]
-final class DeployHQ_Project_Connect_Repository extends Command {
+final class DeployHQ_Project_Repository_Connect extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**

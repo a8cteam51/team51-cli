@@ -17,7 +17,7 @@ use Symfony\Component\Console\Question\Question;
  * phpcs:disable WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
  */
 #[AsCommand( name: 'wpcom:delete-site-wp-user' )]
-final class WPCOM_Site_Delete_WP_User extends Command {
+final class WPCOM_Site_WP_User_Delete extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**
