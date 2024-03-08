@@ -63,5 +63,5 @@ function update_jetpack_site_modules_settings( string $site_id_or_url, array $se
 		return null;
 	}
 
-	return ( $update_result->data->code ?? null ) === 'success';
+	return ( $update_result->code ?? null ) === 'success';
 }

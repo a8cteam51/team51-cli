@@ -112,7 +112,7 @@ final class API_Helper {
 			console_writeln( "❌ API error ({$result['headers']['http_code']} $endpoint): " . encode_json_content( $result['body'] ) );
 			return null;
 		}
-		if ( is_object( $result['body'] ) && property_exists( $result['body'], 'code' ) ) {
+		if ( is_object( $result['body'] ) && property_exists( $result['body'], 'code' ) && 'success' !== $result['body']->code ) {
 			console_writeln( "❌ API error ({$result['body']->code} $endpoint): {$result['body']->message}" );
 			return null;
 		}

@@ -58,6 +58,18 @@ function get_wpcom_site_batch( array $site_ids_or_urls ): ?array {
 }
 
 /**
+ * Returns the list of plugins installed on a given WPCOM site.
+ *
+ * @param   string $site_id_or_domain The site URL or WordPress.com site ID.
+ *
+ * @return  stdClass[]|null
+ */
+function get_wpcom_site_plugins( string $site_id_or_domain ): ?array {
+	$plugins = API_Helper::make_wpcom_request( "sites/$site_id_or_domain/plugins" );
+	return is_null( $plugins ) ? null : (array) $plugins;
+}
+
+/**
  * Returns the list of users present on given WPCOM site.
  *
  * @param   string $site_id_or_url The site URL or WordPress.com site ID.
