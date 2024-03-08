@@ -16,19 +16,25 @@ define( 'OPSOASIS_WP_USERNAME', $team51_op_account->email ?? null );
 if ( ! empty( getenv( 'TEAM51_OPSOASIS_APP_PASSWORD' ) ) ) {
 	define( 'OPSOASIS_APP_PASSWORD', getenv( 'TEAM51_OPSOASIS_APP_PASSWORD' ) );
 } else {
-	$team51_op_identities = list_1password_items(
+	$team51_op_logins = list_1password_items(
 		array(
-			'categories' => 'Identity',
+			'categories' => 'Login',
 			'vault'      => 'Private',
 		)
 	);
 
-	foreach ( $team51_op_identities as $op_identity ) {
-		$op_identity = get_1password_item( $op_identity->id );
-		foreach ( $op_identity->fields as $field ) {
-			if ( 'OpsOasis App Password' === $field->label ) {
-				define( 'OPSOASIS_APP_PASSWORD', $field->value );
-				break 2;
+	foreach ( $team51_op_logins as $op_login ) {
+		$op_login = get_1password_item( $op_login->id );
+		foreach ( $op_login->urls as $url ) {
+			if ( 'opsoasis.wpspecialprojects.com' !== parse_url( $url->href, PHP_URL_HOST ) ) {
+				continue;
+			}
+
+			foreach ( $op_login->fields as $field ) {
+				if ( 'App Password' === $field->label ) {
+					define( 'OPSOASIS_APP_PASSWORD', $field->value );
+					break 3;
+				}
 			}
 		}
 	}
