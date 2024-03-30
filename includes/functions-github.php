@@ -10,9 +10,9 @@ use Symfony\Component\Console\Output\OutputInterface;
  *
  * @param   array $params An array of parameters to filter the results by.
  *
- * @return  stdClass[]
+ * @return  stdClass|null
  */
-function get_github_repositories( array $params = array() ): array {
+function get_github_repositories( array $params = array() ): ?stdClass {
 	$endpoint = 'repositories';
 	if ( ! empty( $params ) ) {
 		$endpoint .= '?' . http_build_query( $params );

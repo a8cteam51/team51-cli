@@ -176,7 +176,7 @@ final class Pressable_Site_Create extends Command {
 		$question = new ConfirmationQuestion( '<question>Would you like to deploy to the site from a GitHub repository? [Y/n]</question> ', true );
 		if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 			$question = new Question( "<question>Please enter the slug of the GitHub repository to deploy from [$this->name]:</question> ", $this->name );
-			$question->setAutocompleterValues( array_column( get_github_repositories() ?? array(), 'name' ) );
+			$question->setAutocompleterValues( array_column( get_github_repositories()->records ?? array(), 'name' ) );
 
 			return $this->getHelper( 'question' )->ask( $input, $output, $question );
 		}
