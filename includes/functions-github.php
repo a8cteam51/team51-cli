@@ -60,9 +60,9 @@ function create_github_repository( string $name, ?string $type = null, ?string $
  *
  * @param   string $repository The name of the repository to retrieve the branches for.
  *
- * @return  stdClass[]
+ * @return  stdClass|null
  */
-function get_github_repository_branches( string $repository ): array {
+function get_github_repository_branches( string $repository ): ?stdClass {
 	return API_Helper::make_github_request( "repositories/$repository/branches" );
 }
 

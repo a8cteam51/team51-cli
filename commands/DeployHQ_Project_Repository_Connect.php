@@ -126,7 +126,7 @@ final class DeployHQ_Project_Repository_Connect extends Command {
 	 */
 	private function prompt_repository_input( InputInterface $input, OutputInterface $output ): string {
 		$question = new Question( '<question>Enter the slug of the repository to connect:</question> ' );
-		$question->setAutocompleterValues( array_column( get_github_repositories()->records ?? array(), 'name' ) );
+		$question->setAutocompleterValues( array_column( get_github_repositories()?->records ?? array(), 'name' ) );
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
