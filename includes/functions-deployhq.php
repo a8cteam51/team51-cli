@@ -11,7 +11,7 @@ use Symfony\Component\Console\Output\OutputInterface;
  * @return  stdClass[]|null
  */
 function get_deployhq_projects(): ?array {
-	return API_Helper::make_deployhq_request( 'projects' );
+	return API_Helper::make_deployhq_request( 'projects' )?->records;
 }
 
 /**
@@ -49,7 +49,7 @@ function get_deployhq_templates(): ?array {
 	static $templates = null;
 
 	if ( is_null( $templates ) ) {
-		$templates = API_Helper::make_deployhq_request( 'templates' );
+		$templates = API_Helper::make_deployhq_request( 'templates' )?->records;
 		if ( is_array( $templates ) ) {
 			$templates = array_combine(
 				array_column( $templates, 'permalink' ),
@@ -121,7 +121,7 @@ function update_deployhq_project_repository( string $project, string $repository
  * @return  stdClass[]|null
  */
 function get_deployhq_project_servers( string $project ): ?array {
-	return API_Helper::make_deployhq_request( "projects/$project/servers" );
+	return API_Helper::make_deployhq_request( "projects/$project/servers" )?->records;
 }
 
 /**
