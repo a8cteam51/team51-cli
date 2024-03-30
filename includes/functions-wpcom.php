@@ -29,8 +29,17 @@ function get_wpcom_sites( array $params = array() ): ?array {
 		$endpoint .= '?' . http_build_query( $params );
 	}
 
-	$sites = API_Helper::make_wpcom_request( $endpoint );
-	return is_null( $sites ) ? null : (array) $sites;
+	$response = API_Helper::make_wpcom_request( $endpoint );
+	if ( is_null( $response ) ) {
+		return null;
+	}
+
+	// Convert the response records to an associative array indexed by the site ID.
+	$type = $params['type'] ?? 'all';
+	return array_combine(
+		array_column( $response->records, 'jetpack' === $type ? 'userblog_id' : 'ID' ),
+		$response->records
+	);
 }
 
 /**
