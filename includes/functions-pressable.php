@@ -18,7 +18,7 @@ use WPCOMSpecialProjects\CLI\Command\Pressable_Site_WP_CLI_Command_Run;
  * @return  stdClass[]|null
  */
 function get_pressable_collaborators(): ?array {
-	return API_Helper::make_pressable_request( 'collaborators' );
+	return API_Helper::make_pressable_request( 'collaborators' )?->records;
 }
 
 /**
@@ -34,7 +34,7 @@ function get_pressable_sites( array $params = array() ): ?array {
 		$endpoint .= '?' . http_build_query( $params );
 	}
 
-	return API_Helper::make_pressable_request( $endpoint );
+	return API_Helper::make_pressable_request( $endpoint )?->records;
 }
 
 /**
@@ -100,7 +100,7 @@ function get_pressable_site_notes( string $site_id_or_url, array $params = array
 		$endpoint .= '?' . http_build_query( $params );
 	}
 
-	return API_Helper::make_pressable_request( $endpoint );
+	return API_Helper::make_pressable_request( $endpoint )?->records;
 }
 
 /**
@@ -195,7 +195,7 @@ function create_pressable_site_collaborator( string $site_id_or_url, string $col
  * @return  stdClass[]|null
  */
 function get_pressable_site_sftp_users( string $site_id_or_url ): ?array {
-	return API_Helper::make_pressable_request( "site-sftp-users/$site_id_or_url" );
+	return API_Helper::make_pressable_request( "site-sftp-users/$site_id_or_url" )?->records;
 }
 
 /**
@@ -241,7 +241,7 @@ function rotate_pressable_site_sftp_user_password( string $site_id_or_url, strin
  * @return  stdClass[]|null
  */
 function get_pressable_site_wp_users( string $site_id_or_url ): ?array {
-	return API_Helper::make_pressable_request( "site-wp-users/$site_id_or_url" );
+	return API_Helper::make_pressable_request( "site-wp-users/$site_id_or_url" )?->records;
 }
 
 /**
