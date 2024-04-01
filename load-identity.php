@@ -24,12 +24,12 @@ if ( ! empty( getenv( 'TEAM51_OPSOASIS_APP_PASSWORD' ) ) ) {
 	);
 
 	foreach ( $team51_op_logins as $op_login ) {
-		$op_login = get_1password_item( $op_login->id );
 		foreach ( $op_login->urls as $url ) {
 			if ( 'opsoasis.wpspecialprojects.com' !== parse_url( $url->href, PHP_URL_HOST ) ) {
 				continue;
 			}
 
+			$op_login = get_1password_item( $op_login->id ); // Hydrate the custom fields.
 			foreach ( $op_login->fields as $field ) {
 				if ( 'App Password' === $field->label ) {
 					define( 'OPSOASIS_APP_PASSWORD', $field->value );
