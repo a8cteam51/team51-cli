@@ -173,7 +173,7 @@ function delete_wpcom_site_user( string $site_id_or_url, string $user_id_or_user
  * @return  string[]|null
  */
 function get_wpcom_site_stickers( string $site_id_or_domain ): ?array {
-	return API_Helper::make_wpcom_request( "site-stickers/$site_id_or_domain" );
+	return API_Helper::make_wpcom_request( "site-stickers/$site_id_or_domain" )?->records;
 }
 
 /**
