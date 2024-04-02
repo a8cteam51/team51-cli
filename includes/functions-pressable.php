@@ -472,7 +472,7 @@ function get_pressable_site_input( InputInterface $input, OutputInterface $outpu
  * @return  stdClass
  */
 function get_pressable_site_sftp_user_input( InputInterface $input, OutputInterface $output, string $site_id, ?callable $no_input_func = null, string $name = 'user' ): stdClass {
-	$uname_or_id_or_email = get_string_input( $input, $output, $no_input_func, $name );
+	$uname_or_id_or_email = get_string_input( $input, $output, $name, $no_input_func );
 	$sftp_user            = get_pressable_site_sftp_user( $site_id, $uname_or_id_or_email );
 
 	if ( is_null( $sftp_user ) ) {

@@ -127,12 +127,22 @@ function get_wpcom_site_users( string $site_id_or_url, array $params = array() )
  * @return  stdClass[]|null
  */
 function get_wpcom_site_users_batch( array $site_ids_or_urls, array $params = array() ): ?array {
-	$body        = array(
-		'sites'  => $site_ids_or_urls,
-		'params' => $params,
+	$sites_users = API_Helper::make_wpcom_request(
+		'site-users/batch',
+		'POST',
+		array(
+			'sites'  => $site_ids_or_urls,
+			'params' => $params,
+		)
 	);
-	$sites_users = API_Helper::make_wpcom_request( 'site-users/batch', 'POST', $body );
-	return is_null( $sites_users ) ? null : (array) $sites_users;
+	if ( is_null( $sites_users ) ) {
+		return null;
+	}
+
+	return array_map(
+		static fn ( stdClass $site_users ) => $site_users->records ?? $site_users,
+		(array) $sites_users
+	);
 }
 
 /**

@@ -63,9 +63,8 @@ function get_jetpack_site_modules_batch( array $site_ids_or_urls ): ?array {
 	}
 
 	return array_map(
-		static function ( stdClass|array $site_module_list ) {
-			return is_object( $site_module_list ) && property_exists( $site_module_list, 'errors' )
-				? $site_module_list : (array) $site_module_list;
+		static function ( stdClass $site_module_list ) {
+			return property_exists( $site_module_list, 'errors' ) ? $site_module_list : (array) $site_module_list;
 		},
 		(array) $sites_module_list
 	);

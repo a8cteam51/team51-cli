@@ -84,7 +84,7 @@ final class Pressable_Site_SFTP_User_Password_Rotate extends Command {
 		// If processing a given user, retrieve it from the input.
 		$user = match ( $this->multiple ) {
 			'all' => get_email_input( $input, $output, fn() => $this->prompt_user_input( $input, $output ), 'user' ),
-			default => get_pressable_site_sftp_user_input( $input, $output, $input->getArgument( 'site' ), fn() => $this->prompt_user_input( $input, $output ) ),
+			default => get_pressable_site_sftp_user_input( $input, $output, $input->getArgument( 'site' )->id, fn() => $this->prompt_user_input( $input, $output ) ),
 		};
 		$input->setOption( 'user', $user->email ?? $user );
 
@@ -205,7 +205,7 @@ final class Pressable_Site_SFTP_User_Password_Rotate extends Command {
 	private function prompt_user_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the email of the SFTP user to rotate the password for [concierge@wordpress.com]:</question> ', 'concierge@wordpress.com' );
 		if ( 'all' !== $this->multiple ) {
-			$question->setAutocompleterValues( \array_map( static fn( object $user ) => $user->email, get_pressable_site_sftp_users( $input->getArgument( 'site' ) ) ?? array() ) );
+			$question->setAutocompleterValues( \array_map( static fn( object $user ) => $user->email, get_pressable_site_sftp_users( $input->getArgument( 'site' )->id ) ?? array() ) );
 		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
