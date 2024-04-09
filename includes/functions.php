@@ -330,6 +330,34 @@ function get_email_input( InputInterface $input, OutputInterface $output, ?calla
 }
 
 /**
+ * Grabs a value from the console input and validates it as a domain.
+ *
+ * @param   InputInterface  $input         The console input.
+ * @param   OutputInterface $output        The console output.
+ * @param   callable|null   $no_input_func The function to call if no input is given.
+ * @param   string          $name          The name of the value to grab.
+ *
+ * @return  string
+ */
+function get_domain_input ( InputInterface $input, OutputInterface $output, ?callable $no_input_func = null, string $name = 'domain' ): string {
+		$domain = get_string_input( $input, $output, $name, $no_input_func );
+
+		if ( false !== \strpos( $domain, 'http' ) ) {
+			$domain = \parse_url( $domain, PHP_URL_HOST );
+		} elseif ( false === \strpos( $domain, '.', 1 ) ) {
+			$domain = null;
+		}
+
+		if ( empty( $domain ) ) {
+			$output->writeln( '<error>No domain was provided or domain is invalid. Aborting!</error>' );
+			exit( 1 );
+		}
+
+		return \strtolower( $domain );
+}
+
+
+/**
  * Grabs a value from the console input and validates it as a URL or a numeric string.
  *
  * @param   InputInterface  $input         The console input.

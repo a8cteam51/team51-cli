@@ -87,6 +87,16 @@ function get_pressable_site( string $site_id_or_url ): ?stdClass {
 }
 
 /**
+ * Converts the specified Pressable site from staging to production or vice versa.
+ *
+ * @param   string $site_id_or_url The ID or URL of the site to retrieve.
+ *
+ * @return  stdClass|null
+ */
+function convert_pressable_site( string $site_id_or_url ): ?stdClass {
+	return API_Helper::make_pressable_request( "sites/$site_id_or_url/convert", 'POST' );
+}
+/**
  * Returns the list of notes for the specified Pressable site.
  *
  * @param   string $site_id_or_url The ID or URL of the Pressable site to retrieve the notes for.
@@ -196,6 +206,90 @@ function create_pressable_site_collaborator( string $site_id_or_url, string $col
  */
 function get_pressable_site_sftp_users( string $site_id_or_url ): ?array {
 	return API_Helper::make_pressable_request( "site-sftp-users/$site_id_or_url" )?->records;
+}
+
+/**
+ * Returns the list of domains for the specified Pressable site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the Pressable site to retrieve the domains for.
+ *
+ * @return  string[]|null
+ */
+function get_pressable_site_domains ( string $site_id_or_url ): ?array {
+	$endpoint = "site-domains/$site_id_or_url";
+	if ( ! empty( $params ) ) {
+		$endpoint .= '?' . http_build_query( $params );
+	}
+
+	$domains = API_Helper::make_pressable_request( $endpoint )?->records;
+
+	return $domains ?? array();
+}
+
+/**
+ * Returns the primary domain for the specified Pressable site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the Pressable site to retrieve the primary domain for.
+ *
+ * @return  string|null
+ */
+function get_pressable_site_primary_domain ( string $site_id_or_url ): ?string {
+	$site_domains = get_pressable_site_domains( $site_id_or_url );
+	if( is_null( $site_domains ) || empty( $site_domains ) ) {
+		return null;
+	}
+	$domains = array_values(
+		array_filter( $site_domains, fn( $site_domain ) => $site_domain->primary )
+	);
+	if( empty( $domains ) ) {
+		return null;
+	}
+	return $domains[0]->domainName;
+}
+
+/**
+ * Sets a given domain as the primary domain of a given Pressable site.
+ *
+ * @param   string  $site_id    The site ID.
+ * @param   string  $domain_id  The domain ID.
+ *
+ * @link    https://my.pressable.com/documentation/api/v1#set-primary-domain
+ *
+ * @return  object|null
+ */
+function set_pressable_site_primary_domain( string $site_id_or_url, string $domain_id ): ?object {
+	$result = API_Helper::make_pressable_request(
+		"site-domains/$site_id_or_url/$domain_id",
+		'PUT',
+		array(
+			'primary' => true,
+		)
+	);
+
+	if ( \is_null( $result ) || empty( $result ) ) {
+		return null;
+	}
+
+	return $result;
+}
+
+/** 
+ * Adds a new domain on the specified Pressable site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the Pressable site to create the domain on.
+ * @param   string $domain         The domain to create.
+ *
+ * @return  object[]|null
+ */
+function add_pressable_site_domain( string $site_id_or_url, string $domain ): ?array {
+	$domains = API_Helper::make_pressable_request(
+		"site-domains/$site_id_or_url",
+		'POST',
+		array(
+			'name' => $domain,
+		)
+	);
+	return $domains->records;
 }
 
 /**
