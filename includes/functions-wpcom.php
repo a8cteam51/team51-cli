@@ -100,6 +100,25 @@ function get_wpcom_site_plugins_batch( array $site_ids_or_urls ): ?array {
 }
 
 /**
+ * Returns the stats for a WPCOM or Jetpack Connected site.
+ *
+ * @param   string $site_id_or_url The site URL or WordPress.com site ID.
+ * @param   array  $params         Optional. Additional parameters to pass to the request.
+ *
+ * @link    https://developer.wordpress.com/docs/api/1.1/get/sites/$site/stats/summary/
+ *
+ * @return  stdClass[]|null
+ */
+function get_wpcom_site_stats( string $site_id_or_url, array $params = array() ): ?array {
+	$endpoint = "sites/$site_id_or_url/stats/summary";
+	if ( ! empty( $params ) ) {
+		$endpoint .= '?' . http_build_query( $params );
+	}
+
+	return API_Helper::make_wpcom_request( $endpoint );
+}
+
+/**
  * Returns the list of users present on given WPCOM site.
  *
  * @param   string $site_id_or_url The site URL or WordPress.com site ID.

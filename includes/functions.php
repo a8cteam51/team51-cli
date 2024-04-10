@@ -356,7 +356,6 @@ function get_domain_input( InputInterface $input, OutputInterface $output, ?call
 		return \strtolower( $domain );
 }
 
-
 /**
  * Grabs a value from the console input and validates it as a URL or a numeric string.
  *
@@ -417,6 +416,25 @@ function validate_user_choice( mixed $value, array $choices ): mixed {
 	}
 
 	return array_flip( $choices )[ $value ] ?? null;
+}
+
+/**
+ * Validates a given date string against a specific format.
+ *
+ * @param string $date_string The date string input by the user.
+ * @param string $format      The expected date format.
+ *
+ * @return string
+ * @throws \RuntimeException If the date does not match the format.
+ */
+function validate_date_format( string $date_string, string $format ): string {
+	$date = DateTime::createFromFormat( $format, $date_string );
+
+	if ( ! $date || $date->format( $format ) !== $date_string ) {
+		throw new \RuntimeException( "Invalid date format. Expected format: $format" );
+	}
+
+	return $date_string;
 }
 
 /**
