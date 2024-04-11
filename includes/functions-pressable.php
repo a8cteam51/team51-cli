@@ -228,7 +228,8 @@ function get_pressable_site_domains( string $site_id_or_url ): ?array {
  * @return  stdClass|null
  */
 function get_pressable_site_primary_domain( string $site_id_or_url ): ?stdClass {
-	return API_Helper::make_pressable_request( "site-domains/$site_id_or_url/primary" );
+	$primary_domain = API_Helper::make_pressable_request( "site-domains/$site_id_or_url/primary" );
+	return true === $primary_domain ? null : $primary_domain;
 }
 
 /**
