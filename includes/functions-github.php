@@ -214,6 +214,72 @@ function parse_github_remote_repository_url( string $url ): ?stdClass {
 }
 
 /**
+ * Lists all secrets available in a repository without revealing their encrypted values.
+ *
+ * @param   string  $owner          The account owner of the repository. The name is not case-sensitive.
+ * @param   string  $repository     The name of the repository. The name is not case-sensitive.
+ *
+ * @return  object[]|null
+ */
+function get_github_repository_secrets( string $owner, string $repository ): ?array {
+	$result = API_Helper::make_github_request(
+		"repos/$owner/$repository/actions/secrets",
+		'GET'
+	);
+	if ( \is_null( $result ) || ! \property_exists( $result, 'secrets' ) ) {
+		return null;
+	}
+
+	return $result->secrets;
+}
+
+/**
+ * Gets your public key, which you need to encrypt secrets. You need to encrypt a secret before you can create or update secrets.
+ *
+ * @param   string  $owner          The account owner of the repository. The name is not case-sensitive.
+ * @param   string  $repository     The name of the repository. The name is not case-sensitive.
+ *
+ * @return  object|null
+ */
+function get_github_repository_public_key( string $owner, string $repository ): ?object {
+	$result = API_Helper::make_github_request( \sprintf( 'repos/%s/%s/actions/secrets/public-key', $owner, $repository ) );
+	if ( \is_null( $result ) || ! \property_exists( $result, 'key' ) ) {
+		return null;
+	}
+
+	return $result;
+}
+
+/**
+ * Creates or updates a repository secret with an encrypted value.
+ *
+ * @param   string  $owner              The account owner of the repository. The name is not case-sensitive.
+ * @param   string  $repository         The name of the repository. The name is not case-sensitive.
+ * @param   string  $secret_name        The name of the secret.
+ * @param   string  $encrypted_value    Value for your secret, encrypted with LibSodium using the public key retrieved from the Get a repository public key endpoint.
+ * @param   string  $key_id             ID of the key you used to encrypt the secret.
+ *
+ * @link    https://docs.github.com/en/rest/actions/secrets#create-or-update-a-repository-secret
+ *
+ * @return  bool
+ */
+function update_github_repository_secret( string $owner, string $repository, string $secret_name, string $encrypted_value, string $key_id ): bool {
+	$result = API_Helper::make_github_request(
+		\sprintf( 'repos/%s/%s/actions/secrets/%s', $owner, $repository, $secret_name ),
+		'PUT',
+		array(
+			'encrypted_value' => $encrypted_value,
+			'key_id'          => $key_id,
+		)
+	);
+	if ( \is_null( $result ) ) {
+		return false;
+	}
+
+	return \is_object( $result ); // On success, we just have an empty object.
+}
+
+/**
  * Returns the GitHub repository for a given DeployHQ project.
  *
  * @param   string $project The permalink of the project to get the GitHub repository for.
