@@ -66,6 +66,16 @@ function get_wpcom_site_batch( array $site_ids_or_urls ): ?array {
 }
 
 /**
+ * Returns the list of sites and their plugins from Jetpack site profiles data.
+ *
+ * @return  stdClass[]|null
+ */
+function get_wpcom_jetpack_sites_plugins(): ?array {
+	$plugins = API_Helper::make_wpcom_request( 'sites/plugins' );
+	return is_null( $plugins ) ? null : (array) $plugins;
+}
+
+/**
  * Returns the list of plugins installed on a given WPCOM site.
  *
  * @param   string $site_id_or_domain The site URL or WordPress.com site ID.
