@@ -77,7 +77,7 @@ final class Pressable_Site_Domain_Add extends Command {
 	 */
 	protected function interact( InputInterface $input, OutputInterface $output ): void {
 		// Force the domain to be primary if the site has no primary domain.
-		if ( $this->maybe_force_primary_option( $this->site->id, $this->primary ) ) {
+		if ( ! $this->primary && $this->maybe_force_primary_option( $this->site->id, $this->primary ) ) {
 			$this->primary = true;
 			$output->writeln( '<comment>There is no primary domain for the site. Setting the domain as primary.</comment>' );
 		}
@@ -259,13 +259,20 @@ final class Pressable_Site_Domain_Add extends Command {
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
 
+	/**
+	 * Forces the primary option to be true if the site has no primary domain.
+	 *
+	 * @param   string  $site_id  The ID of the site.
+	 * @param   bool    $primary  The primary option.
+	 *
+	 * @return  bool
+	 */
 	public function maybe_force_primary_option( string $site_id, bool $primary ): bool {
-		// Force the domain to be primary if the site has no primary domain.
-		$domains = get_pressable_site_domains( $site_id );
+		$force = false;
 		if ( ! $primary && is_null( get_pressable_site_primary_domain( $site_id ) ) ) {
 			$force = true;
 		}
-		return false;
+		return $force;
 	}
 
 	/**
