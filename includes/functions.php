@@ -445,20 +445,42 @@ function validate_user_choice( mixed $value, array $choices ): mixed {
 /**
  * Validates a given date string against a specific format.
  *
- * @param   string $date_string The date string input by the user.
- * @param   string $format      The expected date format.
+ * @param string      $date_string The date string input by the user.
+ * @param string      $format      The expected date format.
+ * @param string|null $user_format The format to display in the error message. Default is the expected format.
  *
  * @throws  \RuntimeException If the date does not match the format.
  * @return  string
  */
-function validate_date_format( string $date_string, string $format ): string {
-	$date = DateTime::createFromFormat( $format, $date_string );
-
-	if ( ! $date || $date->format( $format ) !== $date_string ) {
-		throw new \RuntimeException( "The provided date is invalid. Expected format: $format" );
+function validate_date_format( string $date_string, string $format, ?string $user_format = null ): string {
+	if ( ! $user_format ) {
+		$user_format = $format;
 	}
+	if ( strpos( $format, 'Y-\WW' ) !== false ) {
+		if ( preg_match( '/(\d{4})-W(\d{2})/', $date_string, $matches ) ) {
+			$year = (int) $matches[1];
+			$week = (int) $matches[2];
 
-	return $date_string;
+			$date = new DateTime();
+			$date->setISODate( $year, $week );
+
+			$formatted_date = $date->format( 'Y-\WW' );
+			if ( $formatted_date !== $date_string ) {
+				throw new \RuntimeException( "Invalid date format. Expected format: $user_format, given: $date_string" );
+			}
+
+			return $date_string;
+		} else {
+			throw new \RuntimeException( "Invalid date format. Expected format: $user_format, given: $date_string" );
+		}
+	} else {
+		$date = DateTime::createFromFormat( $format, $date_string );
+		if ( ! $date || $date->format( $format ) !== $date_string ) {
+			throw new \RuntimeException( "Invalid date format. Expected format: $user_format, given: $date_string" );
+		}
+
+		return $date_string;
+	}
 }
 
 /**

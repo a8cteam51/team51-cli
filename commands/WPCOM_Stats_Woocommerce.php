@@ -46,7 +46,7 @@ final class WPCOM_Stats_Woocommerce extends Command {
 	 */
 	private $date_format_options = array(
 		'day'   => array( 'YYYY-MM-DD', 'Y-m-d' ),
-		'week'  => array( 'YYYY-W##', 'Y-\WW-N' ),
+		'week'  => array( 'YYYY-W##', 'Y-\WW' ),
 		'month' => array( 'YYYY-MM', 'Y-m' ),
 		'year'  => array( 'YYYY', 'Y' ),
 	);
@@ -349,8 +349,7 @@ final class WPCOM_Stats_Woocommerce extends Command {
 	 */
 	private function prompt_date_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the end date for the report [' . $this->date_format_options[ $this->unit ][0] . ']:</question> ' );
-		$question = $question->setValidator( fn( $value ) => validate_date_format( 'week' === $this->unit ? $value . '-1' : $value, $this->date_format_options[ $this->unit ][1] ) );
-		// Validator for week format fails. Need to fix.
+		$question = $question->setValidator( fn( $value ) => validate_date_format( $value, $this->date_format_options[ $this->unit ][1], $this->date_format_options[ $this->unit ][0] ) );
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
 
