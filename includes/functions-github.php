@@ -33,23 +33,39 @@ function get_github_repository( string $repository ): ?stdClass {
 }
 
 /**
+ * Sets the topics for a given GitHub repository.
+ *
+ * @param   string   $repository The name of the repository to set the topics for.
+ * @param   string[] $topics     The topics to set for the repository.
+ *
+ * @return  string[]|null
+ */
+function set_github_repository_topics( string $repository, array $topics ): ?array {
+	return API_Helper::make_github_request( "repositories/$repository/topics", 'PUT', array( 'topics' => $topics ) )?->records;
+}
+
+/**
  * Creates a new GitHub repository.
  *
- * @param   string      $name        The name of the repository to create.
- * @param   string|null $type        The type of repository to create aka the name of the template repository to use.
- * @param   string|null $description A short, human-friendly description for this project.
+ * @param   string      $name              The name of the repository to create.
+ * @param   string|null $type              The type of repository to create aka the name of the template repository to use.
+ * @param   string|null $homepage          A URL with more information about the repository.
+ * @param   string|null $description       A short, human-friendly description for this project.
+ * @param   array|null  $custom_properties The custom properties to set for the repository. Must be an array of key-value pairs and match the properties defined on GitHub.
  *
  * @return  stdClass|null
  */
-function create_github_repository( string $name, ?string $type = null, ?string $description = null ): ?stdClass {
+function create_github_repository( string $name, ?string $type = null, ?string $homepage = null, ?string $description = null, ?array $custom_properties = null ): ?stdClass {
 	return API_Helper::make_github_request(
 		'repositories',
 		'POST',
 		array_filter(
 			array(
-				'name'        => $name,
-				'description' => $description,
-				'template'    => $type ? "team51-$type-scaffold" : null,
+				'name'              => $name,
+				'description'       => $description,
+				'homepage'          => $homepage,
+				'template'          => $type ? "team51-$type-scaffold" : null,
+				'custom_properties' => $custom_properties,
 			)
 		)
 	);

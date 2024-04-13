@@ -13,8 +13,6 @@ use Symfony\Component\Console\Question\Question;
 
 /**
  * Create a new GitHub repository, optionally from a template.
- *
- * WORK IN PROGRESS
  */
 #[AsCommand( name: 'github:create-repository' )]
 final class GitHub_Repository_Create extends Command {
@@ -28,11 +26,11 @@ final class GitHub_Repository_Create extends Command {
 	private ?string $name = null;
 
 	/**
-	 * The type of repository to create aka the name of the template repository to use.
+	 * A URL with more information about the repository.
 	 *
 	 * @var string|null
 	 */
-	private ?string $type = null;
+	private ?string $homepage = null;
 
 	/**
 	 * A short, human-friendly description for this project.
@@ -40,6 +38,20 @@ final class GitHub_Repository_Create extends Command {
 	 * @var string|null
 	 */
 	private ?string $description = null;
+
+	/**
+	 * The type of repository to create aka the name of the template repository to use.
+	 *
+	 * @var string|null
+	 */
+	private ?string $type = null;
+
+	/**
+	 * The custom properties to set for the repository.
+	 *
+	 * @var array|null
+	 */
+	private ?array $custom_properties = null;
 
 	// endregion
 
@@ -53,8 +65,11 @@ final class GitHub_Repository_Create extends Command {
 			->setHelp( 'This command allows you to create a new Github repository.' );
 
 		$this->addArgument( 'name', InputArgument::REQUIRED, 'The name of the repository to create.' )
+			->addOption( 'homepage', null, InputOption::VALUE_REQUIRED, 'A URL with more information about the repository.' )
 			->addOption( 'description', null, InputOption::VALUE_REQUIRED, 'A short, human-friendly description for this project.' )
 			->addOption( 'type', null, InputOption::VALUE_REQUIRED, 'The name of the template repository to use, if any. One of either `project`, `plugin`, or `issues`. Default empty repo.' );
+
+		$this->addOption( 'custom-properties', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'The custom properties to set for the repository.' );
 	}
 
 	/**
@@ -64,10 +79,14 @@ final class GitHub_Repository_Create extends Command {
 		$this->name = slugify( get_string_input( $input, $output, 'name', fn() => $this->prompt_name_input( $input, $output ) ) );
 		$input->setArgument( 'name', $this->name );
 
+		$this->homepage    = $input->getOption( 'homepage' );
+		$this->description = $input->getOption( 'description' );
+
 		$this->type = get_enum_input( $input, $output, 'type', array( 'project', 'plugin', 'issues' ), fn() => $this->prompt_type_input( $input, $output ) );
 		$input->setOption( 'type', $this->type );
 
-		$this->description = $input->getOption( 'description' );
+		$this->custom_properties = $this->process_custom_properties( $input );
+		$input->setOption( 'custom-properties', $this->custom_properties );
 	}
 
 	/**
@@ -90,12 +109,20 @@ final class GitHub_Repository_Create extends Command {
 		$output->writeln( "<fg=magenta;options=bold>Creating the $type repository $this->name.</>" );
 
 		// Create the repository.
-		$repository = create_github_repository( $this->name, $this->type, $this->description );
+		$repository = create_github_repository( $this->name, $this->type, $this->homepage, $this->description, $this->custom_properties );
 		if ( \is_null( $repository ) ) {
 			$output->writeln( '<error>Failed to create the repository.</error>' );
 			return Command::FAILURE;
 		}
 
+		// Set a topic on the repository for easier finding.
+		if ( ! \is_null( $this->type ) ) {
+			set_github_repository_topics( $repository->name, array( "team51-$this->type" ) );
+		} else {
+			set_github_repository_topics( $repository->name, array( 'team51-empty' ) );
+		}
+
+		$output->writeln( "<fg=green;options=bold>Repository $this->name created successfully.</>" );
 		return Command::SUCCESS;
 	}
 
@@ -129,6 +156,38 @@ final class GitHub_Repository_Create extends Command {
 		$question->setAutocompleterValues( array( 'project', 'plugin', 'issues' ) );
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+	}
+
+	/**
+	 * Gets the custom properties from the input.
+	 *
+	 * @param   InputInterface $input The input object.
+	 *
+	 * @return  array
+	 */
+	private function process_custom_properties( InputInterface $input ): array {
+		$custom_properties = array();
+
+		foreach ( $input->getOption( 'custom-properties' ) as $property ) {
+			$property_parts = explode( '=', $property, 2 );
+			if ( 2 !== count( $property_parts ) ) {
+				continue;
+			}
+
+			$custom_properties[ $property_parts[0] ] = $property_parts[1];
+		}
+
+		if ( ! isset( $custom_properties['human-title'] ) ) {
+			$custom_properties['human-title'] = $this->name;
+		}
+		if ( ! isset( $custom_properties['php-globals-long-prefix'] ) ) {
+			$custom_properties['php-globals-long-prefix'] = \str_replace( '-', '_', $this->name );
+		}
+		if ( ! isset( $custom_properties['php-globals-short-prefix'] ) ) {
+			$custom_properties['php-globals-short-prefix'] = \str_replace( '-', '_', $this->name );
+		}
+
+		return $custom_properties;
 	}
 
 	// endregion
