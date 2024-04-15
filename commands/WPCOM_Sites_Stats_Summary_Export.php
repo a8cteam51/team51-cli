@@ -117,12 +117,12 @@ final class WPCOM_Sites_Stats_Summary_Export extends Command {
 		$output->writeln( '<comment>Successfully fetched ' . \count( $sites ) . ' Jetpack site(s).</comment>' );
 
 		// Filter out non-production sites.
-		$sites = array_filter(
-			array_map(
+		$sites = \array_filter(
+			\array_map(
 				function ( \stdClass $site ) {
 					$matches = false;
 					foreach ( $this->deny_list as $deny ) {
-						if ( str_contains( $site->siteurl, $deny ) ) {
+						if ( \str_contains( $site->siteurl, $deny ) ) {
 							$matches = true;
 							break;
 						}
@@ -152,8 +152,8 @@ final class WPCOM_Sites_Stats_Summary_Export extends Command {
 			),
 			'summary'
 		);
-		$sites_stats = array_filter(
-			array_map(
+		$sites_stats = \array_filter(
+			\array_map(
 				static fn( \stdClass $site_stats ) => empty( $site_stats->views ) ? null : $site_stats,
 				$sites_stats
 			)
@@ -161,14 +161,14 @@ final class WPCOM_Sites_Stats_Summary_Export extends Command {
 		$output->writeln( '<comment>Site stats found: ' . \count( $sites_stats ) . '</comment>' );
 
 		// Sort sites by total views and run some calculations.
-		uasort( $sites_stats, static fn( \stdClass $a, \stdClass $b ) => $b->views <=> $a->views );
+		\uasort( $sites_stats, static fn( \stdClass $a, \stdClass $b ) => $b->views <=> $a->views );
 		$sum_total_views     = \number_format( \array_sum( \array_column( $sites_stats, 'views' ) ) );
 		$sum_total_visitors  = \number_format( \array_sum( \array_column( $sites_stats, 'visitors' ) ) );
 		$sum_total_comments  = \number_format( \array_sum( \array_column( $sites_stats, 'comments' ) ) );
 		$sum_total_followers = \number_format( \array_sum( \array_column( $sites_stats, 'followers' ) ) );
 
 		// Format the site stats for output.
-		$sites_stats_rows = array_map(
+		$sites_stats_rows = \array_map(
 			static fn( \stdClass $site_stats, string $site_id ) => array(
 				$sites[ $site_id ]->userblog_id,
 				$sites[ $site_id ]->siteurl,
