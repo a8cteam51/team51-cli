@@ -269,8 +269,7 @@ final class WPCOM_Stats_Traffic extends Command {
 	private function prompt_destination_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new ConfirmationQuestion( '<question>Would you like to save the output to a file? [y/N]</question> ', false );
 		if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
-			$default = \getcwd() . '/wpcom-traffic-stats_' . gmdate( 'Y-m-d-H-i-s' ) . '.csv';
-
+			$default  = get_user_folder_path( 'Downloads/wpcom-traffic-stats_' . gmdate( 'Y-m-d-H-i-s' ) . '.csv' );
 			$question = new Question( "<question>Please enter the path to the file you want to save the output to [$default]:</question> ", $default );
 			return $this->getHelper( 'question' )->ask( $input, $output, $question );
 		}

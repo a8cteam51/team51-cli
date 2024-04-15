@@ -526,4 +526,18 @@ function dashify( string $value ): string {
 	return trim( $value, '-' ); // Trim any leading or trailing hyphens.
 }
 
+/**
+ * Returns the path to the current user's home directory, optionally appending a path to it.
+ *
+ * @param   string $path The path to append to the user's home directory.
+ *
+ * @return  string
+ */
+function get_user_folder_path( string $path = '' ): string {
+	$path = rtrim( $path, '/' );
+
+	$user_info = posix_getpwuid( posix_getuid() );
+	return $user_info['dir'] . "/$path";
+}
+
 // endregion
