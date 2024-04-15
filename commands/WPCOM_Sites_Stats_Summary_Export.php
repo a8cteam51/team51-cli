@@ -14,8 +14,8 @@ use Symfony\Component\Console\Question\ConfirmationQuestion;
 /**
  * Outputs a list of sites manages by the WordPress.com Special Projects team.
  */
-#[AsCommand( name: 'wpcom:traffic-stats' )]
-final class WPCOM_Stats_Traffic extends Command {
+#[AsCommand( name: 'wpcom:export-sites-stats-summary' )]
+final class WPCOM_Sites_Stats_Summary_Export extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**
@@ -85,7 +85,7 @@ final class WPCOM_Stats_Traffic extends Command {
 			->addOption( 'date', null, InputOption::VALUE_REQUIRED, 'The date that determines the most recent period for which results are returned. Format is Y-m-d.' )
 			->addOption( 'period', null, InputOption::VALUE_REQUIRED, 'The output will return results over the past [num] days/weeks/months/years, the last one being the one including [date].' );
 
-		$this->addOption( 'destination', 'd', InputOption::VALUE_REQUIRED, 'If provided, the output will be saved inside the specified file instead of the terminal output.' );
+		$this->addOption( 'destination', 'd', InputOption::VALUE_REQUIRED, 'If provided, the output will be saved inside the specified file in CSV format in addition to the terminal.' );
 	}
 
 	/**
@@ -211,6 +211,7 @@ final class WPCOM_Stats_Traffic extends Command {
 			$output->writeln( "<info>Output saved to $this->destination</info>" );
 		}
 
+		$output->writeln( '<fg=green;options=bold>Sites summary stats exported successfully.</>' );
 		return Command::SUCCESS;
 	}
 
