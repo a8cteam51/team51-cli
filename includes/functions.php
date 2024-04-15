@@ -330,6 +330,30 @@ function get_email_input( InputInterface $input, OutputInterface $output, ?calla
 }
 
 /**
+ * Grabs a value from the console input and validates it as a date.
+ *
+ * @param   InputInterface  $input         The console input.
+ * @param   OutputInterface $output        The console output.
+ * @param   string          $format        The expected date format.
+ * @param   callable|null   $no_input_func The function to call if no input is given.
+ * @param   string          $name          The name of the value to grab.
+ *
+ * @return  string
+ */
+function get_date_input( InputInterface $input, OutputInterface $output, string $format, ?callable $no_input_func = null, string $name = 'date' ): string {
+	$date = get_string_input( $input, $output, $name, $no_input_func );
+
+	try {
+		$date = validate_date_format( $date, $format );
+	} catch ( RuntimeException $exception ) {
+		$output->writeln( "<error>{$exception->getMessage()}. Aborting!</error>" );
+		exit( 1 );
+	}
+
+	return $date;
+}
+
+/**
  * Grabs a value from the console input and validates it as a domain.
  *
  * @param   InputInterface  $input         The console input.
@@ -340,7 +364,7 @@ function get_email_input( InputInterface $input, OutputInterface $output, ?calla
  * @return  string
  */
 function get_domain_input( InputInterface $input, OutputInterface $output, ?callable $no_input_func = null, string $name = 'domain' ): string {
-		$domain = get_string_input( $input, $output, $name, $no_input_func );
+	$domain = get_string_input( $input, $output, $name, $no_input_func );
 
 	if ( \str_contains( $domain, 'http' ) ) {
 		$domain = \parse_url( $domain, PHP_URL_HOST );
@@ -353,9 +377,8 @@ function get_domain_input( InputInterface $input, OutputInterface $output, ?call
 		exit( 1 );
 	}
 
-		return \strtolower( $domain );
+	return \strtolower( $domain );
 }
-
 
 /**
  * Grabs a value from the console input and validates it as a URL or a numeric string.
@@ -417,6 +440,25 @@ function validate_user_choice( mixed $value, array $choices ): mixed {
 	}
 
 	return array_flip( $choices )[ $value ] ?? null;
+}
+
+/**
+ * Validates a given date string against a specific format.
+ *
+ * @param   string $date_string The date string input by the user.
+ * @param   string $format      The expected date format.
+ *
+ * @throws  \RuntimeException If the date does not match the format.
+ * @return  string
+ */
+function validate_date_format( string $date_string, string $format ): string {
+	$date = DateTime::createFromFormat( $format, $date_string );
+
+	if ( ! $date || $date->format( $format ) !== $date_string ) {
+		throw new \RuntimeException( "The provided date is invalid. Expected format: $format" );
+	}
+
+	return $date_string;
 }
 
 /**
@@ -482,6 +524,20 @@ function dashify( string $value ): string {
 	$value = preg_replace( '/-+/', '-', $value ); // Replace multiple contiguous hyphens with a single hyphen.
 
 	return trim( $value, '-' ); // Trim any leading or trailing hyphens.
+}
+
+/**
+ * Returns the path to the current user's home directory, optionally appending a path to it.
+ *
+ * @param   string $path The path to append to the user's home directory.
+ *
+ * @return  string
+ */
+function get_user_folder_path( string $path = '' ): string {
+	$path = rtrim( $path, '/' );
+
+	$user_info = posix_getpwuid( posix_getuid() );
+	return $user_info['dir'] . "/$path";
 }
 
 // endregion

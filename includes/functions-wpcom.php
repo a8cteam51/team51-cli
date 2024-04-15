@@ -100,6 +100,58 @@ function get_wpcom_site_plugins_batch( array $site_ids_or_urls ): ?array {
 }
 
 /**
+ * Returns the stats for a WPCOM or Jetpack Connected site.
+ *
+ * @param   string      $site_id_or_url The site URL or WordPress.com site ID.
+ * @param   array|null  $query_params   Optional. Additional parameters to pass to the request.
+ * @param   string|null $type           Optional. The type of stats to retrieve.
+ *
+ * @link    https://developer.wordpress.com/docs/api/1.1/get/sites/$site/stats/summary/
+ *
+ * @return  stdClass[]|null
+ */
+function get_wpcom_site_stats( string $site_id_or_url, ?array $query_params = null, ?string $type = null ): ?array {
+	if ( ! empty( $type ) ) {
+		$query_params['type'] = $type;
+	}
+
+	$endpoint = "site-stats/$site_id_or_url";
+	if ( ! empty( $query_params ) ) {
+		$endpoint .= '?' . http_build_query( $query_params );
+	}
+
+	return API_Helper::make_wpcom_request( $endpoint );
+}
+
+/**
+ * Returns a batch of stats for given WPCOM sites.
+ *
+ * @param   array       $site_ids_or_urls The list of site domains or numeric WPCOM IDs.
+ * @param   array       $query_params     Optional. Additional parameters to pass to the request.
+ * @param   string|null $type             Optional. The type of stats to retrieve.
+ *
+ * @return  stdClass[]|null
+ */
+function get_wpcom_site_stats_batch( array $site_ids_or_urls, array $query_params = array(), ?string $type = null ): ?array {
+	$sites_stats = API_Helper::make_wpcom_request(
+		'site-stats/batch',
+		'POST',
+		array_filter(
+			array(
+				'sites'  => $site_ids_or_urls,
+				'params' => $query_params,
+				'type'   => $type,
+			)
+		)
+	);
+	if ( is_null( $sites_stats ) ) {
+		return null;
+	}
+
+	return (array) $sites_stats;
+}
+
+/**
  * Returns the list of users present on given WPCOM site.
  *
  * @param   string $site_id_or_url The site URL or WordPress.com site ID.
