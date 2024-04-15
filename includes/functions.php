@@ -421,11 +421,11 @@ function validate_user_choice( mixed $value, array $choices ): mixed {
 /**
  * Validates a given date string against a specific format.
  *
- * @param string $date_string The date string input by the user.
- * @param string $format      The expected date format.
+ * @param   string $date_string The date string input by the user.
+ * @param   string $format      The expected date format.
  *
- * @return string
- * @throws \RuntimeException If the date does not match the format.
+ * @throws  \RuntimeException If the date does not match the format.
+ * @return  string
  */
 function validate_date_format( string $date_string, string $format ): string {
 	$date = DateTime::createFromFormat( $format, $date_string );

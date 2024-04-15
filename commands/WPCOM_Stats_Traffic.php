@@ -4,7 +4,6 @@ namespace WPCOMSpecialProjects\CLI\Command;
 
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
-use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -14,7 +13,7 @@ use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 
 /**
- * Outputs a list of sites under Team 51 management.
+ * Outputs a list of sites manages by the WordPress.com Special Projects team.
  */
 #[AsCommand( name: 'wpcom:traffic-stats' )]
 final class WPCOM_Stats_Traffic extends Command {
