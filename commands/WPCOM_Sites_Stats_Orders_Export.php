@@ -4,7 +4,6 @@ namespace WPCOMSpecialProjects\CLI\Command;
 
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
-use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -14,10 +13,10 @@ use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 
 /**
- * Outputs top grossing WooCommerce sites we support.
+ * Outputs a summary of WC orders for sites managed by the WordPress.com Special Projects team.
  */
-#[AsCommand( name: 'wpcom:woocommerce-orders' )]
-final class WPCOM_Stats_Woocommerce extends Command {
+#[AsCommand( name: 'wpcom:export-sites-stats-orders' )]
+final class WPCOM_Sites_Stats_Orders_Export extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**

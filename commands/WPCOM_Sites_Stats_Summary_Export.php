@@ -12,7 +12,7 @@ use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 
 /**
- * Outputs a list of sites manages by the WordPress.com Special Projects team.
+ * Outputs a list of sites managed by the WordPress.com Special Projects team.
  */
 #[AsCommand( name: 'wpcom:export-sites-stats-summary' )]
 final class WPCOM_Sites_Stats_Summary_Export extends Command {
