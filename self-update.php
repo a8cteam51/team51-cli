@@ -101,7 +101,7 @@ if ( $team51_cli_is_dev ) {
 }
 
 // Update Composer.
-team51_cli_run_system_command( sprintf( 'composer install --working-dir %s', TEAM51_CLI_ROOT_DIR ) );
-team51_cli_run_system_command( sprintf( 'composer dump-autoload -o --working-dir %s', TEAM51_CLI_ROOT_DIR ) );
+team51_cli_run_system_command( sprintf( 'composer install --working-dir %s --no-interaction', TEAM51_CLI_ROOT_DIR ) );
+team51_cli_run_system_command( sprintf( 'composer dump-autoload -o --working-dir %s --no-interaction', TEAM51_CLI_ROOT_DIR ) );
 
 // endregion
