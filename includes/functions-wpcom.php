@@ -56,13 +56,24 @@ function get_wpcom_site( string $site_id_or_url ): ?stdClass {
 /**
  * Returns a batch of sites by their domains or numeric WPCOM IDs.
  *
- * @param   array $site_ids_or_urls The list of site domains or numeric WPCOM IDs.
+ * @param   array      $site_ids_or_urls The list of site domains or numeric WPCOM IDs.
+ * @param   array|null $errors           The list of errors that occurred during the request.
  *
  * @return  stdClass[]|null
  */
-function get_wpcom_site_batch( array $site_ids_or_urls ): ?array {
+function get_wpcom_site_batch( array $site_ids_or_urls, array &$errors = null ): ?array {
 	$sites = API_Helper::make_wpcom_request( 'sites/batch', 'POST', array( 'sites' => $site_ids_or_urls ) );
-	return is_null( $sites ) ? null : (array) $sites;
+	return is_null( $sites ) ? null : parse_batch_response( $sites, $errors );
+}
+
+/**
+ * Returns the list of sites and their plugins from Jetpack site profiles data.
+ *
+ * @return  stdClass[]|null
+ */
+function get_wpcom_jetpack_sites_plugins(): ?array {
+	$plugins = API_Helper::make_wpcom_request( 'sites/plugins' );
+	return is_null( $plugins ) ? null : (array) $plugins;
 }
 
 /**
@@ -80,23 +91,19 @@ function get_wpcom_site_plugins( string $site_id_or_domain ): ?array {
 /**
  * Returns a batch of plugins installed on given WPCOM sites.
  *
- * @param   array $site_ids_or_urls The list of site domains or numeric WPCOM IDs.
+ * @param   array      $site_ids_or_urls The list of site domains or numeric WPCOM IDs.
+ * @param   array|null $errors           The list of errors that occurred during the request.
  *
  * @return  stdClass[][]|null
  */
-function get_wpcom_site_plugins_batch( array $site_ids_or_urls ): ?array {
+function get_wpcom_site_plugins_batch( array $site_ids_or_urls, array &$errors = null ): ?array {
 	$sites_plugins = API_Helper::make_wpcom_request( 'sites/batch/plugins', 'POST', array( 'sites' => $site_ids_or_urls ) );
 	if ( is_null( $sites_plugins ) ) {
 		return null;
 	}
 
-	return array_map(
-		static function ( stdClass|array $site_plugins ) {
-			return is_object( $site_plugins ) && property_exists( $site_plugins, 'errors' )
-				? $site_plugins : (array) $site_plugins;
-		},
-		(array) $sites_plugins
-	);
+	$sites_plugins = parse_batch_response( $sites_plugins, $errors );
+	return array_map( static fn( stdClass $site_plugins ) => (array) $site_plugins, $sites_plugins );
 }
 
 /**
@@ -108,9 +115,9 @@ function get_wpcom_site_plugins_batch( array $site_ids_or_urls ): ?array {
  *
  * @link    https://developer.wordpress.com/docs/api/1.1/get/sites/$site/stats/summary/
  *
- * @return  stdClass[]|null
+ * @return  stdClass|null
  */
-function get_wpcom_site_stats( string $site_id_or_url, ?array $query_params = null, ?string $type = null ): ?array {
+function get_wpcom_site_stats( string $site_id_or_url, ?array $query_params = null, ?string $type = null ): ?stdClass {
 	if ( ! empty( $type ) ) {
 		$query_params['type'] = $type;
 	}
@@ -129,10 +136,11 @@ function get_wpcom_site_stats( string $site_id_or_url, ?array $query_params = nu
  * @param   array       $site_ids_or_urls The list of site domains or numeric WPCOM IDs.
  * @param   array       $query_params     Optional. Additional parameters to pass to the request.
  * @param   string|null $type             Optional. The type of stats to retrieve.
+ * @param   array|null  $errors           The list of errors that occurred during the request.
  *
  * @return  stdClass[]|null
  */
-function get_wpcom_site_stats_batch( array $site_ids_or_urls, array $query_params = array(), ?string $type = null ): ?array {
+function get_wpcom_site_stats_batch( array $site_ids_or_urls, array $query_params = array(), ?string $type = null, array &$errors = null ): ?array {
 	$sites_stats = API_Helper::make_wpcom_request(
 		'site-stats/batch',
 		'POST',
@@ -148,7 +156,7 @@ function get_wpcom_site_stats_batch( array $site_ids_or_urls, array $query_param
 		return null;
 	}
 
-	return (array) $sites_stats;
+	return parse_batch_response( $sites_stats, $errors );
 }
 
 /**
@@ -173,12 +181,13 @@ function get_wpcom_site_users( string $site_id_or_url, array $params = array() )
 /**
  * Returns a batch of users present on given WPCOM sites.
  *
- * @param   array $site_ids_or_urls The list of site domains or numeric WPCOM IDs.
- * @param   array $params           Optional. Additional parameters to pass to the request.
+ * @param   array      $site_ids_or_urls The list of site domains or numeric WPCOM IDs.
+ * @param   array      $params           Optional. Additional parameters to pass to the request.
+ * @param   array|null $errors           The list of errors that occurred during the request.
  *
  * @return  stdClass[]|null
  */
-function get_wpcom_site_users_batch( array $site_ids_or_urls, array $params = array() ): ?array {
+function get_wpcom_site_users_batch( array $site_ids_or_urls, array $params = array(), array &$errors = null ): ?array {
 	$sites_users = API_Helper::make_wpcom_request(
 		'site-users/batch',
 		'POST',
@@ -191,10 +200,8 @@ function get_wpcom_site_users_batch( array $site_ids_or_urls, array $params = ar
 		return null;
 	}
 
-	return array_map(
-		static fn ( stdClass $site_users ) => $site_users->records ?? $site_users,
-		(array) $sites_users
-	);
+	$sites_users = parse_batch_response( $sites_users, $errors );
+	return array_map( static fn( stdClass $site_users ) => $site_users->records, $sites_users );
 }
 
 /**

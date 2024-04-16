@@ -1,4 +1,4 @@
-<?php declare( strict_types=1 );
+<?php
 
 namespace WPCOMSpecialProjects\CLI\Command;
 
@@ -7,44 +7,55 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Helper\ProgressBar;
 use Symfony\Component\Console\Question\Question;
 use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 
 /**
- * Outputs a list of sites managed by the WordPress.com Special Projects team.
+ * Outputs a summary of WC orders for sites managed by the WordPress.com Special Projects team.
  */
-#[AsCommand( name: 'wpcom:export-sites-stats-summary' )]
-final class WPCOM_Sites_Stats_Summary_Export extends Command {
+#[AsCommand( name: 'wpcom:export-sites-stats-orders' )]
+final class WPCOM_Sites_Stats_Orders_Export extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**
-	 * The number of periods to include in the results.
+	 * The unit options for the report.
 	 *
-	 * @var int|null
+	 * @var array
 	 */
-	private ?int $num = null;
+	private array $unit_choices = array(
+		'day',
+		'week',
+		'month',
+		'year',
+	);
 
 	/**
-	 * The end date for the report. Format required is YYYY-MM-DD.
+	 * The unit for the report.
+	 *
+	 * @var string|null
+	 */
+	private ?string $unit = null;
+
+	/**
+	 * Date format options.
+	 *
+	 * @var array
+	 */
+	private array $date_format_choices = array(
+		'day'   => 'Y-m-d',
+		'week'  => 'Y-\WW',
+		'month' => 'Y-m',
+		'year'  => 'Y',
+	);
+
+	/**
+	 * The end date for the report.
 	 *
 	 * @var string|null
 	 */
 	private ?string $date = null;
-
-	/**
-	 * The period options for the report.
-	 *
-	 * @var array
-	 */
-	private array $period_choices = array( 'day', 'week', 'month', 'year' );
-
-	/**
-	 * The period for the report.
-	 *
-	 * @var string|null
-	 */
-	private ?string $period = null;
 
 	/**
 	 * The destination to save the output to in addition to the terminal.
@@ -63,7 +74,7 @@ final class WPCOM_Sites_Stats_Summary_Export extends Command {
 	/**
 	 * The deny list of sites to exclude from the report.
 	 *
-	 * @var string[]
+	 * @var array
 	 */
 	private array $deny_list = array(
 		'mystagingwebsite.com',
@@ -85,7 +96,7 @@ final class WPCOM_Sites_Stats_Summary_Export extends Command {
 	private ?array $sites = null;
 
 	/**
-	 * The list of summary stats for each connected site.
+	 * The list of orders stats for each connected and relevant site.
 	 *
 	 * @var array|null
 	 */
@@ -99,12 +110,11 @@ final class WPCOM_Sites_Stats_Summary_Export extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function configure(): void {
-		$this->setDescription( 'Exports summary statistics for all sites connected to the team\'s WPCOM account.' )
-			->setHelp( 'This command will output a summary of WPCOM stats across all of our sites.' );
+		$this->setDescription( 'Exports WooCommerce order statistics for all sites connected to the team\'s WPCOM account.' )
+			->setHelp( 'This command will output the top grossing WooCommerce sites we support with dollar amounts and an over amount summed across all of our sites.' );
 
-		$this->addOption( 'num', null, InputOption::VALUE_REQUIRED, 'Number of periods to include in the results.' )
-			->addOption( 'date', null, InputOption::VALUE_REQUIRED, 'The date that determines the most recent period for which results are returned. Format is Y-m-d.' )
-			->addOption( 'period', null, InputOption::VALUE_REQUIRED, 'The output will return results over the past [num] days/weeks/months/years, the last one being the one including [date].' );
+		$this->addOption( 'unit', null, InputOption::VALUE_REQUIRED, 'Options: day, week, month, year.' )
+			->addOption( 'date', null, InputOption::VALUE_REQUIRED, "Options:\nFor --unit=day: YYYY-MM-DD\nFor --unit=week: YYYY-W##\nFor --unit=month: YYYY-MM\nFor --unit=year: YYYY." );
 
 		$this->addOption( 'destination', 'd', InputOption::VALUE_REQUIRED, 'If provided, the output will be saved inside the specified file in CSV format in addition to the terminal.' );
 	}
@@ -113,14 +123,11 @@ final class WPCOM_Sites_Stats_Summary_Export extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->num = abs( (int) get_string_input( $input, $output, 'num', fn() => $this->prompt_num_input( $input, $output ) ) );
-		$input->setOption( 'num', $this->num );
+		$this->unit = get_enum_input( $input, $output, 'unit', $this->unit_choices, fn() => $this->prompt_unit_input( $input, $output ) );
+		$input->setOption( 'unit', $this->unit );
 
-		$this->date = get_date_input( $input, $output, 'Y-m-d', fn() => $this->prompt_date_input( $input, $output ) );
+		$this->date = get_date_input( $input, $output, $this->date_format_choices[ $this->unit ], fn() => $this->prompt_date_input( $input, $output ) );
 		$input->setOption( 'date', $this->date );
-
-		$this->period = get_enum_input( $input, $output, 'period', $this->period_choices, fn() => $this->prompt_period_input( $input, $output ), $this->period_choices[0] );
-		$input->setOption( 'period', $this->period );
 
 		// Open the destination file if provided.
 		$this->destination = maybe_get_string_input( $input, $output, 'destination', fn() => $this->prompt_destination_input( $input, $output ) );
@@ -156,6 +163,21 @@ final class WPCOM_Sites_Stats_Summary_Export extends Command {
 		);
 		$output->writeln( '<comment>Production site(s) found: ' . \count( $this->sites ) . '</comment>' );
 
+		// Filter out sites that don't have WooCommerce installed and active.
+		$sites_plugins = get_wpcom_site_plugins_batch( \array_column( $this->sites, 'userblog_id' ), $errors );
+		maybe_output_wpcom_failed_sites_table( $output, $errors, $this->sites, 'Sites that could NOT be searched for WooCommerce' );
+
+		$this->sites = \array_filter( $this->sites, static fn( $site ) => \array_key_exists( $site->userblog_id, $sites_plugins ) );
+		$this->sites = \array_filter(
+			$this->sites,
+			static fn( $site ) => \array_reduce(
+				$sites_plugins[ $site->userblog_id ],
+				static fn( $carry, $plugin ) => $carry || ( 'woocommerce' === $plugin->TextDomain && true === $plugin->active ), // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+				false
+			)
+		);
+		$output->writeln( '<comment>Sites with WooCommerce installed and active: ' . \count( $this->sites ) . '</comment>' );
+
 		// Fetch site stats for each site.
 		$this->sites_stats = get_wpcom_site_stats_batch(
 			\array_column( $this->sites, 'userblog_id' ),
@@ -165,62 +187,56 @@ final class WPCOM_Sites_Stats_Summary_Export extends Command {
 					0,
 					\count( $this->sites ),
 					array(
-						'num'    => $this->num,
-						'period' => $this->period,
-						'date'   => $this->date,
+						'unit'     => $this->unit,
+						'date'     => $this->date,
+						'quantity' => 1,
 					)
 				)
 			),
-			'summary',
+			'orders',
 			$errors
 		);
 		maybe_output_wpcom_failed_sites_table( $output, $errors, $this->sites );
 
-		$this->sites_stats = \array_filter( $this->sites_stats, static fn( $site_stats ) => 0 < $site_stats->views );
-		$output->writeln( '<comment>Site with summary stats found: ' . \count( $this->sites_stats ) . '</comment>' );
+		$this->sites_stats = \array_filter( $this->sites_stats, static fn( $stats ) => 0 < $stats->total_gross_sales && 0 < $stats->total_orders );
+		$output->writeln( '<comment>Sites with WooCommerce orders stats found: ' . \count( $this->sites_stats ) . '</comment>' );
 	}
 
 	/**
 	 * {@inheritDoc}
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
-		$output->writeln( "<fg=magenta;options=bold>Compiling summary stats for WPCOMSP sites during the last $this->num $this->period(s) period ending $this->date.</>" );
+		$output->writeln( "<fg=magenta;options=bold>Compiling WC orders stats for WPCOMSP sites per $this->unit until $this->date.</>" );
 
-		// Sort sites by total views and run some calculations.
-		\uasort( $this->sites_stats, static fn( \stdClass $a, \stdClass $b ) => $b->views <=> $a->views );
-		$sum_total_views     = \number_format( \array_sum( \array_column( $this->sites_stats, 'views' ) ) );
-		$sum_total_visitors  = \number_format( \array_sum( \array_column( $this->sites_stats, 'visitors' ) ) );
-		$sum_total_comments  = \number_format( \array_sum( \array_column( $this->sites_stats, 'comments' ) ) );
-		$sum_total_followers = \number_format( \array_sum( \array_column( $this->sites_stats, 'followers' ) ) );
+		// Sort sites by total sales and run some calculations.
+		\uasort( $this->sites_stats, static fn( $a, $b ) => $b->total_gross_sales <=> $a->total_gross_sales );
 
 		// Format the site stats for output.
-		$sites_stats_rows = \array_map(
+		$sites_stats_rows      = \array_map(
 			fn( \stdClass $site_stats, string $site_id ) => array(
 				$this->sites[ $site_id ]->userblog_id,
 				$this->sites[ $site_id ]->siteurl,
-				\number_format( $site_stats->views ),
-				\number_format( $site_stats->visitors ),
-				\number_format( $site_stats->comments ),
-				\number_format( $site_stats->followers ),
+				'$' . number_format( $site_stats->total_gross_sales, 2 ),
+				'$' . number_format( $site_stats->total_net_sales, 2 ),
+				$site_stats->total_orders,
+				$site_stats->total_products,
 			),
 			$this->sites_stats,
 			\array_keys( $this->sites_stats )
 		);
+		$sum_total_gross_sales = \number_format( \array_sum( \array_column( $this->sites_stats, 'total_gross_sales' ) ), 2 );
 
 		output_table(
 			$output,
 			$sites_stats_rows,
-			array( 'Blog ID', 'Site URL', 'Total Views', 'Total Visitors', 'Total Comments', 'Total Followers' ),
-			'WPCOMSP Sites Summary Stats',
+			array( 'Blog ID', 'Site URL', 'Total Gross Sales', 'Total Net Sales', 'Total Orders', 'Total Products' ),
+			'WPCOMSP Sites WooCommerce Orders Stats'
 		);
-		$output->writeln( "<info>Total views across WPCOMSP sites during the last $this->num $this->period(s) period ending $this->date: $sum_total_views</info>" );
-		$output->writeln( "<info>Total visitors across WPCOMSP sites during the last $this->num $this->period(s) period ending $this->date: $sum_total_visitors</info>" );
-		$output->writeln( "<info>Total comments across WPCOMSP sites during the last $this->num $this->period(s) period ending $this->date: $sum_total_comments</info>" );
-		$output->writeln( "<info>Total followers across WPCOMSP sites during the last $this->num $this->period(s) period ending $this->date: $sum_total_followers</info>" );
+		$output->writeln( "<info>Total gross sales across WPCOMSP sites during $this->unit $this->date: $$sum_total_gross_sales</info>" );
 
 		// Output to file if destination is set.
 		if ( ! \is_null( $this->stream ) ) {
-			\fputcsv( $this->stream, array( 'Blog ID', 'Site URL', 'Total Views', 'Total Visitors', 'Total Comments', 'Total Followers' ) );
+			\fputcsv( $this->stream, array( 'Blog ID', 'Site URL', 'Total Gross Sales', 'Total Net Sales', 'Total Orders', 'Total Products' ) );
 			foreach ( $sites_stats_rows as $row ) {
 				\fputcsv( $this->stream, $row );
 			}
@@ -229,7 +245,7 @@ final class WPCOM_Sites_Stats_Summary_Export extends Command {
 			$output->writeln( "<info>Output saved to $this->destination</info>" );
 		}
 
-		$output->writeln( '<fg=green;options=bold>Sites summary stats exported successfully.</>' );
+		$output->writeln( '<fg=green;options=bold>Sites WooCommerce orders stats exported successfully.</>' );
 		return Command::SUCCESS;
 	}
 
@@ -238,28 +254,15 @@ final class WPCOM_Sites_Stats_Summary_Export extends Command {
 	// region HELPERS
 
 	/**
-	 * Prompts the user to for the number of periods.
+	 * Prompts the user to for the unit/period.
 	 *
 	 * @param   InputInterface  $input  The input object.
 	 * @param   OutputInterface $output The output object.
 	 *
 	 * @return  string|null
 	 */
-	private function prompt_num_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new Question( '<question>Enter the number of periods to include in the report [1]:</question> ', '1' );
-		return $this->getHelper( 'question' )->ask( $input, $output, $question );
-	}
-
-	/**
-	 * Prompts the user to for the period.
-	 *
-	 * @param   InputInterface  $input  The input object.
-	 * @param   OutputInterface $output The output object.
-	 *
-	 * @return  string|null
-	 */
-	private function prompt_period_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new ChoiceQuestion( '<question>Please select the period for the report [' . $this->period_choices[0] . ']:</question> ', $this->period_choices, $this->period_choices[0] );
+	private function prompt_unit_input( InputInterface $input, OutputInterface $output ): ?string {
+		$question = new ChoiceQuestion( '<question>Enter the units for the report [' . $this->unit_choices[0] . ']:</question> ', $this->unit_choices, $this->unit_choices[0] );
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
 
@@ -272,8 +275,9 @@ final class WPCOM_Sites_Stats_Summary_Export extends Command {
 	 * @return  string|null
 	 */
 	private function prompt_date_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new Question( '<question>Enter the end date for the report [' . gmdate( 'Y-m-d' ) . ']:</question> ', gmdate( 'Y-m-d' ) );
-		$question = $question->setValidator( fn( $value ) => validate_date_format( $value, 'Y-m-d' ) );
+		$default  = gmdate( $this->date_format_choices[ $this->unit ] );
+		$question = new Question( '<question>Enter the end date for the report [' . $default . ']:</question> ', $default );
+		$question = $question->setValidator( fn( $value ) => validate_date_format( $value, $this->date_format_choices[ $this->unit ] ) );
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
 
@@ -288,7 +292,7 @@ final class WPCOM_Sites_Stats_Summary_Export extends Command {
 	private function prompt_destination_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new ConfirmationQuestion( '<question>Would you like to save the output to a file? [y/N]</question> ', false );
 		if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
-			$default  = get_user_folder_path( 'Downloads/wpcom-summary-stats_' . gmdate( 'Y-m-d-H-i-s' ) . '.csv' );
+			$default  = get_user_folder_path( 'Downloads/wpcom-wc-orders-stats_' . gmdate( 'Y-m-d-H-i-s' ) . '.csv' );
 			$question = new Question( "<question>Please enter the path to the file you want to save the output to [$default]:</question> ", $default );
 			return $this->getHelper( 'question' )->ask( $input, $output, $question );
 		}

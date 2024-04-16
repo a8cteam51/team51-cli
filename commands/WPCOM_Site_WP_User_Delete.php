@@ -93,10 +93,9 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 					)
 				)
 			),
+			$errors
 		);
-
-		$failed_sites = \array_filter( $this->users, static fn( $users ) => \is_object( $users ) );
-		maybe_output_wpcom_failed_sites_table( $output, $failed_sites, $sites, 'Sites that could NOT be searched' );
+		maybe_output_wpcom_failed_sites_table( $output, $errors, $sites, 'Sites that could NOT be searched' );
 
 		$this->users = \array_filter(
 			\array_map(

@@ -79,6 +79,19 @@ function parse_http_headers( array $http_response_header ): array {
 	return $headers;
 }
 
+/**
+ * Filters out the errors from a batch response and returns the successful responses.
+ *
+ * @param   stdClass   $responses The response to parse from the batch request.
+ * @param   array|null $errors    The errors that occurred during the request.
+ *
+ * @return  array
+ */
+function parse_batch_response( stdClass $responses, array &$errors = null ): array {
+	$errors = array_filter( (array) $responses, static fn( $response ) => is_object( $response ) && property_exists( $response, 'errors' ) );
+	return array_filter( (array) $responses, static fn( $response ) => ! is_object( $response ) || ! property_exists( $response, 'errors' ) );
+}
+
 // endregion
 
 // region WRAPPERS
@@ -309,6 +322,20 @@ function get_enum_input( InputInterface $input, OutputInterface $output, string 
 }
 
 /**
+ * Grabs a value from the console input and validates it as a boolean.
+ *
+ * @param   InputInterface  $input  The console input.
+ * @param   OutputInterface $output The console output.
+ * @param   string          $name   The name of the value to grab.
+ *
+ * @return  boolean
+ */
+function get_bool_input( InputInterface $input, OutputInterface $output, string $name ): bool {
+	$option = $input->hasOption( $name ) ? $input->getOption( $name ) : $input->getArgument( $name );
+	return filter_var( $option, FILTER_VALIDATE_BOOLEAN );
+}
+
+/**
  * Grabs a value from the console input and validates it as an email.
  *
  * @param   InputInterface  $input         The console input.
@@ -445,14 +472,24 @@ function validate_user_choice( mixed $value, array $choices ): mixed {
 /**
  * Validates a given date string against a specific format.
  *
- * @param   string $date_string The date string input by the user.
- * @param   string $format      The expected date format.
+ * @param string $date_string The date string input by the user.
+ * @param string $format      The expected date format.
  *
  * @throws  \RuntimeException If the date does not match the format.
  * @return  string
  */
 function validate_date_format( string $date_string, string $format ): string {
-	$date = DateTime::createFromFormat( $format, $date_string );
+	if ( str_contains( $format, 'W' ) ) { // https://stackoverflow.com/a/10478469
+		$timestamp = strtotime( $date_string );
+		if ( $timestamp ) {
+			$date = new DateTime();
+			$date->setTimestamp( $timestamp );
+		} else {
+			$date = false;
+		}
+	} else {
+		$date = DateTime::createFromFormat( $format, $date_string );
+	}
 
 	if ( ! $date || $date->format( $format ) !== $date_string ) {
 		throw new \RuntimeException( "The provided date is invalid. Expected format: $format" );
