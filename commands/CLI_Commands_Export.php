@@ -73,19 +73,11 @@ final class CLI_Commands_Export extends Command {
 		};
 
 		$this->destination = maybe_get_string_input( $input, $output, 'destination', fn() => $this->prompt_destination_input( $input, $output ) );
-		if ( ! empty( $this->destination ) && empty( \pathinfo( $this->destination, PATHINFO_EXTENSION ) ) ) {
-			$this->destination .= ".$format";
-		}
-
-		$this->output = $output;
 		if ( ! \is_null( $this->destination ) ) {
-			$stream = \fopen( $this->destination, 'wb' );
-			if ( false === $stream ) {
-				$output->writeln( "<error>Could not open file for writing: $this->destination</error>" );
-				exit( 1 );
-			}
-
+			$stream       = get_file_handle( $this->destination, $format );
 			$this->output = new StreamOutput( $stream );
+		} else {
+			$this->output = $output;
 		}
 	}
 

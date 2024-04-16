@@ -68,15 +68,7 @@ final class Jetpack_Site_Plugins_Export extends Command {
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
 		// Open the destination file for writing.
 		$this->destination = get_string_input( $input, $output, 'destination', fn() => $this->prompt_destination_input( $input, $output ) );
-		if ( ! \str_ends_with( $this->destination, '.csv' ) ) {
-			$this->destination .= '.csv';
-		}
-
-		$this->stream = \fopen( $this->destination, 'wb' );
-		if ( false === $this->stream ) {
-			$output->writeln( "<error>Could not open file for writing: $this->destination</error>" );
-			exit( 1 );
-		}
+		$this->stream      = get_file_handle( $this->destination, 'csv' );
 
 		// If processing a given site, retrieve it from the input.
 		$multiple = get_enum_input( $input, $output, 'multiple', array( 'all' ) );
