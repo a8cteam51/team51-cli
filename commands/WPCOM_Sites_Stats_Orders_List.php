@@ -1,4 +1,4 @@
-<?php
+<?php declare( strict_types=1 );
 
 namespace WPCOMSpecialProjects\CLI\Command;
 
@@ -14,8 +14,8 @@ use Symfony\Component\Console\Question\ConfirmationQuestion;
 /**
  * Outputs a summary of WC orders for sites managed by the WordPress.com Special Projects team.
  */
-#[AsCommand( name: 'wpcom:export-sites-stats-orders' )]
-final class WPCOM_Sites_Stats_Orders_Export extends Command {
+#[AsCommand( name: 'wpcom:list-sites-stats-orders' )]
+final class WPCOM_Sites_Stats_Orders_List extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**
@@ -115,7 +115,7 @@ final class WPCOM_Sites_Stats_Orders_Export extends Command {
 		$this->addOption( 'unit', null, InputOption::VALUE_REQUIRED, 'Options: day, week, month, year.' )
 			->addOption( 'date', null, InputOption::VALUE_REQUIRED, "Options:\nFor --unit=day: YYYY-MM-DD\nFor --unit=week: YYYY-W##\nFor --unit=month: YYYY-MM\nFor --unit=year: YYYY." );
 
-		$this->addOption( 'destination', 'd', InputOption::VALUE_REQUIRED, 'If provided, the output will be saved inside the specified file in CSV format in addition to the terminal.' );
+		$this->addOption( 'export', null, InputOption::VALUE_REQUIRED, 'If provided, the output will be saved inside the specified file in CSV format in addition to the terminal.' );
 	}
 
 	/**
@@ -129,17 +129,9 @@ final class WPCOM_Sites_Stats_Orders_Export extends Command {
 		$input->setOption( 'date', $this->date );
 
 		// Open the destination file if provided.
-		$this->destination = maybe_get_string_input( $input, $output, 'destination', fn() => $this->prompt_destination_input( $input, $output ) );
+		$this->destination = maybe_get_string_input( $input, $output, 'export', fn() => $this->prompt_destination_input( $input, $output ) );
 		if ( ! empty( $this->destination ) ) {
-			if ( empty( \pathinfo( $this->destination, PATHINFO_EXTENSION ) ) ) {
-				$this->destination .= '.csv';
-			}
-
-			$this->stream = \fopen( $this->destination, 'wb' );
-			if ( false === $this->stream ) {
-				$output->writeln( "<error>Could not open file for writing: $this->destination</error>" );
-				exit( 1 );
-			}
+			$this->stream = get_file_handle( $this->destination, 'csv' );
 		}
 
 		// Fetch the sites and filter out non-production sites.
@@ -244,7 +236,7 @@ final class WPCOM_Sites_Stats_Orders_Export extends Command {
 			$output->writeln( "<info>Output saved to $this->destination</info>" );
 		}
 
-		$output->writeln( '<fg=green;options=bold>Sites WooCommerce orders stats exported successfully.</>' );
+		$output->writeln( '<fg=green;options=bold>Sites WooCommerce orders stats listed successfully.</>' );
 		return Command::SUCCESS;
 	}
 
