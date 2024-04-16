@@ -44,10 +44,10 @@ final class WPCOM_Sites_Stats_Orders_Export extends Command {
 	 * @var array
 	 */
 	private array $date_format_choices = array(
-		'day'   => array( 'YYYY-MM-DD', 'Y-m-d' ),
-		'week'  => array( 'YYYY-W##', 'Y-\WW' ),
-		'month' => array( 'YYYY-MM', 'Y-m' ),
-		'year'  => array( 'YYYY', 'Y' ),
+		'day'   => 'Y-m-d',
+		'week'  => 'Y-\WW',
+		'month' => 'Y-m',
+		'year'  => 'Y',
 	);
 
 	/**
@@ -126,7 +126,7 @@ final class WPCOM_Sites_Stats_Orders_Export extends Command {
 		$this->unit = get_enum_input( $input, $output, 'unit', $this->unit_choices, fn() => $this->prompt_unit_input( $input, $output ) );
 		$input->setOption( 'unit', $this->unit );
 
-		$this->date = get_string_input( $input, $output, 'date', fn() => $this->prompt_date_input( $input, $output ) );
+		$this->date = get_date_input( $input, $output, $this->date_format_choices[ $this->unit ], fn() => $this->prompt_date_input( $input, $output ) );
 		$input->setOption( 'date', $this->date );
 
 		// Open the destination file if provided.
@@ -275,8 +275,9 @@ final class WPCOM_Sites_Stats_Orders_Export extends Command {
 	 * @return  string|null
 	 */
 	private function prompt_date_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new Question( '<question>Enter the end date for the report [' . $this->date_format_choices[ $this->unit ][0] . ']:</question> ' );
-		$question = $question->setValidator( fn( $value ) => validate_date_format( $value, $this->date_format_choices[ $this->unit ][1], $this->date_format_choices[ $this->unit ][0] ) );
+		$default  = gmdate( $this->date_format_choices[ $this->unit ] );
+		$question = new Question( '<question>Enter the end date for the report [' . $default . ']:</question> ', $default );
+		$question = $question->setValidator( fn( $value ) => validate_date_format( $value, $this->date_format_choices[ $this->unit ] ) );
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
 
