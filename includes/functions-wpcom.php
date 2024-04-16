@@ -118,9 +118,9 @@ function get_wpcom_site_plugins_batch( array $site_ids_or_urls ): ?array {
  *
  * @link    https://developer.wordpress.com/docs/api/1.1/get/sites/$site/stats/summary/
  *
- * @return  stdClass[]|null
+ * @return  stdClass|null
  */
-function get_wpcom_site_stats( string $site_id_or_url, ?array $query_params = null, ?string $type = null ): ?array {
+function get_wpcom_site_stats( string $site_id_or_url, ?array $query_params = null, ?string $type = null ): ?stdClass {
 	if ( ! empty( $type ) ) {
 		$query_params['type'] = $type;
 	}

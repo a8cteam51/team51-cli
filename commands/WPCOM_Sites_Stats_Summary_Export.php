@@ -78,8 +78,8 @@ final class WPCOM_Sites_Stats_Summary_Export extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function configure(): void {
-		$this->setDescription( 'Exports traffic statistics for all sites connected to the team\'s WPCOM account.' )
-			->setHelp( 'This command will output a summary of WPCOM traffic stats across all of our sites.' );
+		$this->setDescription( 'Exports summary statistics for all sites connected to the team\'s WPCOM account.' )
+			->setHelp( 'This command will output a summary of WPCOM stats across all of our sites.' );
 
 		$this->addOption( 'num', null, InputOption::VALUE_REQUIRED, 'Number of periods to include in the results.' )
 			->addOption( 'date', null, InputOption::VALUE_REQUIRED, 'The date that determines the most recent period for which results are returned. Format is Y-m-d.' )
@@ -111,7 +111,7 @@ final class WPCOM_Sites_Stats_Summary_Export extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
-		$output->writeln( "<fg=magenta;options=bold>Compiling stats for WPCOMSP sites during the last $this->num $this->period(s) period ending $this->date.</>" );
+		$output->writeln( "<fg=magenta;options=bold>Compiling summary stats for WPCOMSP sites during the last $this->num $this->period(s) period ending $this->date.</>" );
 
 		$sites = get_wpcom_jetpack_sites();
 		$output->writeln( '<comment>Successfully fetched ' . \count( $sites ) . ' Jetpack site(s).</comment>' );
@@ -185,7 +185,7 @@ final class WPCOM_Sites_Stats_Summary_Export extends Command {
 			$output,
 			$sites_stats_rows,
 			array( 'Blog ID', 'Site URL', 'Total Views', 'Total Visitors', 'Total Comments', 'Total Followers' ),
-			'WPCOMSP Sites Traffic Stats',
+			'WPCOMSP Sites Summary Stats',
 		);
 		$output->writeln( "<info>Total views across WPCOMSP sites during the last $this->num $this->period(s) period ending $this->date: $sum_total_views</info>" );
 		$output->writeln( "<info>Total visitors across WPCOMSP sites during the last $this->num $this->period(s) period ending $this->date: $sum_total_visitors</info>" );
@@ -270,7 +270,7 @@ final class WPCOM_Sites_Stats_Summary_Export extends Command {
 	private function prompt_destination_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new ConfirmationQuestion( '<question>Would you like to save the output to a file? [y/N]</question> ', false );
 		if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
-			$default  = get_user_folder_path( 'Downloads/wpcom-traffic-stats_' . gmdate( 'Y-m-d-H-i-s' ) . '.csv' );
+			$default  = get_user_folder_path( 'Downloads/wpcom-summary-stats_' . gmdate( 'Y-m-d-H-i-s' ) . '.csv' );
 			$question = new Question( "<question>Please enter the path to the file you want to save the output to [$default]:</question> ", $default );
 			return $this->getHelper( 'question' )->ask( $input, $output, $question );
 		}

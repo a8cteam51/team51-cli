@@ -309,6 +309,20 @@ function get_enum_input( InputInterface $input, OutputInterface $output, string 
 }
 
 /**
+ * Grabs a value from the console input and validates it as a boolean.
+ *
+ * @param   InputInterface  $input  The console input.
+ * @param   OutputInterface $output The console output.
+ * @param   string          $name   The name of the value to grab.
+ *
+ * @return  boolean
+ */
+function get_bool_input( InputInterface $input, OutputInterface $output, string $name ): bool {
+	$option = $input->hasOption( $name ) ? $input->getOption( $name ) : $input->getArgument( $name );
+	return filter_var( $option, FILTER_VALIDATE_BOOLEAN );
+}
+
+/**
  * Grabs a value from the console input and validates it as an email.
  *
  * @param   InputInterface  $input         The console input.

@@ -20,11 +20,11 @@ final class WPCOM_Sites_Stats_Orders_Export extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**
-	 * The period options for the report.
+	 * The unit options for the report.
 	 *
 	 * @var array
 	 */
-	private $unit_options = array(
+	private array $unit_choices = array(
 		'day',
 		'week',
 		'month',
@@ -32,18 +32,18 @@ final class WPCOM_Sites_Stats_Orders_Export extends Command {
 	);
 
 	/**
-	 * The period for the report.
+	 * The unit for the report.
 	 *
-	 * @var string
+	 * @var string|null
 	 */
-	private $unit = 'day';
+	private ?string $unit = null;
 
 	/**
 	 * Date format options.
 	 *
 	 * @var array
 	 */
-	private $date_format_options = array(
+	private array $date_format_choices = array(
 		'day'   => array( 'YYYY-MM-DD', 'Y-m-d' ),
 		'week'  => array( 'YYYY-W##', 'Y-\WW' ),
 		'month' => array( 'YYYY-MM', 'Y-m' ),
@@ -53,37 +53,23 @@ final class WPCOM_Sites_Stats_Orders_Export extends Command {
 	/**
 	 * The end date for the report.
 	 *
-	 * @var string
+	 * @var string|null
 	 */
-	private $date = '';
+	private ?string $date = null;
 
 	/**
-	 * Export to csv option.
+	 * The destination to save the output to in addition to the terminal.
 	 *
 	 * @var string|null
 	 */
-	private $csv = null;
-
-	/**
-	 * Maybe check production sites.
-	 *
-	 * @var string
-	 */
-	private $check_production_sites = null;
-
-	/**
-	 * The plugin slug for WooCommerce.
-	 *
-	 * @var string
-	 */
-	private $plugin_slug = 'woocommerce';
+	private ?string $destination = null;
 
 	/**
 	 * The deny list of sites to exclude from the report.
 	 *
 	 * @var array
 	 */
-	private $deny_list = array(
+	private array $deny_list = array(
 		'mystagingwebsite.com',
 		'go-vip.co',
 		'wpcomstaging.com',
@@ -103,221 +89,160 @@ final class WPCOM_Sites_Stats_Orders_Export extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function configure(): void {
-		$this->setDescription( 'Get WooCommerce order stats across all Team51 sites.' )
-			->setHelp( "This command will output the top grossing WooCommerce sites we support with dollar amounts and an over amount summed across all of our sites.\nExample usage:\nstats:woocommerce-orders --unit=year --date=2022\nstats:woocommerce-orders --unit=week --date=2022-W12\nstats:woocommerce-orders --unit=month --date=2021-10\nstats:woocommerce-orders --unit=day --date=2022-02-27" );
+		$this->setDescription( 'Exports WooCommerce order statistics for all sites connected to the team\'s WPCOM account.' )
+			->setHelp( 'This command will output the top grossing WooCommerce sites we support with dollar amounts and an over amount summed across all of our sites.' );
 
 		$this->addOption( 'unit', null, InputOption::VALUE_REQUIRED, 'Options: day, week, month, year.' )
-			->addOption( 'date', null, InputOption::VALUE_REQUIRED, "Options:\nFor --unit=day: YYYY-MM-DD\nFor --unit=week: YYYY-W##\nFor --unit=month: YYYY-MM\nFor --unit=year: YYYY." )
-			->addOption( 'check-production-sites', null, InputOption::VALUE_NONE, "Checks production sites instead of the Jetpack Profile for the sites. Takes much longer to run. You might want to check the production sites if you suspect that the Jetpack cache isn't up to date for your purposes and a newly connected site with lots of sales has WooCommerce installed." )
-			->addOption( 'csv', null, InputOption::VALUE_NONE, 'Export stats to a CSV file.' );
+			->addOption( 'date', null, InputOption::VALUE_REQUIRED, "Options:\nFor --unit=day: YYYY-MM-DD\nFor --unit=week: YYYY-W##\nFor --unit=month: YYYY-MM\nFor --unit=year: YYYY." );
+
+		$this->addOption( 'destination', 'd', InputOption::VALUE_REQUIRED, 'If provided, the output will be saved inside the specified file in CSV format in addition to the terminal.' );
 	}
 
 	/**
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->unit = get_string_input( $input, $output, 'unit', fn() => $this->prompt_unit_input( $input, $output ) );
+		$this->unit = get_enum_input( $input, $output, 'unit', $this->unit_choices, fn() => $this->prompt_unit_input( $input, $output ) );
 		$input->setOption( 'unit', $this->unit );
 
 		$this->date = get_string_input( $input, $output, 'date', fn() => $this->prompt_date_input( $input, $output ) );
 		$input->setOption( 'date', $this->date );
 
-		$csv       = maybe_get_string_input( $input, $output, 'csv', fn() => $this->prompt_csv_input( $input, $output ) );
-		$this->csv = $csv ? 'csv' : null;
-		$input->setOption( 'csv', $this->csv );
-
-		$check_production_sites       = maybe_get_string_input( $input, $output, 'csv', fn() => $this->prompt_check_production_sites_input( $input, $output ) );
-		$this->check_production_sites = $check_production_sites ? 'check_production_sites' : null;
-		$input->setOption( 'csv', $this->check_production_sites );
+		$this->destination = maybe_get_string_input( $input, $output, 'destination', fn() => $this->prompt_destination_input( $input, $output ) );
+		if ( ! empty( $this->destination ) && empty( \pathinfo( $this->destination, PATHINFO_EXTENSION ) ) ) {
+			$this->destination .= '.csv';
+		}
 	}
 
 	/**
 	 * {@inheritDoc}
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
-		$output->writeln( '<info>Fetching production sites connected to a8cteam51...<info>' );
+		$output->writeln( "<fg=magenta;options=bold>Compiling WC orders stats for WPCOMSP sites per $this->unit until $this->date.</>" );
 
-		// Fetching sites connected to a8cteam51
 		$sites = get_wpcom_jetpack_sites();
+		$output->writeln( '<comment>Successfully fetched ' . \count( $sites ) . ' Jetpack site(s).</comment>' );
 
-		if ( empty( $sites ) ) {
-			$output->writeln( '<error>Failed to fetch sites.<error>' );
-			exit;
-		}
-
-		// Filter out non-production sites
-		$site_list = array();
-
-		foreach ( $sites as $site ) {
-			$matches = false;
-			foreach ( $this->deny_list as $deny ) {
-				if ( strpos( $site->siteurl, $deny ) !== false ) {
-					$matches = true;
-					break;
-				}
-			}
-			if ( ! $matches ) {
-				$site_list[] = array(
-					'blog_id'  => $site->userblog_id,
-					'site_url' => $site->siteurl,
-				);
-			}
-		}
-
-		$site_count = count( $site_list );
-
-		if ( empty( $site_count ) ) {
-			$output->writeln( '<error>No production sites found.<error>' );
-			exit;
-		}
-
-		$output->writeln( "<info>{$site_count} sites found.<info>" );
-
-		if ( $this->check_production_sites ) {
-			$output->writeln( '<info>Checking production sites for WooCommerce...<info>' );
-			$progress_bar = new ProgressBar( $output, $site_count );
-			$progress_bar->start();
-			// Checking each site for the plugin slug: woocommerce, and only saving the sites that have it active
-			foreach ( $site_list as $site ) {
-				$progress_bar->advance();
-				$plugin_list = get_wpcom_site_plugins( $site['blog_id'] ); // May be too verbose on failed connections, also slower then previous command.
-				if ( ! empty( $plugin_list ) ) {
-					$plugins_array = (array) $plugin_list;
-					foreach ( $plugins_array as $plugin_path => $plugin ) {
-						$folder_name = strstr( $plugin_path, '/', true );
-						$file_name   = str_replace( array( '/', '.php' ), '', strrchr( $plugin_path, '/' ) );
-						if ( ( $this->plugin_slug === $plugin->TextDomain || $this->plugin_slug === $folder_name || $this->plugin_slug === $file_name ) && $plugin->active ) { // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
-							$sites_with_woocommerce[] = array(
-								'site_url' => $site['site_url'],
-								'blog_id'  => $site['blog_id'],
-							);
-						}
-					}
-				}
-			}
-			$progress_bar->finish();
-			$output->writeln( '<info>  Yay!</info>' );
-		} else {
-			// Get plugin lists from Jetpack profile data
-			$output->writeln( '<info>Checking Jetpack site profiles for WooCommerce...<info>' );
-			$jetpack_sites_plugins = get_wpcom_jetpack_sites_plugins();
-
-			if ( empty( $jetpack_sites_plugins->sites ) ) {
-				$output->writeln( '<error>Fetching plugins from Jetpack site profiles failed.<error>' );
-				exit;
-			}
-
-			foreach ( $site_list as $site ) {
-				//check if the site exists in the jetpack_sites_plugins object
-				if ( ! empty( $jetpack_sites_plugins->sites->{$site['blog_id']} ) ) {
-					// loop through the plugins and check for WooCommerce
-					foreach ( $jetpack_sites_plugins->sites->{$site['blog_id']} as $site_plugin ) {
-						if ( $site_plugin->slug === $this->plugin_slug && true === $site_plugin->active ) {
-							$sites_with_woocommerce[] = array(
-								'site_url' => $site['site_url'],
-								'blog_id'  => $site['blog_id'],
-							);
+		// Filter out non-production sites.
+		$sites = \array_filter(
+			\array_map(
+				function ( \stdClass $site ) {
+					$matches = false;
+					foreach ( $this->deny_list as $deny ) {
+						if ( \str_contains( $site->siteurl, $deny ) ) {
+							$matches = true;
 							break;
 						}
 					}
+
+					return $matches ? null : (object) array(
+						'blog_id'  => $site->userblog_id,
+						'site_url' => $site->siteurl,
+					);
+				},
+				$sites
+			)
+		);
+
+		$output->writeln( '<comment>Production site(s) found: ' . \count( $sites ) . '</comment>' );
+
+		// Figure out which of these sites have WooCommerce installed.
+		$sites_plugins = get_wpcom_site_plugins_batch( \array_column( $sites, 'blog_id' ) );
+
+
+		$failed_sites = \array_filter( $sites_plugins, static fn( $plugins ) => \is_object( $plugins ) );
+		maybe_output_wpcom_failed_sites_table( $output, $failed_sites, $sites, 'Sites that could NOT be searched' );
+
+		$sites_with_wc = array();
+		$sites_plugins = \array_filter( $sites_plugins, static fn( $plugins ) => \is_array( $plugins ) );
+		foreach ( $sites_plugins as $site_id => $plugins ) {
+			foreach ( $plugins as $plugin => $plugin_data ) {
+				$plugin_folder = \dirname( $plugin );
+				if ( $plugin_folder === 'woocommerce' && true === $plugin_data->active ) {
+					$sites_with_wc[ $site_id ] = $sites[ $site_id ];
+					break;
 				}
 			}
 		}
 
-		$woocommerce_count = count( $sites_with_woocommerce );
-		$output->writeln( "<info>{$woocommerce_count} sites have WooCommerce installed and active.<info>" );
+		//var_dump( $sites_plugins[185425446]); exit;
+		//var_dump( $sites_with_wc[185425446]); exit;
 
-		// Get WooCommerce stats for each site
-		$output->writeln( '<info>Fetching WooCommerce stats for Team51 production sites...<info>' );
-		$progress_bar = new ProgressBar( $output, $woocommerce_count );
-		$progress_bar->start();
 
-		$team51_woocommerce_stats = array();
-		foreach ( $sites_with_woocommerce as $site ) {
-			$progress_bar->advance();
-			$stats = $this->get_woocommerce_stats( $site['blog_id'], $this->unit, $this->date );
+		$output->writeln( '<comment>Sites with WooCommerce installed and active: ' . \count( $sites_with_wc ) . '</comment>' );
 
-			//Checking if stats are not zero. If not, add to array
-			if ( isset( $stats->total_gross_sales ) && $stats->total_gross_sales > 0 && $stats->total_orders > 0 ) {
-				array_push(
-					$team51_woocommerce_stats,
+		// Fetch site stats for each site.
+		$sites_with_wc_stats = get_wpcom_site_stats_batch(
+			\array_column( $sites_with_wc, 'blog_id' ),
+			\array_combine(
+				\array_column( $sites_with_wc, 'blog_id' ),
+				\array_fill(
+					0,
+					\count( $sites_with_wc ),
 					array(
-						'site_url'          => $site['site_url'],
-						'blog_id'           => $site['blog_id'],
-						'total_gross_sales' => $stats->total_gross_sales,
-						'total_net_sales'   => $stats->total_net_sales,
-						'total_orders'      => $stats->total_orders,
-						'total_products'    => $stats->total_products,
+						'unit'     => $this->unit,
+						'date'     => $this->date,
+						'quantity' => 1,
 					)
-				);
-			}
-		}
-		$progress_bar->finish();
-		$output->writeln( '<info>  Yay!</info>' );
-
-		//Sort the array by total gross sales
-		usort(
-			$team51_woocommerce_stats,
-			function ( $a, $b ) {
-				return $b['total_gross_sales'] - $a['total_gross_sales'];
-			}
-		);
-
-		// Format sales as money
-		$formatted_team51_woocommerce_stats = array();
-		foreach ( $team51_woocommerce_stats as $site ) {
-			array_push(
-				$formatted_team51_woocommerce_stats,
-				array(
-					'site_url'          => $site['site_url'],
-					'blog_id'           => $site['blog_id'],
-					'total_gross_sales' => '$' . number_format( $site['total_gross_sales'], 2 ),
-					'total_net_sales'   => '$' . number_format( $site['total_net_sales'], 2 ),
-					'total_orders'      => $site['total_orders'],
-					'total_products'    => $site['total_products'],
 				)
-			);
-		}
-
-		//Sum the total gross sales
-		$sum_total_gross_sales = array_reduce(
-			$team51_woocommerce_stats,
-			function ( $carry, $site ) {
-				return $carry + $site['total_gross_sales'];
-			},
-			0
+			),
+			'orders'
 		);
 
-		//round the sum
-		$sum_total_gross_sales = number_format( $sum_total_gross_sales, 2 );
+		//var_dump( $sites_with_wc_stats[185425446]); exit;
 
-		$output->writeln( '<info>Site stats for the selected time period: ' . $this->unit . ' ' . $this->date . '<info>' );
-		// Output the stats in a table
+		$failed_sites = \array_filter( $sites_with_wc_stats, static fn( $stats ) => ! \property_exists( $stats, 'date' ) );
+		maybe_output_wpcom_failed_sites_table( $output, $failed_sites, $sites_with_wc, 'Sites that could NOT be searched' );
+
+		$sites_with_wc_stats = \array_filter( $sites_with_wc_stats, static fn( $stats ) => \property_exists( $stats, 'date' ) && $stats->total_gross_sales > 0 && $stats->total_orders > 0 );
+		$output->writeln( '<comment>Site stats found: ' . \count( $sites_with_wc_stats ) . '</comment>' );
+
+		// Sort sites by total sales and run some calculations.
+		\uasort( $sites_with_wc_stats, static fn( $a, $b ) => $b->total_gross_sales <=> $a->total_gross_sales );
+
+		// Format the site stats for output.
+		$sites_with_wc_stats_rows = \array_map(
+			static fn( \stdClass $site_with_wc_stats, string $site_id ) => array(
+				$sites[ $site_id ]->blog_id,
+				$sites[ $site_id ]->site_url,
+				'$' . number_format( $site_with_wc_stats->total_gross_sales, 2 ),
+				'$' . number_format( $site_with_wc_stats->total_net_sales, 2 ),
+				$site_with_wc_stats->total_orders,
+				$site_with_wc_stats->total_products,
+			),
+			$sites_with_wc_stats,
+			\array_keys( $sites_with_wc_stats )
+		);
+		$sum_total_gross_sales    = \number_format( \array_sum( \array_column( $sites_with_wc_stats, 'total_gross_sales' ) ), 2 );
+
 		output_table(
 			$output,
-			$formatted_team51_woocommerce_stats,
-			array( 'Site URL', 'Blog ID', 'Total Gross Sales', 'Total Net Sales', 'Total Orders', 'Total Products' ),
-			'Team 51 Site WooCommerce Sales Stats',
+			$sites_with_wc_stats_rows,
+			array( 'Blog ID', 'Site URL', 'Total Gross Sales', 'Total Net Sales', 'Total Orders', 'Total Products' ),
+			'WPCOMSP Sites WooCommerce Orders Stats'
 		);
+		$output->writeln( "<info>Total gross sales across WPCOMSP sites during $this->unit $this->date: $$sum_total_gross_sales</info>" );
 
-		$output->writeln( '<info>Total Gross Sales across Team51 sites in ' . $this->unit . ' ' . $this->date . ': $' . $sum_total_gross_sales . '<info>' );
+		// Output to file if destination is set.
+		if ( ! \is_null( $this->destination ) ) {
+			$output->writeln( '<comment>Saving output to file...</comment>' );
 
-		// Output CSV if --csv flag is set
-		if ( $this->csv ) {
-			$output->writeln( '<info>Making the CSV...<info>' );
-			$timestamp = gmdate( 'Y-m-d-H-i-s' );
-			$fp        = fopen( 't51-woocommerce-stats-' . $timestamp . '.csv', 'w' );
-			fputcsv( $fp, array( 'Site URL', 'Blog ID', 'Total Gross Sales', 'Total Net Sales', 'Total Orders', 'Total Products' ) );
-			foreach ( $formatted_team51_woocommerce_stats as $fields ) {
-				fputcsv( $fp, $fields );
+			$stream = \fopen( $this->destination, 'wb' );
+			if ( false === $stream ) {
+				$output->writeln( "<error>Could not open file for writing: $this->destination</error>" );
+				return Command::FAILURE;
 			}
-			fclose( $fp );
 
-			$output->writeln( '<info>Done, CSV saved to your current working directory: t51-woocommerce-stats-' . $timestamp . '.csv<info>' );
+			\fputcsv( $stream, array( 'Blog ID', 'Site URL', 'Total Gross Sales', 'Total Net Sales', 'Total Orders', 'Total Products' ) );
+			foreach ( $sites_with_wc_stats_rows as $row ) {
+				\fputcsv( $stream, $row );
+			}
+			\fclose( $stream );
+
+			$output->writeln( "<info>Output saved to $this->destination</info>" );
 		}
 
-		$output->writeln( '<info>All done! :)<info>' );
-
+		$output->writeln( '<fg=green;options=bold>Sites WC orders stats exported successfully.</>' );
 		return Command::SUCCESS;
 	}
 
@@ -326,7 +251,7 @@ final class WPCOM_Sites_Stats_Orders_Export extends Command {
 	// region HELPERS
 
 	/**
-	 * Prompts the user to for the unit/period, ie. day, week, month, year.
+	 * Prompts the user to for the unit/period.
 	 *
 	 * @param   InputInterface  $input  The input object.
 	 * @param   OutputInterface $output The output object.
@@ -334,7 +259,7 @@ final class WPCOM_Sites_Stats_Orders_Export extends Command {
 	 * @return  string|null
 	 */
 	private function prompt_unit_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new ChoiceQuestion( '<question>Enter the units for the report [' . $this->unit_options[0] . ']:</question> ', $this->unit_options, 'day' );
+		$question = new ChoiceQuestion( '<question>Enter the units for the report [' . $this->unit_choices[0] . ']:</question> ', $this->unit_choices, $this->unit_choices[0] );
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
 
@@ -347,56 +272,28 @@ final class WPCOM_Sites_Stats_Orders_Export extends Command {
 	 * @return  string|null
 	 */
 	private function prompt_date_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new Question( '<question>Enter the end date for the report [' . $this->date_format_options[ $this->unit ][0] . ']:</question> ' );
-		$question = $question->setValidator( fn( $value ) => validate_date_format( $value, $this->date_format_options[ $this->unit ][1], $this->date_format_options[ $this->unit ][0] ) );
+		$question = new Question( '<question>Enter the end date for the report [' . $this->date_format_choices[ $this->unit ][0] . ']:</question> ' );
+		$question = $question->setValidator( fn( $value ) => validate_date_format( $value, $this->date_format_choices[ $this->unit ][1], $this->date_format_choices[ $this->unit ][0] ) );
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
 
 	/**
-	 * Prompts the user to maybe export the report to a csv file.
+	 * Prompts the user for the destination to save the output to.
 	 *
 	 * @param   InputInterface  $input  The input object.
 	 * @param   OutputInterface $output The output object.
 	 *
 	 * @return  string|null
 	 */
-	private function prompt_csv_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new ConfirmationQuestion( '<question>Would you like to export the report as a CSV file? [y/N]</question> ', false );
+	private function prompt_destination_input( InputInterface $input, OutputInterface $output ): ?string {
+		$question = new ConfirmationQuestion( '<question>Would you like to save the output to a file? [y/N]</question> ', false );
 		if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
-			return true;
+			$default  = get_user_folder_path( 'Downloads/wpcom-wc-orders-stats_' . gmdate( 'Y-m-d-H-i-s' ) . '.csv' );
+			$question = new Question( "<question>Please enter the path to the file you want to save the output to [$default]:</question> ", $default );
+			return $this->getHelper( 'question' )->ask( $input, $output, $question );
 		}
+
 		return null;
-	}
-
-	/**
-	 * Prompts the user to maybe check production sites.
-	 *
-	 * @param   InputInterface  $input  The input object.
-	 * @param   OutputInterface $output The output object.
-	 *
-	 * @return  string|null
-	 */
-	private function prompt_check_production_sites_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new ConfirmationQuestion( '<question>Would you like to check production sites? [y/N]</question> ', false );
-		if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
-			return true;
-		}
-		return null;
-	}
-
-	/**
-	 * Get WooCommerce stats for a given site.
-	 *
-	 * @param integer $site_id The site ID.
-	 * @param string  $unit    The period to get stats for.
-	 * @param string  $date    The date to get stats for.
-	 *
-	 * @return stdClass
-	 */
-	private function get_woocommerce_stats( $site_id, $unit, $date ): stdClass {
-
-		$woocommerce_stats = $this->api_helper->call_wpcom_api( '/wpcom/v2/sites/' . $site_id . '/stats/orders?unit=' . $unit . '&date=' . $date . '&quantity=1', array() );
-		return $woocommerce_stats;
 	}
 
 	// endregion
