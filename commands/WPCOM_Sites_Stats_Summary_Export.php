@@ -54,6 +54,13 @@ final class WPCOM_Sites_Stats_Summary_Export extends Command {
 	private ?string $destination = null;
 
 	/**
+	 * The stream to write the output to.
+	 *
+	 * @var resource|null
+	 */
+	private $stream = null;
+
+	/**
 	 * The deny list of sites to exclude from the report.
 	 *
 	 * @var string[]
@@ -69,6 +76,20 @@ final class WPCOM_Sites_Stats_Summary_Export extends Command {
 		'ninomihovilic.com',
 		'team51.blog',
 	);
+
+	/**
+	 * The list of connected sites.
+	 *
+	 * @var array|null
+	 */
+	private ?array $sites = null;
+
+	/**
+	 * The list of summary stats for each connected site.
+	 *
+	 * @var array|null
+	 */
+	private ?array $sites_stats = null;
 
 	// endregion
 
@@ -101,10 +122,62 @@ final class WPCOM_Sites_Stats_Summary_Export extends Command {
 		$this->period = get_enum_input( $input, $output, 'period', $this->period_choices, fn() => $this->prompt_period_input( $input, $output ), $this->period_choices[0] );
 		$input->setOption( 'period', $this->period );
 
+		// Open the destination file if provided.
 		$this->destination = maybe_get_string_input( $input, $output, 'destination', fn() => $this->prompt_destination_input( $input, $output ) );
-		if ( ! empty( $this->destination ) && empty( \pathinfo( $this->destination, PATHINFO_EXTENSION ) ) ) {
-			$this->destination .= '.csv';
+		if ( ! empty( $this->destination ) ) {
+			if ( empty( \pathinfo( $this->destination, PATHINFO_EXTENSION ) ) ) {
+				$this->destination .= '.csv';
+			}
+
+			$this->stream = \fopen( $this->destination, 'wb' );
+			if ( false === $this->stream ) {
+				$output->writeln( "<error>Could not open file for writing: $this->destination</error>" );
+				exit( 1 );
+			}
 		}
+
+		// Fetch the sites and filter out non-production sites.
+		$this->sites = get_wpcom_jetpack_sites();
+		$output->writeln( '<comment>Successfully fetched ' . \count( $this->sites ) . ' Jetpack site(s).</comment>' );
+
+		$this->sites = \array_filter(
+			\array_map(
+				function ( \stdClass $site ) {
+					foreach ( $this->deny_list as $deny ) {
+						if ( \str_contains( $site->siteurl, $deny ) ) {
+							return null;
+						}
+					}
+
+					return $site;
+				},
+				$this->sites
+			)
+		);
+		$output->writeln( '<comment>Production site(s) found: ' . \count( $this->sites ) . '</comment>' );
+
+		// Fetch site stats for each site.
+		$this->sites_stats = get_wpcom_site_stats_batch(
+			\array_column( $this->sites, 'userblog_id' ),
+			\array_combine(
+				\array_column( $this->sites, 'userblog_id' ),
+				\array_fill(
+					0,
+					\count( $this->sites ),
+					array(
+						'num'    => $this->num,
+						'period' => $this->period,
+						'date'   => $this->date,
+					)
+				)
+			),
+			'summary',
+			$errors
+		);
+		maybe_output_wpcom_failed_sites_table( $output, $errors, $this->sites );
+
+		$this->sites_stats = \array_filter( $this->sites_stats, static fn( $site_stats ) => 0 < $site_stats->views );
+		$output->writeln( '<comment>Site with summary stats found: ' . \count( $this->sites_stats ) . '</comment>' );
 	}
 
 	/**
@@ -113,72 +186,25 @@ final class WPCOM_Sites_Stats_Summary_Export extends Command {
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		$output->writeln( "<fg=magenta;options=bold>Compiling summary stats for WPCOMSP sites during the last $this->num $this->period(s) period ending $this->date.</>" );
 
-		$sites = get_wpcom_jetpack_sites();
-		$output->writeln( '<comment>Successfully fetched ' . \count( $sites ) . ' Jetpack site(s).</comment>' );
-
-		// Filter out non-production sites.
-		$sites = \array_filter(
-			\array_map(
-				function ( \stdClass $site ) {
-					$matches = false;
-					foreach ( $this->deny_list as $deny ) {
-						if ( \str_contains( $site->siteurl, $deny ) ) {
-							$matches = true;
-							break;
-						}
-					}
-
-					return $matches ? null : $site;
-				},
-				$sites
-			)
-		);
-		$output->writeln( '<comment>Production site(s) found: ' . \count( $sites ) . '</comment>' );
-
-		// Fetch site stats for each site.
-		$sites_stats = get_wpcom_site_stats_batch(
-			\array_column( $sites, 'userblog_id' ),
-			\array_combine(
-				\array_column( $sites, 'userblog_id' ),
-				\array_fill(
-					0,
-					\count( $sites ),
-					array(
-						'num'    => $this->num,
-						'period' => $this->period,
-						'date'   => $this->date,
-					)
-				)
-			),
-			'summary'
-		);
-		$sites_stats = \array_filter(
-			\array_map(
-				static fn( \stdClass $site_stats ) => empty( $site_stats->views ) ? null : $site_stats,
-				$sites_stats
-			)
-		);
-		$output->writeln( '<comment>Site stats found: ' . \count( $sites_stats ) . '</comment>' );
-
 		// Sort sites by total views and run some calculations.
-		\uasort( $sites_stats, static fn( \stdClass $a, \stdClass $b ) => $b->views <=> $a->views );
-		$sum_total_views     = \number_format( \array_sum( \array_column( $sites_stats, 'views' ) ) );
-		$sum_total_visitors  = \number_format( \array_sum( \array_column( $sites_stats, 'visitors' ) ) );
-		$sum_total_comments  = \number_format( \array_sum( \array_column( $sites_stats, 'comments' ) ) );
-		$sum_total_followers = \number_format( \array_sum( \array_column( $sites_stats, 'followers' ) ) );
+		\uasort( $this->sites_stats, static fn( \stdClass $a, \stdClass $b ) => $b->views <=> $a->views );
+		$sum_total_views     = \number_format( \array_sum( \array_column( $this->sites_stats, 'views' ) ) );
+		$sum_total_visitors  = \number_format( \array_sum( \array_column( $this->sites_stats, 'visitors' ) ) );
+		$sum_total_comments  = \number_format( \array_sum( \array_column( $this->sites_stats, 'comments' ) ) );
+		$sum_total_followers = \number_format( \array_sum( \array_column( $this->sites_stats, 'followers' ) ) );
 
 		// Format the site stats for output.
 		$sites_stats_rows = \array_map(
-			static fn( \stdClass $site_stats, string $site_id ) => array(
-				$sites[ $site_id ]->userblog_id,
-				$sites[ $site_id ]->siteurl,
+			fn( \stdClass $site_stats, string $site_id ) => array(
+				$this->sites[ $site_id ]->userblog_id,
+				$this->sites[ $site_id ]->siteurl,
 				\number_format( $site_stats->views ),
 				\number_format( $site_stats->visitors ),
 				\number_format( $site_stats->comments ),
 				\number_format( $site_stats->followers ),
 			),
-			$sites_stats,
-			\array_keys( $sites_stats )
+			$this->sites_stats,
+			\array_keys( $this->sites_stats )
 		);
 
 		output_table(
@@ -193,20 +219,12 @@ final class WPCOM_Sites_Stats_Summary_Export extends Command {
 		$output->writeln( "<info>Total followers across WPCOMSP sites during the last $this->num $this->period(s) period ending $this->date: $sum_total_followers</info>" );
 
 		// Output to file if destination is set.
-		if ( ! \is_null( $this->destination ) ) {
-			$output->writeln( '<comment>Saving output to file...</comment>' );
-
-			$stream = \fopen( $this->destination, 'wb' );
-			if ( false === $stream ) {
-				$output->writeln( "<error>Could not open file for writing: $this->destination</error>" );
-				return Command::FAILURE;
-			}
-
-			\fputcsv( $stream, array( 'Blog ID', 'Site URL', 'Total Views', 'Total Visitors', 'Total Comments', 'Total Followers' ) );
+		if ( ! \is_null( $this->stream ) ) {
+			\fputcsv( $this->stream, array( 'Blog ID', 'Site URL', 'Total Views', 'Total Visitors', 'Total Comments', 'Total Followers' ) );
 			foreach ( $sites_stats_rows as $row ) {
-				\fputcsv( $stream, $row );
+				\fputcsv( $this->stream, $row );
 			}
-			\fclose( $stream );
+			\fclose( $this->stream );
 
 			$output->writeln( "<info>Output saved to $this->destination</info>" );
 		}
@@ -220,7 +238,7 @@ final class WPCOM_Sites_Stats_Summary_Export extends Command {
 	// region HELPERS
 
 	/**
-	 * Prompts the user to for the number of periods. Defaults to 1.
+	 * Prompts the user to for the number of periods.
 	 *
 	 * @param   InputInterface  $input  The input object.
 	 * @param   OutputInterface $output The output object.
@@ -233,7 +251,7 @@ final class WPCOM_Sites_Stats_Summary_Export extends Command {
 	}
 
 	/**
-	 * Prompts the user to for the period, ie. day, week, month, year.
+	 * Prompts the user to for the period.
 	 *
 	 * @param   InputInterface  $input  The input object.
 	 * @param   OutputInterface $output The output object.

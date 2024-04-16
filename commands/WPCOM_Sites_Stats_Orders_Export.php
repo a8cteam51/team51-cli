@@ -65,6 +65,13 @@ final class WPCOM_Sites_Stats_Orders_Export extends Command {
 	private ?string $destination = null;
 
 	/**
+	 * The stream to write the output to.
+	 *
+	 * @var resource|null
+	 */
+	private $stream = null;
+
+	/**
 	 * The deny list of sites to exclude from the report.
 	 *
 	 * @var array
@@ -80,6 +87,20 @@ final class WPCOM_Sites_Stats_Orders_Export extends Command {
 		'ninomihovilic.com',
 		'team51.blog',
 	);
+
+	/**
+	 * The list of connected sites.
+	 *
+	 * @var array|null
+	 */
+	private ?array $sites = null;
+
+	/**
+	 * The list of orders stats for each connected and relevant site.
+	 *
+	 * @var array|null
+	 */
+	private ?array $sites_stats = null;
 
 	// endregion
 
@@ -108,10 +129,77 @@ final class WPCOM_Sites_Stats_Orders_Export extends Command {
 		$this->date = get_string_input( $input, $output, 'date', fn() => $this->prompt_date_input( $input, $output ) );
 		$input->setOption( 'date', $this->date );
 
+		// Open the destination file if provided.
 		$this->destination = maybe_get_string_input( $input, $output, 'destination', fn() => $this->prompt_destination_input( $input, $output ) );
-		if ( ! empty( $this->destination ) && empty( \pathinfo( $this->destination, PATHINFO_EXTENSION ) ) ) {
-			$this->destination .= '.csv';
+		if ( ! empty( $this->destination ) ) {
+			if ( empty( \pathinfo( $this->destination, PATHINFO_EXTENSION ) ) ) {
+				$this->destination .= '.csv';
+			}
+
+			$this->stream = \fopen( $this->destination, 'wb' );
+			if ( false === $this->stream ) {
+				$output->writeln( "<error>Could not open file for writing: $this->destination</error>" );
+				exit( 1 );
+			}
 		}
+
+		// Fetch the sites and filter out non-production sites.
+		$this->sites = get_wpcom_jetpack_sites();
+		$output->writeln( '<comment>Successfully fetched ' . \count( $this->sites ) . ' Jetpack site(s).</comment>' );
+
+		$this->sites = \array_filter(
+			\array_map(
+				function ( \stdClass $site ) {
+					foreach ( $this->deny_list as $deny ) {
+						if ( \str_contains( $site->siteurl, $deny ) ) {
+							return null;
+						}
+					}
+
+					return $site;
+				},
+				$this->sites
+			)
+		);
+		$output->writeln( '<comment>Production site(s) found: ' . \count( $this->sites ) . '</comment>' );
+
+		// Filter out sites that don't have WooCommerce installed and active.
+		$sites_plugins = get_wpcom_site_plugins_batch( \array_column( $this->sites, 'userblog_id' ), $errors );
+		maybe_output_wpcom_failed_sites_table( $output, $errors, $this->sites, 'Sites that could NOT be searched for WooCommerce' );
+
+		$this->sites = \array_filter( $this->sites, static fn( $site ) => \array_key_exists( $site->userblog_id, $sites_plugins ) );
+		$this->sites = \array_filter(
+			$this->sites,
+			static fn( $site ) => \array_reduce(
+				$sites_plugins[ $site->userblog_id ],
+				static fn( $carry, $plugin ) => $carry || ( 'woocommerce' === $plugin->TextDomain && true === $plugin->active ), // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+				false
+			)
+		);
+		$output->writeln( '<comment>Sites with WooCommerce installed and active: ' . \count( $this->sites ) . '</comment>' );
+
+		// Fetch site stats for each site.
+		$this->sites_stats = get_wpcom_site_stats_batch(
+			\array_column( $this->sites, 'userblog_id' ),
+			\array_combine(
+				\array_column( $this->sites, 'userblog_id' ),
+				\array_fill(
+					0,
+					\count( $this->sites ),
+					array(
+						'unit'     => $this->unit,
+						'date'     => $this->date,
+						'quantity' => 1,
+					)
+				)
+			),
+			'orders',
+			$errors
+		);
+		maybe_output_wpcom_failed_sites_table( $output, $errors, $this->sites );
+
+		$this->sites_stats = \array_filter( $this->sites_stats, static fn( $stats ) => 0 < $stats->total_gross_sales && 0 < $stats->total_orders );
+		$output->writeln( '<comment>Sites with WooCommerce orders stats found: ' . \count( $this->sites_stats ) . '</comment>' );
 	}
 
 	/**
@@ -120,129 +208,44 @@ final class WPCOM_Sites_Stats_Orders_Export extends Command {
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		$output->writeln( "<fg=magenta;options=bold>Compiling WC orders stats for WPCOMSP sites per $this->unit until $this->date.</>" );
 
-		$sites = get_wpcom_jetpack_sites();
-		$output->writeln( '<comment>Successfully fetched ' . \count( $sites ) . ' Jetpack site(s).</comment>' );
-
-		// Filter out non-production sites.
-		$sites = \array_filter(
-			\array_map(
-				function ( \stdClass $site ) {
-					$matches = false;
-					foreach ( $this->deny_list as $deny ) {
-						if ( \str_contains( $site->siteurl, $deny ) ) {
-							$matches = true;
-							break;
-						}
-					}
-
-					return $matches ? null : (object) array(
-						'blog_id'  => $site->userblog_id,
-						'site_url' => $site->siteurl,
-					);
-				},
-				$sites
-			)
-		);
-
-		$output->writeln( '<comment>Production site(s) found: ' . \count( $sites ) . '</comment>' );
-
-		// Figure out which of these sites have WooCommerce installed.
-		$sites_plugins = get_wpcom_site_plugins_batch( \array_column( $sites, 'blog_id' ) );
-
-
-		$failed_sites = \array_filter( $sites_plugins, static fn( $plugins ) => \is_object( $plugins ) );
-		maybe_output_wpcom_failed_sites_table( $output, $failed_sites, $sites, 'Sites that could NOT be searched' );
-
-		$sites_with_wc = array();
-		$sites_plugins = \array_filter( $sites_plugins, static fn( $plugins ) => \is_array( $plugins ) );
-		foreach ( $sites_plugins as $site_id => $plugins ) {
-			foreach ( $plugins as $plugin => $plugin_data ) {
-				$plugin_folder = \dirname( $plugin );
-				if ( $plugin_folder === 'woocommerce' && true === $plugin_data->active ) {
-					$sites_with_wc[ $site_id ] = $sites[ $site_id ];
-					break;
-				}
-			}
-		}
-
-		//var_dump( $sites_plugins[185425446]); exit;
-		//var_dump( $sites_with_wc[185425446]); exit;
-
-
-		$output->writeln( '<comment>Sites with WooCommerce installed and active: ' . \count( $sites_with_wc ) . '</comment>' );
-
-		// Fetch site stats for each site.
-		$sites_with_wc_stats = get_wpcom_site_stats_batch(
-			\array_column( $sites_with_wc, 'blog_id' ),
-			\array_combine(
-				\array_column( $sites_with_wc, 'blog_id' ),
-				\array_fill(
-					0,
-					\count( $sites_with_wc ),
-					array(
-						'unit'     => $this->unit,
-						'date'     => $this->date,
-						'quantity' => 1,
-					)
-				)
-			),
-			'orders'
-		);
-
-		//var_dump( $sites_with_wc_stats[185425446]); exit;
-
-		$failed_sites = \array_filter( $sites_with_wc_stats, static fn( $stats ) => ! \property_exists( $stats, 'date' ) );
-		maybe_output_wpcom_failed_sites_table( $output, $failed_sites, $sites_with_wc, 'Sites that could NOT be searched' );
-
-		$sites_with_wc_stats = \array_filter( $sites_with_wc_stats, static fn( $stats ) => \property_exists( $stats, 'date' ) && $stats->total_gross_sales > 0 && $stats->total_orders > 0 );
-		$output->writeln( '<comment>Site stats found: ' . \count( $sites_with_wc_stats ) . '</comment>' );
-
 		// Sort sites by total sales and run some calculations.
-		\uasort( $sites_with_wc_stats, static fn( $a, $b ) => $b->total_gross_sales <=> $a->total_gross_sales );
+		\uasort( $this->sites_stats, static fn( $a, $b ) => $b->total_gross_sales <=> $a->total_gross_sales );
 
 		// Format the site stats for output.
-		$sites_with_wc_stats_rows = \array_map(
-			static fn( \stdClass $site_with_wc_stats, string $site_id ) => array(
-				$sites[ $site_id ]->blog_id,
-				$sites[ $site_id ]->site_url,
-				'$' . number_format( $site_with_wc_stats->total_gross_sales, 2 ),
-				'$' . number_format( $site_with_wc_stats->total_net_sales, 2 ),
-				$site_with_wc_stats->total_orders,
-				$site_with_wc_stats->total_products,
+		$sites_stats_rows      = \array_map(
+			fn( \stdClass $site_stats, string $site_id ) => array(
+				$this->sites[ $site_id ]->userblog_id,
+				$this->sites[ $site_id ]->siteurl,
+				'$' . number_format( $site_stats->total_gross_sales, 2 ),
+				'$' . number_format( $site_stats->total_net_sales, 2 ),
+				$site_stats->total_orders,
+				$site_stats->total_products,
 			),
-			$sites_with_wc_stats,
-			\array_keys( $sites_with_wc_stats )
+			$this->sites_stats,
+			\array_keys( $this->sites_stats )
 		);
-		$sum_total_gross_sales    = \number_format( \array_sum( \array_column( $sites_with_wc_stats, 'total_gross_sales' ) ), 2 );
+		$sum_total_gross_sales = \number_format( \array_sum( \array_column( $this->sites_stats, 'total_gross_sales' ) ), 2 );
 
 		output_table(
 			$output,
-			$sites_with_wc_stats_rows,
+			$sites_stats_rows,
 			array( 'Blog ID', 'Site URL', 'Total Gross Sales', 'Total Net Sales', 'Total Orders', 'Total Products' ),
 			'WPCOMSP Sites WooCommerce Orders Stats'
 		);
 		$output->writeln( "<info>Total gross sales across WPCOMSP sites during $this->unit $this->date: $$sum_total_gross_sales</info>" );
 
 		// Output to file if destination is set.
-		if ( ! \is_null( $this->destination ) ) {
-			$output->writeln( '<comment>Saving output to file...</comment>' );
-
-			$stream = \fopen( $this->destination, 'wb' );
-			if ( false === $stream ) {
-				$output->writeln( "<error>Could not open file for writing: $this->destination</error>" );
-				return Command::FAILURE;
+		if ( ! \is_null( $this->stream ) ) {
+			\fputcsv( $this->stream, array( 'Blog ID', 'Site URL', 'Total Gross Sales', 'Total Net Sales', 'Total Orders', 'Total Products' ) );
+			foreach ( $sites_stats_rows as $row ) {
+				\fputcsv( $this->stream, $row );
 			}
-
-			\fputcsv( $stream, array( 'Blog ID', 'Site URL', 'Total Gross Sales', 'Total Net Sales', 'Total Orders', 'Total Products' ) );
-			foreach ( $sites_with_wc_stats_rows as $row ) {
-				\fputcsv( $stream, $row );
-			}
-			\fclose( $stream );
+			\fclose( $this->stream );
 
 			$output->writeln( "<info>Output saved to $this->destination</info>" );
 		}
 
-		$output->writeln( '<fg=green;options=bold>Sites WC orders stats exported successfully.</>' );
+		$output->writeln( '<fg=green;options=bold>Sites WooCommerce orders stats exported successfully.</>' );
 		return Command::SUCCESS;
 	}
 

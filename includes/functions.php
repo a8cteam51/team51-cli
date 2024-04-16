@@ -79,6 +79,19 @@ function parse_http_headers( array $http_response_header ): array {
 	return $headers;
 }
 
+/**
+ * Filters out the errors from a batch response and returns the successful responses.
+ *
+ * @param   stdClass   $responses The response to parse from the batch request.
+ * @param   array|null $errors    The errors that occurred during the request.
+ *
+ * @return  array
+ */
+function parse_batch_response( stdClass $responses, array &$errors = null ): array {
+	$errors = array_filter( (array) $responses, static fn( $response ) => is_object( $response ) && property_exists( $response, 'errors' ) );
+	return array_filter( (array) $responses, static fn( $response ) => ! is_object( $response ) || ! property_exists( $response, 'errors' ) );
+}
+
 // endregion
 
 // region WRAPPERS
