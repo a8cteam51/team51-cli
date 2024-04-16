@@ -563,6 +563,10 @@ function dashify( string $value ): string {
 	return trim( $value, '-' ); // Trim any leading or trailing hyphens.
 }
 
+// endregion
+
+// region FILESYSTEM
+
 /**
  * Returns the path to the current user's home directory, optionally appending a path to it.
  *
@@ -575,6 +579,47 @@ function get_user_folder_path( string $path = '' ): string {
 
 	$user_info = posix_getpwuid( posix_getuid() );
 	return $user_info['dir'] . "/$path";
+}
+
+/**
+ * Returns a file handle if the file can be opened, or null if it cannot.
+ *
+ * @param   string $filename  The path to the file to open.
+ * @param   string $extension The extension to append to the filename if it does not have one.
+ * @param   string $mode      The mode to open the file in. Default 'wb'.
+ *
+ * @return  resource|null
+ */
+function maybe_get_file_handle( string $filename, string $extension, string $mode = 'wb' ) {
+	if ( empty( pathinfo( $filename, PATHINFO_EXTENSION ) ) ) {
+		$filename .= ".$extension";
+	}
+
+	$handle = fopen( $filename, $mode );
+	if ( false === $handle ) {
+		return null;
+	}
+
+	return $handle;
+}
+
+/**
+ * Returns a file handle if the file can be opened, or throws an exception if it cannot.
+ *
+ * @param   string $filename  The path to the file to open.
+ * @param   string $extension The extension to append to the filename if it does not have one.
+ * @param   string $mode      The mode to open the file in. Default 'wb'.
+ *
+ * @throws  RuntimeException If the file cannot be opened.
+ * @return  resource
+ */
+function get_file_handle( string $filename, string $extension, string $mode = 'wb' ) {
+	$handle = maybe_get_file_handle( $filename, $extension, $mode );
+	if ( null === $handle ) {
+		throw new RuntimeException( "Could not open file: $filename" );
+	}
+
+	return $handle;
 }
 
 // endregion
