@@ -74,8 +74,9 @@ function team51_cli_self_update(): void {
 
 // region EXECUTION LOGIC
 
-$team51_cli_is_quiet = file_exists( TEAM51_CLI_ROOT_DIR . '/.quiet' );
-$team51_cli_is_dev   = file_exists( TEAM51_CLI_ROOT_DIR . '/.dev' );
+$team51_cli_is_quiet    = file_exists( TEAM51_CLI_ROOT_DIR . '/.quiet' );
+$team51_cli_is_dev      = file_exists( TEAM51_CLI_ROOT_DIR . '/.dev' );
+$team51_is_autocomplete = false;
 
 foreach ( $argv as $arg ) {
 	switch ( $arg ) {
@@ -86,6 +87,12 @@ foreach ( $argv as $arg ) {
 		case '--dev':
 			$team51_cli_is_dev = true;
 			break;
+		case '_complete':
+			$team51_cli_is_quiet    = true;
+			$team51_is_autocomplete = true;
+
+			$GLOBALS['team51_is_autocomplete'] = $team51_is_autocomplete;
+			break;
 	}
 }
 
@@ -93,7 +100,7 @@ foreach ( $argv as $arg ) {
 team51_cli_print_message( file_get_contents( TEAM51_CLI_ROOT_DIR . '/.ascii' ) );
 
 // Check for updates.
-if ( $team51_cli_is_dev ) {
+if ( $team51_cli_is_dev || $team51_is_autocomplete ) {
 	team51_cli_print_message( "\033[44mRunning in developer mode. Skipping update check.\033[0m" );
 } else {
 	team51_cli_print_message( "\033[33mChecking for updates..\033[0m" );
@@ -101,7 +108,9 @@ if ( $team51_cli_is_dev ) {
 }
 
 // Update Composer.
-team51_cli_run_system_command( sprintf( 'composer install --working-dir %s --no-interaction', TEAM51_CLI_ROOT_DIR ) );
-team51_cli_run_system_command( sprintf( 'composer dump-autoload -o --working-dir %s --no-interaction', TEAM51_CLI_ROOT_DIR ) );
+if ( ! $team51_is_autocomplete ) {
+	team51_cli_run_system_command( sprintf( 'composer install --working-dir %s --no-interaction', TEAM51_CLI_ROOT_DIR ) );
+	team51_cli_run_system_command( sprintf( 'composer dump-autoload -o --working-dir %s --no-interaction', TEAM51_CLI_ROOT_DIR ) );
+}
 
 // endregion

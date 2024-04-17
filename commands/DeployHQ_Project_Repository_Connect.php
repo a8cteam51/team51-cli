@@ -15,6 +15,9 @@ use Symfony\Component\Console\Question\Question;
  */
 #[AsCommand( name: 'deployhq:connect-project-repository', aliases: array( 'deployhq:connect-project-repo' ) )]
 final class DeployHQ_Project_Repository_Connect extends Command {
+
+	use \WPCOMSpecialProjects\CLI\Helper\Autocomplete;
+
 	// region FIELDS AND CONSTANTS
 
 	/**

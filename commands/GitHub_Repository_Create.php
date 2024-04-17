@@ -16,6 +16,9 @@ use Symfony\Component\Console\Question\Question;
  */
 #[AsCommand( name: 'github:create-repository' )]
 final class GitHub_Repository_Create extends Command {
+
+	use \WPCOMSpecialProjects\CLI\Helper\Autocomplete;
+
 	// region FIELDS AND CONSTANTS
 
 	/**

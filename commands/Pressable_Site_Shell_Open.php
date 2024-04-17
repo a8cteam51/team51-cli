@@ -14,6 +14,9 @@ use Symfony\Component\Console\Question\Question;
  */
 #[AsCommand( name: 'pressable:open-site-shell' )]
 final class Pressable_Site_Shell_Open extends Command {
+
+	use \WPCOMSpecialProjects\CLI\Helper\Autocomplete;
+
 	// region FIELDS AND CONSTANTS
 
 	/**

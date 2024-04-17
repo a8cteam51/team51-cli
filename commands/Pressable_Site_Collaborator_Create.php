@@ -15,6 +15,9 @@ use Symfony\Component\Console\Question\Question;
  */
 #[AsCommand( name: 'pressable:create-site-collaborator' )]
 final class Pressable_Site_Collaborator_Create extends Command {
+
+	use \WPCOMSpecialProjects\CLI\Helper\Autocomplete;
+
 	// region FIELDS AND CONSTANTS
 
 	/**

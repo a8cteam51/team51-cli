@@ -16,6 +16,9 @@ use Symfony\Component\Console\Question\Question;
  */
 #[AsCommand( name: 'pressable:delete-site-collaborator' )]
 final class Pressable_Site_Collaborator_Delete extends Command {
+
+	use \WPCOMSpecialProjects\CLI\Helper\Autocomplete;
+
 	// region FIELDS AND CONSTANTS
 
 	/**

@@ -16,6 +16,9 @@ use Symfony\Component\Console\Question\Question;
  */
 #[AsCommand( name: 'pressable:add-site-domain' )]
 final class Pressable_Site_Domain_Add extends Command {
+
+	use \WPCOMSpecialProjects\CLI\Helper\Autocomplete;
+
 	// region FIELDS AND CONSTANTS
 
 	/**

@@ -16,6 +16,9 @@ use Symfony\Component\Console\Question\Question;
  */
 #[AsCommand( name: 'deployhq:rotate-project-private-key' )]
 final class DeployHQ_Project_Private_Key_Rotate extends Command {
+
+	use \WPCOMSpecialProjects\CLI\Helper\Autocomplete;
+
 	// region FIELDS AND CONSTANTS
 
 	/**

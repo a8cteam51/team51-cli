@@ -15,6 +15,9 @@ use Symfony\Component\Console\Question\Question;
  */
 #[AsCommand( name: 'pressable:run-site-wp-cli-command' )]
 final class Pressable_Site_WP_CLI_Command_Run extends Command {
+
+	use \WPCOMSpecialProjects\CLI\Helper\Autocomplete;
+
 	// region FIELDS AND CONSTANTS
 
 	/**

@@ -18,6 +18,9 @@ use Symfony\Component\Console\Question\Question;
  */
 #[AsCommand( name: 'wpcom:delete-site-wp-user' )]
 final class WPCOM_Site_WP_User_Delete extends Command {
+
+	use \WPCOMSpecialProjects\CLI\Helper\Autocomplete;
+
 	// region FIELDS AND CONSTANTS
 
 	/**

@@ -15,6 +15,9 @@ use Symfony\Component\Console\Question\Question;
  */
 #[AsCommand( name: 'jetpack:set-site-module-status', aliases: array( 'jetpack:toggle-site-module' ) )]
 final class Jetpack_Site_Module_Status_Set extends Command {
+
+	use \WPCOMSpecialProjects\CLI\Helper\Autocomplete;
+
 	// region FIELDS AND CONSTANTS
 
 	/**

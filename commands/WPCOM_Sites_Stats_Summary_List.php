@@ -16,6 +16,9 @@ use Symfony\Component\Console\Question\ConfirmationQuestion;
  */
 #[AsCommand( name: 'wpcom:list-sites-stats-summary' )]
 final class WPCOM_Sites_Stats_Summary_List extends Command {
+
+	use \WPCOMSpecialProjects\CLI\Helper\Autocomplete;
+
 	// region FIELDS AND CONSTANTS
 
 	/**

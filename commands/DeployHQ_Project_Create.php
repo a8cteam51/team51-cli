@@ -17,6 +17,9 @@ use Symfony\Component\Console\Question\Question;
  */
 #[AsCommand( name: 'deployhq:create-project' )]
 final class DeployHQ_Project_Create extends Command {
+
+	use \WPCOMSpecialProjects\CLI\Helper\Autocomplete;
+
 	// region FIELDS AND CONSTANTS
 
 	/**

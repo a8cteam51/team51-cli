@@ -14,6 +14,9 @@ use Symfony\Component\Console\Question\Question;
  */
 #[AsCommand( name: 'wpcom:list-site-plugins' )]
 final class WPCOM_Site_Plugins_List extends Command {
+
+	use \WPCOMSpecialProjects\CLI\Helper\Autocomplete;
+
 	// region FIELDS AND CONSTANTS
 
 	/**

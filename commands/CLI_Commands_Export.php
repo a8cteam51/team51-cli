@@ -21,6 +21,9 @@ use Symfony\Component\Console\Question\Question;
  */
 #[AsCommand( name: 'export-commands' )]
 final class CLI_Commands_Export extends Command {
+
+	use \WPCOMSpecialProjects\CLI\Helper\Autocomplete;
+
 	// region FIELDS AND CONSTANTS
 
 	/**

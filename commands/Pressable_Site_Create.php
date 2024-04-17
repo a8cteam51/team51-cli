@@ -17,6 +17,9 @@ use Symfony\Component\Console\Question\Question;
  */
 #[AsCommand( name: 'pressable:create-site', aliases: array( 'pressable:create-production-site' ) )]
 final class Pressable_Site_Create extends Command {
+
+	use \WPCOMSpecialProjects\CLI\Helper\Autocomplete;
+
 	// region FIELDS AND CONSTANTS
 
 	/**

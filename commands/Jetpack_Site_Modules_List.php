@@ -14,6 +14,9 @@ use Symfony\Component\Console\Question\Question;
  */
 #[AsCommand( name: 'jetpack:list-site-modules' )]
 final class Jetpack_Site_Modules_List extends Command {
+
+	use \WPCOMSpecialProjects\CLI\Helper\Autocomplete;
+
 	// region FIELDS AND CONSTANTS
 
 	/**

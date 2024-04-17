@@ -16,6 +16,9 @@ use Symfony\Component\Console\Question\Question;
  */
 #[AsCommand( name: 'jetpack:plugin-search' )]
 final class Jetpack_Plugin_Search extends Command {
+
+	use \WPCOMSpecialProjects\CLI\Helper\Autocomplete;
+
 	// region FIELDS AND CONSTANTS
 
 	/**
