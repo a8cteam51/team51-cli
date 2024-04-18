@@ -21,6 +21,13 @@ final class GitHub_Repository_Update_Secret extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**
+	 * The slug of the repository.
+	 *
+	 * @var string|null
+	 */
+	protected ?string $repo_slug = null;
+
+	/**
 	 * Whether processing multiple sites or just a single given one.
 	 * Currently, can only be set to `all`, if at all.
 	 *
@@ -38,7 +45,7 @@ final class GitHub_Repository_Update_Secret extends Command {
 	/**
 	 * The secret name to update.
 	 *
-	 * @var string|null $secret_name
+	 * @var string|null
 	 */
 	protected ?string $secret_name = null;
 
@@ -53,8 +60,8 @@ final class GitHub_Repository_Update_Secret extends Command {
 		$this->setDescription( 'Updates GitHub repository secret on github.com in the organization specified with GITHUB_API_OWNER. and project name.' )
 			->setHelp( 'This command allows you to update Github repository secret or create one if it is missing.' );
 
-		$this->addArgument( 'repo-slug', InputArgument::OPTIONAL, 'The slug of the GitHub repository' )
-			->addOption( 'secret-name', null, InputOption::VALUE_REQUIRED, 'Secret name in all caps (e.g., GH_BOT_TOKEN)', 'GH_BOT_TOKEN' );
+		$this->addArgument( 'repo-slug', InputArgument::OPTIONAL, 'The slug of the GitHub repository to operate on.' );
+		$this->addOption( 'secret-name', null, InputArgument::REQUIRED, 'Secret name in all caps (e.g., GH_BOT_TOKEN)' );
 
 		$this->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Determines whether the \'repo-slug\' argument is optional or not. Accepts only \'all\' currently.' );	
 	}
@@ -64,52 +71,47 @@ final class GitHub_Repository_Update_Secret extends Command {
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
 
-		// Retrieve and validate the modifier options.
 		$this->multiple = get_enum_input( $input, $output, 'multiple', array( 'all' ) );
+		$input->setOption( 'multiple', $this->multiple );
+
+		$this->secret_name = strtoupper( get_string_input( $input, $output, 'secret-name', fn() => $this->prompt_secret_name_input( $input, $output ) ) );
+		$input->setOption( 'secret-name', $this->secret_name );
 
 		// If processing a single repository, retrieve it from the input.
 		if ( 'all' !== $this->multiple ) {
-			$repo_slug = $input->getArgument( 'repo-slug' );
+			$this->repo_slug = get_string_input( $input, $output, 'repo-slug', fn() => $this->prompt_slug_input( $input, $output ) );
+			$repo_slug = $this->repo_slug;
+			$input->setArgument( 'repo-slug', $repo_slug );
+
 			if ( empty( $repo_slug ) ) {
 				$output->writeln( '<error>Repository slug is required.</error>' );
 				exit( 1 );
 			}
 
-			if ( \is_null( get_github_repository( GITHUB_API_OWNER, $repo_slug ) ) ) {
+			if ( \is_null( get_github_repository( $repo_slug ) ) ) {
 				$output->writeln( '<error>Repository not found.</error>' );
 				exit( 1 );
 			}
 
-			// Set the repo slug as an argument for the command.
-			$input->setArgument( 'repo-slug', $repo_slug );
-
 			// Set the repo slug as the only repository to process.
 			$this->repositories = array( $repo_slug );
 		} else {
-			$page = 1;
-			do {
-				$repositories_page = get_github_repositories(
-					GITHUB_API_OWNER,
-					array(
-						'per_page' => 100,
-						'page'     => $page,
-					)
-				);
-				if ( \is_null( $repositories_page ) ) {
-					$output->writeln( '<error>Failed to retrieve repositories.</error>' );
-					exit( 1 );
-				}
+			$repositories_list = get_github_repositories(
+				array(
+					'per_page' => 100,
+				)
+			)->records;
 
-				$this->repositories = array_merge( $this->repositories ?? array(), array_column( $repositories_page, 'name' ) );
-				++$page;
-			} while ( ! empty( $repositories_page ) );
-		}
+			if ( \is_null( $repositories_list ) ) {
+				$output->writeln( '<error>Failed to retrieve repositories.</error>' );
+				exit( 1 );
+			}
 
-		// Retrieve the given secret name which is always required.
-		$this->secret_name = \strtoupper( $input->getOption( 'secret-name' ) );
-		if ( 'GH_BOT_TOKEN' !== $this->secret_name && ! defined( $this->secret_name ) ) {
-			$output->writeln( '<error>No constant with the given secret name found.</error>' );
-			exit( 1 );
+			$repository_names = array_map( function( $repository ) {
+				return $repository->name;
+			}, $repositories_list );
+
+			$this->repositories = $repository_names;
 		}
 	}
 
@@ -135,9 +137,11 @@ final class GitHub_Repository_Update_Secret extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
-		foreach ( $this->repositories as $repository ) {
-			$secrets = get_github_repository_secrets( GITHUB_API_OWNER, $repository );
+		$output->writeln( print_r($this->repositories) );
+		foreach ( $this->repositories as $index=>$repository ) {
+			$secrets = get_github_repository_secrets( $repository );
 
+			$output->writeln( "<comment>Processing repository $repository ($index/" . count( $this->repositories ) . ")</comment>", OutputInterface::VERBOSITY_VERBOSE );
 			// Check if $secrets is an array before proceeding
 			if ( ! \is_array( $secrets ) ) {
 				$output->writeln( "<error>Error: Unable to retrieve secrets for $repository. Skipping...</error>", OutputInterface::VERBOSITY_VERBOSE );
@@ -149,16 +153,7 @@ final class GitHub_Repository_Update_Secret extends Command {
 				continue;
 			}
 
-			$repo_public_key = get_github_repository_public_key( GITHUB_API_OWNER, $repository );
-			if ( empty( $repo_public_key ) ) {
-				$output->writeln( "<error>Failed to retrieve public key for $repository. Skipping...</error>" );
-				continue;
-			}
-
-			$secret_value    = \constant( 'GH_BOT_TOKEN' === $this->secret_name ? 'GITHUB_API_BOT_SECRETS_TOKEN' : $this->secret_name );
-			$encrypted_value = $this->seal_secret( $secret_value, \base64_decode( $repo_public_key->key ) );
-
-			$result = update_github_repository_secret( GITHUB_API_OWNER, $repository, $this->secret_name, $encrypted_value, $repo_public_key->key_id );
+			$result = update_github_repository_secret( $repository, $this->secret_name );
 			if ( $result ) {
 				$output->writeln( "<fg=green;options=bold>Successfully updated secret $this->secret_name on $repository.</>" );
 			} else {
@@ -172,6 +167,32 @@ final class GitHub_Repository_Update_Secret extends Command {
 	// endregion
 
 	// region HELPERS
+
+	/**
+	 * Prompts the user for a repository slug.
+	 *
+	 * @param   InputInterface  $input  The input object.
+	 * @param   OutputInterface $output The output object.
+	 *
+	 * @return  string|null
+	 */
+	private function prompt_slug_input( InputInterface $input, OutputInterface $output ): ?string {
+		$question = new Question( '<question>Please enter the slug of the repository to update the secrets from:</question> ' );
+		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+	}
+
+	/**
+	 * Prompts the user for a secret name.
+	 *
+	 * @param   InputInterface  $input  The input object.
+	 * @param   OutputInterface $output The output object.
+	 *
+	 * @return  string|null
+	 */
+	private function prompt_secret_name_input( InputInterface $input, OutputInterface $output ): ?string {
+		$question = new Question( '<question>Please enter the name of the secret to update:</question> ' );
+		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+	}
 
 	/**
 	 * Generate base64 encoded sealed box of passed secret.
