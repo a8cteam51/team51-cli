@@ -10,14 +10,14 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\Question;
+use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 
 /**
  * Lists the connected Jetpack sites with a given plugin.
  */
 #[AsCommand( name: 'jetpack:plugin-search' )]
 final class Jetpack_Plugin_Search extends Command {
-
-	use \WPCOMSpecialProjects\CLI\Helper\Autocomplete;
+	use AutocompleteTrait;
 
 	// region FIELDS AND CONSTANTS
 

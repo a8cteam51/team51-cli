@@ -10,6 +10,7 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
+use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 
 /**
  * Deletes a WP user from WPCOM sites.
@@ -18,8 +19,7 @@ use Symfony\Component\Console\Question\Question;
  */
 #[AsCommand( name: 'wpcom:delete-site-wp-user' )]
 final class WPCOM_Site_WP_User_Delete extends Command {
-
-	use \WPCOMSpecialProjects\CLI\Helper\Autocomplete;
+	use AutocompleteTrait;
 
 	// region FIELDS AND CONSTANTS
 

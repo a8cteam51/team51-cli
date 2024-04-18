@@ -9,14 +9,14 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\Question;
+use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 
 /**
  * Exports a list of plugins installed on Jetpack sites.
  */
 #[AsCommand( name: 'jetpack:export-site-plugins' )]
 final class Jetpack_Site_Plugins_Export extends Command {
-
-	use \WPCOMSpecialProjects\CLI\Helper\Autocomplete;
+	use AutocompleteTrait;
 
 	// region FIELDS AND CONSTANTS
 

@@ -11,14 +11,14 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
+use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 
 /**
  * Creates a development clone of an existing Pressable site.
  */
 #[AsCommand( name: 'pressable:clone-site', aliases: array( 'pressable:create-development-site' ) )]
 final class Pressable_Site_Clone extends Command {
-
-	use \WPCOMSpecialProjects\CLI\Helper\Autocomplete;
+	use AutocompleteTrait;
 
 	// region FIELDS AND CONSTANTS
 

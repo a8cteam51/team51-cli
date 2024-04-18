@@ -11,14 +11,14 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
+use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 
 /**
  * Creates a new project on DeployHQ.
  */
 #[AsCommand( name: 'deployhq:create-project' )]
 final class DeployHQ_Project_Create extends Command {
-
-	use \WPCOMSpecialProjects\CLI\Helper\Autocomplete;
+	use AutocompleteTrait;
 
 	// region FIELDS AND CONSTANTS
 

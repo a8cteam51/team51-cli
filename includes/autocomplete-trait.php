@@ -5,7 +5,7 @@ namespace WPCOMSpecialProjects\CLI\Helper;
 use Symfony\Component\Console\Completion\CompletionInput;
 use Symfony\Component\Console\Completion\CompletionSuggestions;
 
-trait Autocomplete {
+trait AutocompleteTrait {
 
 	/**
 	 * Complete the input and provide suggestions.
@@ -33,7 +33,5 @@ trait Autocomplete {
 				$suggestions->suggestValue( $opt );
 			}
 		}
-
-		return;
 	}
 }
