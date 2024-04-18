@@ -13,8 +13,6 @@ use Symfony\Component\Console\Question\Question;
 
 /**
  * Create a new GitHub repository, optionally from a template.
- *
- * WORK IN PROGRESS
  */
 #[AsCommand( name: 'github:update-repository-secret' )]
 final class GitHub_Repository_Update_Secret extends Command {
@@ -63,7 +61,7 @@ final class GitHub_Repository_Update_Secret extends Command {
 		$this->addArgument( 'repo-slug', InputArgument::OPTIONAL, 'The slug of the GitHub repository to operate on.' );
 		$this->addOption( 'secret-name', null, InputArgument::REQUIRED, 'Secret name in all caps (e.g., GH_BOT_TOKEN)' );
 
-		$this->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Determines whether the \'repo-slug\' argument is optional or not. Accepts only \'all\' currently.' );	
+		$this->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Determines whether the \'repo-slug\' argument is optional or not. Accepts only \'all\' currently.' );
 	}
 
 	/**
@@ -153,7 +151,7 @@ final class GitHub_Repository_Update_Secret extends Command {
 				continue;
 			}
 
-			$result = update_github_repository_secret( $repository, $this->secret_name );
+			$result = set_github_repository_secret( $repository, $this->secret_name );
 			if ( $result ) {
 				$output->writeln( "<fg=green;options=bold>Successfully updated secret $this->secret_name on $repository.</>" );
 			} else {

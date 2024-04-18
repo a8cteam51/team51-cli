@@ -221,10 +221,7 @@ function parse_github_remote_repository_url( string $url ): ?stdClass {
  * @return  object[]|null
  */
 function get_github_repository_secrets( string $repository ): ?array {
-	return API_Helper::make_github_request(
-		"repositories/$repository/secrets",
-		'GET'
-	)->records;
+	return API_Helper::make_github_request( "repositories/$repository/secrets" )?->records;
 }
 
 /**
@@ -237,7 +234,7 @@ function get_github_repository_secrets( string $repository ): ?array {
  *
  * @return  bool
  */
-function update_github_repository_secret( string $repository, string $secret_name ): bool {
+function set_github_repository_secret( string $repository, string $secret_name ): bool {
 	$result = API_Helper::make_github_request(
 		"repositories/$repository/secrets/$secret_name",
 		'PUT',
