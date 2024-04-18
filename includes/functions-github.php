@@ -10,15 +10,15 @@ use Symfony\Component\Console\Output\OutputInterface;
  *
  * @param   array $params An array of parameters to filter the results by.
  *
- * @return  stdClass|null
+ * @return  stdClass[]|null
  */
-function get_github_repositories( array $params = array() ): ?stdClass {
+function get_github_repositories( array $params = array() ): ?array {
 	$endpoint = 'repositories';
 	if ( ! empty( $params ) ) {
 		$endpoint .= '?' . http_build_query( $params );
 	}
 
-	return API_Helper::make_github_request( $endpoint );
+	return API_Helper::make_github_request( $endpoint )?->records;
 }
 
 /**
@@ -76,10 +76,10 @@ function create_github_repository( string $name, ?string $type = null, ?string $
  *
  * @param   string $repository The name of the repository to retrieve the branches for.
  *
- * @return  stdClass|null
+ * @return  stdClass[]|null
  */
-function get_github_repository_branches( string $repository ): ?stdClass {
-	return API_Helper::make_github_request( "repositories/$repository/branches" );
+function get_github_repository_branches( string $repository ): ?array {
+	return API_Helper::make_github_request( "repositories/$repository/branches" )?->records;
 }
 
 /**
@@ -235,7 +235,7 @@ function get_github_repository_secrets( string $repository ): ?array {
  *
  * @return  stdClass|null
  */
-function set_github_repository_secret( string $repository, string $secret_name, ?string $secret_value ): ?stdClass {
+function set_github_repository_secret( string $repository, string $secret_name, ?string $secret_value = null ): ?stdClass {
 	return API_Helper::make_github_request( "repositories/$repository/secrets/$secret_name", 'PUT', array( 'value' => $secret_value ?? $secret_name ) );
 }
 

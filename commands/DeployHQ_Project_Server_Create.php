@@ -134,7 +134,7 @@ final class DeployHQ_Project_Server_Create extends Command {
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		$output->writeln( "<fg=magenta;options=bold>Creating new DeployHQ server `$this->name` for the project `{$this->project->name}` (permalink {$this->project->permalink}) deploying to {$this->pressable_site->displayName} (ID {$this->pressable_site->id}, URL {$this->pressable_site->url}) from GitHub branch $this->gh_repo_branch of the repository {$this->gh_repository->full_name}.</>" );
 
-		$branches = get_github_repository_branches( $this->gh_repository->name )?->records ?? array();
+		$branches = get_github_repository_branches( $this->gh_repository->name ) ?? array();
 		if ( ! \in_array( $this->gh_repo_branch, array_column( $branches, 'name' ), true ) ) {
 			$output->writeln( "<comment>Branch `$this->gh_repo_branch` does not exist in repository {$this->gh_repository->full_name}. Creating...</comment>" );
 
@@ -142,7 +142,7 @@ final class DeployHQ_Project_Server_Create extends Command {
 				$input,
 				$output,
 				'branch-source',
-				array_column( get_github_repository_branches( $this->gh_repository->name )?->records ?? array(), 'name' ),
+				array_column( get_github_repository_branches( $this->gh_repository->name ) ?? array(), 'name' ),
 				fn() => $this->prompt_branch_source_input( $input, $output ),
 				'trunk'
 			);
@@ -224,7 +224,7 @@ final class DeployHQ_Project_Server_Create extends Command {
 	 */
 	private function prompt_branch_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the branch to deploy from:</question> ' );
-		$question->setAutocompleterValues( array_column( get_github_repository_branches( $this->gh_repository->name )?->records ?? array(), 'name' ) );
+		$question->setAutocompleterValues( array_column( get_github_repository_branches( $this->gh_repository->name ) ?? array(), 'name' ) );
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
@@ -238,7 +238,7 @@ final class DeployHQ_Project_Server_Create extends Command {
 	 * @return  string|null
 	 */
 	private function prompt_branch_source_input( InputInterface $input, OutputInterface $output ): ?string {
-		$existing_branches = array_column( get_github_repository_branches( $this->gh_repository->name )?->records ?? array(), 'name' );
+		$existing_branches = array_column( get_github_repository_branches( $this->gh_repository->name ) ?? array(), 'name' );
 
 		$question = new Question( '<question>Enter the branch to create the new one off of [trunk]:</question> ', 'trunk' );
 		$question->setAutocompleterValues( array_column( $existing_branches, 'name' ) );
