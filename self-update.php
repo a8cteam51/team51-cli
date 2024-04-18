@@ -83,6 +83,7 @@ foreach ( $argv as $arg ) {
 		/* @noinspection PhpMissingBreakStatementInspection */
 		case '_complete':
 			$team51_is_autocomplete = true;
+			// No break; also mute output for autocomplete.
 		case '-q':
 		case '--quiet':
 			$team51_cli_is_quiet = true;

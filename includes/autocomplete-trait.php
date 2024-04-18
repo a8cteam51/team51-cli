@@ -5,8 +5,10 @@ namespace WPCOMSpecialProjects\CLI\Helper;
 use Symfony\Component\Console\Completion\CompletionInput;
 use Symfony\Component\Console\Completion\CompletionSuggestions;
 
+/**
+ * Generic implementation for Symfony Console autocompletion.
+ */
 trait AutocompleteTrait {
-
 	/**
 	 * Complete the input and provide suggestions.
 	 *
@@ -16,21 +18,17 @@ trait AutocompleteTrait {
 	 * @return void
 	 */
 	public function complete( CompletionInput $input, CompletionSuggestions $suggestions ): void {
-		$args     = $input->getArguments();
-		$arg_keys = array_keys( $args );
-		foreach ( $arg_keys as $arg ) {
-			if ( ! in_array( $arg, array( 'command' ) ) ) {
-				$arg = $arg;
-				$suggestions->suggestValue( $arg );
+		$input_arguments = \array_keys( $input->getArguments() );
+		foreach ( $input_arguments as $argument ) {
+			if ( 'command' !== $argument ) { // Special case for the actual command name, i.e. the first argument.
+				$suggestions->suggestValue( $argument );
 			}
 		}
 
-		$options  = $input->getOptions();
-		$opt_keys = array_keys( $options );
-		foreach ( $opt_keys as $opt ) {
-			if ( ! in_array( $opt, array( 'ansi', 'contractor', 'help', 'no-interaction', 'version', 'verbose', 'quiet', 'dev' ) ) ) {
-				$opt = '--' . $opt;
-				$suggestions->suggestValue( $opt );
+		$input_options = \array_keys( $input->getOptions() );
+		foreach ( $input_options as $option ) {
+			if ( ! \in_array( $option, array( 'ansi', 'help', 'no-interaction', 'version', 'verbose', 'quiet', 'dev' ), true ) ) {
+				$suggestions->suggestValue( '--' . $option );
 			}
 		}
 	}
