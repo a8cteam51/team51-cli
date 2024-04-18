@@ -80,18 +80,15 @@ $team51_is_autocomplete = false;
 
 foreach ( $argv as $arg ) {
 	switch ( $arg ) {
+		/* @noinspection PhpMissingBreakStatementInspection */
+		case '_complete':
+			$team51_is_autocomplete = true;
 		case '-q':
 		case '--quiet':
 			$team51_cli_is_quiet = true;
 			break;
 		case '--dev':
 			$team51_cli_is_dev = true;
-			break;
-		case '_complete':
-			$team51_cli_is_quiet    = true;
-			$team51_is_autocomplete = true;
-
-			$GLOBALS['team51_is_autocomplete'] = $team51_is_autocomplete;
 			break;
 	}
 }
