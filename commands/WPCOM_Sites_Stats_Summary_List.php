@@ -10,12 +10,15 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\Question;
 use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
+use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 
 /**
  * Outputs a list of sites managed by the WordPress.com Special Projects team.
  */
 #[AsCommand( name: 'wpcom:list-sites-stats-summary' )]
 final class WPCOM_Sites_Stats_Summary_List extends Command {
+	use AutocompleteTrait;
+
 	// region FIELDS AND CONSTANTS
 
 	/**

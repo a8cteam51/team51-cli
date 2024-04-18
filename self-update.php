@@ -74,11 +74,15 @@ function team51_cli_self_update(): void {
 
 // region EXECUTION LOGIC
 
-$team51_cli_is_quiet = file_exists( TEAM51_CLI_ROOT_DIR . '/.quiet' );
-$team51_cli_is_dev   = file_exists( TEAM51_CLI_ROOT_DIR . '/.dev' );
+$team51_cli_is_quiet    = file_exists( TEAM51_CLI_ROOT_DIR . '/.quiet' );
+$team51_cli_is_dev      = file_exists( TEAM51_CLI_ROOT_DIR . '/.dev' );
+$team51_is_autocomplete = false;
 
 foreach ( $argv as $arg ) {
 	switch ( $arg ) {
+		case '_complete':
+			$team51_is_autocomplete = true;
+			return; // Don't run the rest of the script.
 		case '-q':
 		case '--quiet':
 			$team51_cli_is_quiet = true;

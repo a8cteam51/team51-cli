@@ -10,12 +10,15 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
+use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 
 /**
  * Rotates the WP password of users on Pressable sites.
  */
 #[AsCommand( name: 'pressable:rotate-site-wp-user-password' )]
 final class Pressable_Site_WP_User_Password_Rotate extends Command {
+	use AutocompleteTrait;
+
 	// region FIELDS AND CONSTANTS
 
 	/**

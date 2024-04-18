@@ -8,12 +8,15 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\Question;
+use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 
 /**
  * Outputs a list of plugins installed on a given WPCOM or Jetpack-connected site.
  */
 #[AsCommand( name: 'wpcom:list-site-plugins' )]
 final class WPCOM_Site_Plugins_List extends Command {
+	use AutocompleteTrait;
+
 	// region FIELDS AND CONSTANTS
 
 	/**

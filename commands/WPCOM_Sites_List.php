@@ -10,18 +10,21 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\Question;
 use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
+use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 
 /**
  * Outputs a summary of all sites managed by the WordPress.com Special Projects team.
  */
 #[AsCommand( name: 'wpcom:list-sites' )]
 final class WPCOM_Sites_List extends Command {
+	use AutocompleteTrait;
+
 	// region FIELDS AND CONSTANTS
 
 	/**
 	 * Types of audits.
 	 *
-	 * @var string
+	 * @var array
 	 */
 	private array $audit_options = array(
 		'full',
@@ -41,7 +44,7 @@ final class WPCOM_Sites_List extends Command {
 	private ?string $audit_type = null;
 
 	/**
-	 * Excludable columns.
+	 * Columns included in the export and thus that can be excluded via options.
 	 */
 	private array $export_columns = array( 'Site Name', 'Domain', 'Site ID', 'Host' );
 
