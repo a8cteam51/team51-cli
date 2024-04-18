@@ -4,15 +4,6 @@
  * Handles making and parsing the API calls to the central REST API server.
  */
 final class API_Helper {
-	// region FIELDS AND CONSTANTS
-
-	/**
-	 * The base URL for the OpsOasis REST API.
-	 */
-	private const BASE_URL = 'https://opsoasis.wpspecialprojects.com/wp-json/wpcomsp/';
-
-	// endregion
-
 	// region METHODS
 
 	/**
@@ -25,7 +16,7 @@ final class API_Helper {
 	 * @return  stdClass|stdClass[]|true|null
 	 */
 	public static function make_deployhq_request( string $endpoint, string $method = 'GET', mixed $body = null ): stdClass|array|true|null {
-		return self::make_request( self::BASE_URL . "deployhq/v1/$endpoint", $method, $body );
+		return self::make_request( self::get_request_base_url() . "deployhq/v1/$endpoint", $method, $body );
 	}
 
 	/**
@@ -38,7 +29,7 @@ final class API_Helper {
 	 * @return  stdClass|stdClass[]|true|null
 	 */
 	public static function make_github_request( string $endpoint, string $method = 'GET', mixed $body = null ): stdClass|array|true|null {
-		return self::make_request( self::BASE_URL . "github/v1/$endpoint", $method, $body );
+		return self::make_request( self::get_request_base_url() . "github/v1/$endpoint", $method, $body );
 	}
 
 	/**
@@ -51,7 +42,7 @@ final class API_Helper {
 	 * @return  stdClass|stdClass[]|true|null
 	 */
 	public static function make_jetpack_request( string $endpoint, string $method = 'GET', mixed $body = null ): stdClass|array|true|null {
-		return self::make_request( self::BASE_URL . "jetpack/v1/$endpoint", $method, $body );
+		return self::make_request( self::get_request_base_url() . "jetpack/v1/$endpoint", $method, $body );
 	}
 
 	/**
@@ -64,7 +55,7 @@ final class API_Helper {
 	 * @return  stdClass|stdClass[]|true|null
 	 */
 	public static function make_pressable_request( string $endpoint, string $method = 'GET', mixed $body = null ): stdClass|array|true|null {
-		return self::make_request( self::BASE_URL . "pressable/v1/$endpoint", $method, $body );
+		return self::make_request( self::get_request_base_url() . "pressable/v1/$endpoint", $method, $body );
 	}
 
 	/**
@@ -77,12 +68,22 @@ final class API_Helper {
 	 * @return  stdClass|stdClass[]|true|null
 	 */
 	public static function make_wpcom_request( string $endpoint, string $method = 'GET', mixed $body = null ): stdClass|array|true|null {
-		return self::make_request( self::BASE_URL . "wpcom/v1/$endpoint", $method, $body );
+		return self::make_request( self::get_request_base_url() . "wpcom/v1/$endpoint", $method, $body );
 	}
 
 	// endregion
 
 	// region HELPERS
+
+	/**
+	 * Returns the base URL for the API endpoints.
+	 * Allows for overriding the base URL via the TEAM51_OPSOASIS_BASE_URL environment variable.
+	 *
+	 * @return  string
+	 */
+	protected static function get_request_base_url(): string {
+		return getenv('TEAM51_OPSOASIS_BASE_URL') ?: 'https://opsoasis.wpspecialprojects.com/wp-json/wpcomsp/';
+	}
 
 	/**
 	 * Calls the given endpoint and returns the response.
