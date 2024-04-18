@@ -95,7 +95,7 @@ final class Pressable_Site_Clone extends Command {
 
 		$this->addArgument( 'site', InputArgument::REQUIRED, 'The site to clone.' )
 			->addArgument( 'label', InputArgument::OPTIONAL, 'The suffix to append to the site name. Defaults to `development`.' )
-			->addOption( 'datacenter', null, InputArgument::OPTIONAL, 'The datacenter to clone the site in. Defaults to the datacenter of the given site.' )
+			->addOption( 'datacenter', null, InputOption::VALUE_REQUIRED, 'The datacenter to clone the site in. Defaults to the datacenter of the given site.' )
 			->addOption( 'branch', null, InputOption::VALUE_REQUIRED, 'The branch to deploy to the site from. Defaults to `develop`.' );
 
 		$this->addOption( 'skip-safety-net', null, InputOption::VALUE_NONE, 'Skip the installation of SafetyNet as a mu-plugin.' );
@@ -149,7 +149,7 @@ final class Pressable_Site_Clone extends Command {
 		$this->datacenter = get_enum_input( $input, $output, 'datacenter', array_keys( get_pressable_datacenters() ), fn() => $this->prompt_datacenter_input( $input, $output ), $this->site->datacenterCode );
 		$input->setOption( 'datacenter', $this->datacenter );
 
-		$this->skip_safety_net = (bool) $input->getOption( 'skip-safety-net' );
+		$this->skip_safety_net = get_bool_input( $input, $output, 'skip-safety-net' );
 		$input->setOption( 'skip-safety-net', $this->skip_safety_net );
 	}
 
