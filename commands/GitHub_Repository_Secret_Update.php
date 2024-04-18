@@ -37,11 +37,18 @@ final class GitHub_Repository_Secret_Update extends Command {
 	protected ?array $repositories = null;
 
 	/**
-	 * The secret name to update.
+	 * The name of the secret to update.
 	 *
 	 * @var string|null
 	 */
 	protected ?string $secret_name = null;
+
+	/**
+	 * The new value of the secret.
+	 *
+	 * @var string|null
+	 */
+	protected ?string $secret_value = null;
 
 	// endregion
 
@@ -81,6 +88,8 @@ final class GitHub_Repository_Secret_Update extends Command {
 
 		$this->secret_name = strtoupper( get_string_input( $input, $output, 'secret-name', fn() => $this->prompt_secret_name_input( $input, $output ) ) );
 		$input->setArgument( 'secret-name', $this->secret_name );
+
+		$this->secret_value = 'GH_BOT_TOKEN' === $this->secret_name ? 'WPCOMSP_GITHUB_API_TOKEN' : $this->secret_name; // Legacy support.
 	}
 
 	/**
@@ -112,7 +121,7 @@ final class GitHub_Repository_Secret_Update extends Command {
 				continue;
 			}
 
-			$result = set_github_repository_secret( $repository->name, $this->secret_name );
+			$result = set_github_repository_secret( $repository->name, $this->secret_name, $this->secret_value );
 			if ( \is_null( $result ) ) {
 				$output->writeln( "<error>Failed to update secret $this->secret_name on `$repository->name`.</error>" );
 				continue;

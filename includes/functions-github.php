@@ -227,16 +227,16 @@ function get_github_repository_secrets( string $repository ): ?array {
 /**
  * Creates or updates a repository secret.
  *
- * @param   string      $repository   The name of the repository. The name is not case-sensitive.
- * @param   string      $secret_name  The name of the secret.
- * @param   string|null $secret_value The plaintext value of the secret. By default, the value is the same as the secret name. OpsOasis will attempt to fetch the value from a constant with that name.
+ * @param   string $repository   The name of the repository. The name is not case-sensitive.
+ * @param   string $secret_name  The name of the secret.
+ * @param   string $secret_value The plaintext value of the secret. You can pass the name of a constant available on OpsOasis to use its value. OpsOasis will handle the encryption process.
  *
  * @link    https://docs.github.com/en/rest/actions/secrets#create-or-update-a-repository-secret
  *
  * @return  stdClass|null
  */
-function set_github_repository_secret( string $repository, string $secret_name, ?string $secret_value = null ): ?stdClass {
-	return API_Helper::make_github_request( "repositories/$repository/secrets/$secret_name", 'PUT', array( 'value' => $secret_value ?? $secret_name ) );
+function set_github_repository_secret( string $repository, string $secret_name, string $secret_value ): ?stdClass {
+	return API_Helper::make_github_request( "repositories/$repository/secrets/$secret_name", 'PUT', array( 'value' => $secret_value ) );
 }
 
 /**
