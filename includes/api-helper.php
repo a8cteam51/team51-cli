@@ -82,7 +82,7 @@ final class API_Helper {
 	 * @return  string
 	 */
 	protected static function get_request_base_url(): string {
-		return getenv('TEAM51_OPSOASIS_BASE_URL') ?: 'https://opsoasis.wpspecialprojects.com/wp-json/wpcomsp/';
+		return getenv( 'TEAM51_OPSOASIS_BASE_URL' ) ?: 'https://opsoasis.wpspecialprojects.com/wp-json/wpcomsp/';
 	}
 
 	/**

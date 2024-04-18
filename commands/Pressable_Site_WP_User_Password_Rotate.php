@@ -73,7 +73,7 @@ final class Pressable_Site_WP_User_Password_Rotate extends Command {
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
 		// Retrieve and validate the modifier options.
-		$this->dry_run  = (bool) $input->getOption( 'dry-run' );
+		$this->dry_run  = get_bool_input( $input, $output, 'dry-run' );
 		$this->multiple = get_enum_input( $input, $output, 'multiple', array( 'all', 'related' ) );
 
 		// If processing a given site, retrieve it from the input.

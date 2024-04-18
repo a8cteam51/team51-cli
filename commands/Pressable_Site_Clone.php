@@ -304,7 +304,7 @@ final class Pressable_Site_Clone extends Command {
 	 */
 	private function prompt_branch_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the branch to deploy from [develop]:</question> ', 'develop' );
-		$question->setAutocompleterValues( array_column( get_github_repository_branches( $this->gh_repository->name )?->records ?? array(), 'name' ) );
+		$question->setAutocompleterValues( array_column( get_github_repository_branches( $this->gh_repository->name ) ?? array(), 'name' ) );
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
