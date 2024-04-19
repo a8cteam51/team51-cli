@@ -26,7 +26,7 @@ final class Pressable_Site_PHP_Errors_List extends Command {
 	 *
 	 * @var object|null
 	 */
-	protected ?object $pressable_site = null;
+	protected ?object $site = null;
 
 	/**
 	 * The number of distinct errors to retrieve.
@@ -75,10 +75,10 @@ final class Pressable_Site_PHP_Errors_List extends Command {
 			->setHelp( 'This command allows you to figure out what is preventing a website from loading.' );
 
 		$this->addArgument( 'site', InputArgument::REQUIRED, 'ID or URL of the site to display the errors for.' )
-			->addOption( 'limit', null, InputOption::VALUE_REQUIRED, 'The number of distinct PHP fatal errors to return. Default is 5.', 5 )
-			->addOption( 'format', null, InputOption::VALUE_REQUIRED, 'The format to output the logs in. Accepts either "list", "table" or "raw". Default "list".', 'list' )
+			->addOption( 'limit', null, InputOption::VALUE_REQUIRED, 'The number of distinct PHP fatal errors to return.', 5 )
+			->addOption( 'format', null, InputOption::VALUE_REQUIRED, 'The format to output the logs in. Accepts either `list`, `table` or `raw`.', 'list' )
 			->addOption( 'severity', null, InputOption::VALUE_REQUIRED, 'The error severity to filter by. Valid values are "User", "Warning", "Deprecated", and "Fatal error". Default all.' )
-			->addOption( 'source', null, InputOption::VALUE_REQUIRED, 'Where to retrieve the PHP errors from. Accepts either "file", "api", or "auto". Default "auto".', 'auto' );
+			->addOption( 'source', null, InputOption::VALUE_REQUIRED, 'Where to retrieve the PHP errors from. Accepts either `file`, `api`, or `auto`.', 'auto' );
 	}
 
 	/**
@@ -92,10 +92,8 @@ final class Pressable_Site_PHP_Errors_List extends Command {
 		$this->source   = get_enum_input( $input, $output, 'source', array( 'file', 'api', 'auto' ) );
 
 		// Retrieve and validate the site.
-		$this->pressable_site = get_pressable_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
-
-		// Store the ID of the site in the argument field.
-		$input->setArgument( 'site', $this->pressable_site->id );
+		$this->site = get_pressable_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
+		$input->setArgument( 'site', $this->site );
 	}
 
 	/**
@@ -103,25 +101,25 @@ final class Pressable_Site_PHP_Errors_List extends Command {
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		if ( 'raw' === $this->format ) {
-			$output->writeln( "<fg=magenta;options=bold>Listing the raw PHP errors on {$this->pressable_site->displayName} (ID {$this->pressable_site->id}, URL {$this->pressable_site->url}) from $this->source.</>" );
+			$output->writeln( "<fg=magenta;options=bold>Listing the raw PHP errors on {$this->site->displayName} (ID {$this->site->id}, URL {$this->site->url}) from $this->source.</>" );
 		} else {
-			$output->writeln( "<fg=magenta;options=bold>Listing the last $this->limit distinct PHP errors on {$this->pressable_site->displayName} (ID {$this->pressable_site->id}, URL {$this->pressable_site->url}) from $this->source.</>" );
+			$output->writeln( "<fg=magenta;options=bold>Listing the last $this->limit distinct PHP errors on {$this->site->displayName} (ID {$this->site->id}, URL {$this->site->url}) from $this->source.</>" );
 		}
 
 		$php_errors = $this->get_php_errors( $output );
 		if ( \is_null( $php_errors ) ) {
 			$output->writeln( '<error>Could not retrieve the PHP errors.</error>' );
-			return 1;
+			return Command::FAILURE;
 		}
 		if ( 0 === \count( $php_errors ) ) {
 			$output->writeln( '<info>The PHP error log appears to be empty. Go make some errors and try again!</info>' );
-			return 0;
+			return Command::SUCCESS;
 		}
 
 		// Output the raw log if requested in said format.
 		if ( 'raw' === $this->format ) {
 			$this->output_raw_error_log( $php_errors, $output );
-			return 0;
+			return Command::SUCCESS;
 		}
 
 		// Analyze the log entries and output the results.
@@ -134,7 +132,7 @@ final class Pressable_Site_PHP_Errors_List extends Command {
 			$this->output_list_error_log( $stats_table, $output );
 		}
 
-		return 0;
+		return Command::SUCCESS;
 	}
 
 	// endregion
@@ -142,7 +140,7 @@ final class Pressable_Site_PHP_Errors_List extends Command {
 	// region HELPERS
 
 	/**
-	 * Prompts the user for a site if in interactive mode.
+	 * Prompts the user for a site.
 	 *
 	 * @param   InputInterface  $input  The input object.
 	 * @param   OutputInterface $output The output object.
@@ -150,14 +148,10 @@ final class Pressable_Site_PHP_Errors_List extends Command {
 	 * @return  string|null
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
-		if ( $input->isInteractive() ) {
-			$question = new Question( '<question>Enter the site ID or URL to display the errors for:</question> ' );
-			$question->setAutocompleterValues( \array_map( static fn( object $site ) => $site->url, get_pressable_sites() ?? array() ) );
+		$question = new Question( '<question>Enter the site ID or URL to display the errors for:</question> ' );
+		$question->setAutocompleterValues( \array_column( get_pressable_sites() ?? array(), 'url' ) );
 
-			$site = $this->getHelper( 'question' )->ask( $input, $output, $question );
-		}
-
-		return $site ?? null;
+		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
 
 	/**
@@ -174,11 +168,11 @@ final class Pressable_Site_PHP_Errors_List extends Command {
 		$output->writeln( '<comment>Finding the PHP error log location.</comment>', OutputInterface::VERBOSITY_VERBOSE );
 		$return_path = self::DEFAULT_PHP_ERROR_LOG_PATH;
 
-		$ssh_connection = \Pressable_Connection_Helper::get_ssh_connection( $this->pressable_site->id );
+		$ssh_connection = \Pressable_Connection_Helper::get_ssh_connection( $this->site->id );
 		if ( ! \is_null( $ssh_connection ) ) {
 			$path_separator = \uniqid( 'team51', false ); // If the WP site has warnings or notices, this will help us separate the path from the rest of that messy output.
 			$error_log_path = $ssh_connection->exec( "wp eval 'echo \"$path_separator\" . ini_get(\"error_log\");'" );
-			if ( ! empty( $error_log_path ) && false !== \strpos( $error_log_path, $path_separator ) ) {
+			if ( ! empty( $error_log_path ) && \str_contains( $error_log_path, $path_separator ) ) {
 				$return_path = \explode( $path_separator, $error_log_path )[1];
 			} else {
 				$output->writeln( '<error>Failed to find the PHP error log location. Using default PHP error log location.</error>', OutputInterface::VERBOSITY_VERBOSE );
@@ -204,7 +198,7 @@ final class Pressable_Site_PHP_Errors_List extends Command {
 		if ( 'api' === $this->source || ( 'auto' === $this->source && self::DEFAULT_PHP_ERROR_LOG_PATH === $error_log_path ) ) {
 			$output->writeln( '<comment>Retrieving the PHP error log contents via the API.</comment>', OutputInterface::VERBOSITY_VERY_VERBOSE );
 
-			$error_log = get_pressable_site_php_logs( $this->pressable_site->id, $this->severity, 2000 );
+			$error_log = get_pressable_site_php_logs( $this->site->id, $this->severity, 2000 );
 			if ( \is_null( $error_log ) ) {
 				$output->writeln( '<error>Failed to retrieve the PHP error log contents via the API. Aborting!</error>', OutputInterface::VERBOSITY_VERBOSE );
 			}
