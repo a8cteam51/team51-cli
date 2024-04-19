@@ -14,12 +14,11 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\Question;
 
-
 /**
  * CLI command for displaying the latest PHP errors of a Pressable site.
  */
-#[AsCommand( name: 'pressable:list-php-errors', aliases: array( 'pressable:list-php-errors' ) )]
-final class Pressable_List_PHP_Errors extends Command {
+#[AsCommand( name: 'pressable:list-site-php-errors' )]
+final class Pressable_Site_PHP_Errors_List extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**
