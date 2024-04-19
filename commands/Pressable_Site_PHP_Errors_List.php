@@ -177,6 +177,7 @@ final class Pressable_Site_PHP_Errors_List extends Command {
 			} else {
 				$output->writeln( '<error>Failed to find the PHP error log location. Using default PHP error log location.</error>', OutputInterface::VERBOSITY_VERBOSE );
 			}
+			$ssh_connection->disconnect();
 		} else {
 			$output->writeln( '<error>Could not connect to the site via SSH. Using default PHP error log location.</error>', OutputInterface::VERBOSITY_VERBOSE );
 		}

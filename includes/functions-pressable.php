@@ -694,7 +694,7 @@ function get_pressable_site_php_logs( string $site_id, ?string $status = null, i
 	do {
 		$query_params = http_build_query(
 			array(
-				'scroll_id' => $page->paging->scroll_id ?? null,
+				'scroll_id' => $page->paging->next_page_params->scroll_id ?? null,
 				'status'    => $status,
 			)
 		);
