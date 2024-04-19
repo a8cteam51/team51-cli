@@ -103,7 +103,7 @@ final class Pressable_Site_Domain_Add extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
-		
+
 		$output->writeln( "<fg=magenta;options=bold>Adding the domain $this->domain on {$this->site->displayName} (ID {$this->site->id}, URL {$this->site->url}).</>" );
 
 		// First convert the site to a live site, if needed.
@@ -120,7 +120,7 @@ final class Pressable_Site_Domain_Add extends Command {
 		} else {
 			$output->writeln( '<comment>Given site already supports domains. No conversion from staging site to live site required.</comment>', OutputInterface::VERBOSITY_VERY_VERBOSE );
 		}
-		
+
 		// Add the new domain to the site.
 		$output->writeln( '<comment>Adding domain to site.</comment>', OutputInterface::VERBOSITY_VERBOSE );
 
@@ -156,6 +156,7 @@ final class Pressable_Site_Domain_Add extends Command {
 			}
 
 			// Perform a few URL-change-related tasks.
+			// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 			if ( ! is_case_insensitive_match( $this->site->url, $new_domain->domainName ) ) { // This should always be true, but just in case.
 				// Run a search-replace on the database for completion/correction.
 				$output->writeln( '<comment>Running search-replace via WP-CLI.</comment>', OutputInterface::VERBOSITY_VERBOSE );
@@ -251,7 +252,7 @@ final class Pressable_Site_Domain_Add extends Command {
 	 * @param   InputInterface  $input  The input object.
 	 * @param   OutputInterface $output The output object.
 	 *
-	 * @return  bool
+	 * @return  boolean
 	 */
 	private function prompt_primary_input( InputInterface $input, OutputInterface $output ): bool {
 		$question = new ConfirmationQuestion( '<question>Set the domain as primary? [y/N]</question> ', false );
@@ -262,10 +263,10 @@ final class Pressable_Site_Domain_Add extends Command {
 	/**
 	 * Forces the primary option to be true if the site has no primary domain.
 	 *
-	 * @param   string  $site_id  The ID of the site.
-	 * @param   bool    $primary  The primary option.
+	 * @param   string  $site_id The ID of the site.
+	 * @param   boolean $primary The primary option.
 	 *
-	 * @return  bool
+	 * @return  boolean
 	 */
 	public function maybe_force_primary_option( string $site_id, bool $primary ): bool {
 		$force = false;
@@ -278,7 +279,7 @@ final class Pressable_Site_Domain_Add extends Command {
 	/**
 	 * Returns the Pressable domain object corresponding to the newly added domain.
 	 *
-	 * @param   array   $site_domains   The list of domains that the site currently has.
+	 * @param   array $site_domains The list of domains that the site currently has.
 	 *
 	 * @return  object|null
 	 */

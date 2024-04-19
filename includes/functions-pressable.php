@@ -215,7 +215,7 @@ function get_pressable_site_sftp_users( string $site_id_or_url ): ?array {
  *
  * @return  string[]|null
  */
-function get_pressable_site_domains ( string $site_id_or_url ): ?array {
+function get_pressable_site_domains( string $site_id_or_url ): ?array {
 	$endpoint = "site-domains/$site_id_or_url";
 	if ( ! empty( $params ) ) {
 		$endpoint .= '?' . http_build_query( $params );
@@ -233,15 +233,15 @@ function get_pressable_site_domains ( string $site_id_or_url ): ?array {
  *
  * @return  string|null
  */
-function get_pressable_site_primary_domain ( string $site_id_or_url ): ?string {
+function get_pressable_site_primary_domain( string $site_id_or_url ): ?string {
 	$site_domains = get_pressable_site_domains( $site_id_or_url );
-	if( is_null( $site_domains ) || empty( $site_domains ) ) {
+	if ( is_null( $site_domains ) || empty( $site_domains ) ) {
 		return null;
 	}
 	$domains = array_values(
 		array_filter( $site_domains, fn( $site_domain ) => $site_domain->primary )
 	);
-	if( empty( $domains ) ) {
+	if ( empty( $domains ) ) {
 		return null;
 	}
 	return $domains[0]->domainName;
@@ -250,8 +250,8 @@ function get_pressable_site_primary_domain ( string $site_id_or_url ): ?string {
 /**
  * Sets a given domain as the primary domain of a given Pressable site.
  *
- * @param   string  $site_id    The site ID.
- * @param   string  $domain_id  The domain ID.
+ * @param   string $site_id_or_url The site ID.
+ * @param   string $domain_id      The domain ID.
  *
  * @link    https://my.pressable.com/documentation/api/v1#set-primary-domain
  *
@@ -273,7 +273,7 @@ function set_pressable_site_primary_domain( string $site_id_or_url, string $doma
 	return $result;
 }
 
-/** 
+/**
  * Adds a new domain on the specified Pressable site.
  *
  * @param   string $site_id_or_url The ID or URL of the Pressable site to create the domain on.
@@ -709,6 +709,41 @@ function get_pressable_site_root_name( string $site_id_or_url ): ?string {
 	}
 
 	return str_replace( '-production', '', $site->name );
+}
+
+/**
+ * Get a list of a site's PHP error logs. The logs are available for the past 7 days.
+ *
+ * @param   string      $site_id     The site ID.
+ * @param   string|null $status      Filter by log status. Valid values are 'User', 'Warning', 'Deprecated', and 'Fatal error'.
+ * @param   integer     $max_entries The maximum number of entries to return. The default is 200 or one page.
+ *
+ * @link    https://my.pressable.com/documentation/api/v1#get-php-logs
+ *
+ * @return  object[]|null
+ */
+function get_pressable_site_php_logs( string $site_id, ?string $status = null, int $max_entries = 200 ): ?array {
+	$logs = array();
+
+	do {
+		$query_params = http_build_query(
+			array(
+				'scroll_id' => $page->scroll_id ?? null,
+				'status'    => $status,
+			)
+		);
+
+		$page = API_Helper::make_pressable_request( "sites/$site_id/php-errors?$query_params" );
+
+		if ( is_null( $page ) ) {
+			return null;
+		}
+
+		$max_entries -= 200; // There are 200 entries per page.
+		$logs[]       = $page->logs;
+	} while ( ! is_null( $page->scroll_id ) && $max_entries > 0 );
+
+	return array_merge( ...$logs );
 }
 
 // endregion
