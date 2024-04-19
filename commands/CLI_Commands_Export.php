@@ -15,12 +15,15 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Output\StreamOutput;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
+use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 
 /**
  * Exports all commands to a file in the specified format.
  */
 #[AsCommand( name: 'export-commands' )]
 final class CLI_Commands_Export extends Command {
+	use AutocompleteTrait;
+
 	// region FIELDS AND CONSTANTS
 
 	/**
@@ -73,19 +76,11 @@ final class CLI_Commands_Export extends Command {
 		};
 
 		$this->destination = maybe_get_string_input( $input, $output, 'destination', fn() => $this->prompt_destination_input( $input, $output ) );
-		if ( ! empty( $this->destination ) && empty( \pathinfo( $this->destination, PATHINFO_EXTENSION ) ) ) {
-			$this->destination .= ".$format";
-		}
-
-		$this->output = $output;
 		if ( ! \is_null( $this->destination ) ) {
-			$stream = \fopen( $this->destination, 'wb' );
-			if ( false === $stream ) {
-				$output->writeln( "<error>Could not open file for writing: $this->destination</error>" );
-				exit( 1 );
-			}
-
+			$stream       = get_file_handle( $this->destination, $format );
 			$this->output = new StreamOutput( $stream );
+		} else {
+			$this->output = $output;
 		}
 	}
 
@@ -117,8 +112,7 @@ final class CLI_Commands_Export extends Command {
 	private function prompt_destination_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new ConfirmationQuestion( '<question>Would you like to save the output to a file? [y/N]</question> ', false );
 		if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
-			$default = \getcwd() . '/team51-commands';
-
+			$default  = get_user_folder_path( 'Downloads/team51-commands' );
 			$question = new Question( "<question>Please enter the path to the file you want to save the output to [$default]:</question> ", $default );
 			return $this->getHelper( 'question' )->ask( $input, $output, $question );
 		}

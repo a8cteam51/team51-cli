@@ -11,12 +11,15 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
+use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 
 /**
  * Creates a development clone of an existing Pressable site.
  */
 #[AsCommand( name: 'pressable:clone-site', aliases: array( 'pressable:create-development-site' ) )]
 final class Pressable_Site_Clone extends Command {
+	use AutocompleteTrait;
+
 	// region FIELDS AND CONSTANTS
 
 	/**
@@ -95,7 +98,7 @@ final class Pressable_Site_Clone extends Command {
 
 		$this->addArgument( 'site', InputArgument::REQUIRED, 'The site to clone.' )
 			->addArgument( 'label', InputArgument::OPTIONAL, 'The suffix to append to the site name. Defaults to `development`.' )
-			->addOption( 'datacenter', null, InputArgument::OPTIONAL, 'The datacenter to clone the site in. Defaults to the datacenter of the given site.' )
+			->addOption( 'datacenter', null, InputOption::VALUE_REQUIRED, 'The datacenter to clone the site in. Defaults to the datacenter of the given site.' )
 			->addOption( 'branch', null, InputOption::VALUE_REQUIRED, 'The branch to deploy to the site from. Defaults to `develop`.' );
 
 		$this->addOption( 'skip-safety-net', null, InputOption::VALUE_NONE, 'Skip the installation of SafetyNet as a mu-plugin.' );
@@ -149,7 +152,7 @@ final class Pressable_Site_Clone extends Command {
 		$this->datacenter = get_enum_input( $input, $output, 'datacenter', array_keys( get_pressable_datacenters() ), fn() => $this->prompt_datacenter_input( $input, $output ), $this->site->datacenterCode );
 		$input->setOption( 'datacenter', $this->datacenter );
 
-		$this->skip_safety_net = (bool) $input->getOption( 'skip-safety-net' );
+		$this->skip_safety_net = get_bool_input( $input, $output, 'skip-safety-net' );
 		$input->setOption( 'skip-safety-net', $this->skip_safety_net );
 	}
 
@@ -301,7 +304,7 @@ final class Pressable_Site_Clone extends Command {
 	 */
 	private function prompt_branch_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the branch to deploy from [develop]:</question> ', 'develop' );
-		$question->setAutocompleterValues( array_column( get_github_repository_branches( $this->gh_repository->name )?->records ?? array(), 'name' ) );
+		$question->setAutocompleterValues( array_column( get_github_repository_branches( $this->gh_repository->name ) ?? array(), 'name' ) );
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

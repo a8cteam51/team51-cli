@@ -79,6 +79,19 @@ function parse_http_headers( array $http_response_header ): array {
 	return $headers;
 }
 
+/**
+ * Filters out the errors from a batch response and returns the successful responses.
+ *
+ * @param   stdClass   $responses The response to parse from the batch request.
+ * @param   array|null $errors    The errors that occurred during the request.
+ *
+ * @return  array
+ */
+function parse_batch_response( stdClass $responses, array &$errors = null ): array {
+	$errors = array_filter( (array) $responses, static fn( $response ) => is_object( $response ) && property_exists( $response, 'errors' ) );
+	return array_filter( (array) $responses, static fn( $response ) => ! is_object( $response ) || ! property_exists( $response, 'errors' ) );
+}
+
 // endregion
 
 // region WRAPPERS
@@ -309,6 +322,20 @@ function get_enum_input( InputInterface $input, OutputInterface $output, string 
 }
 
 /**
+ * Grabs a value from the console input and validates it as a boolean.
+ *
+ * @param   InputInterface  $input  The console input.
+ * @param   OutputInterface $output The console output.
+ * @param   string          $name   The name of the value to grab.
+ *
+ * @return  boolean
+ */
+function get_bool_input( InputInterface $input, OutputInterface $output, string $name ): bool {
+	$option = $input->hasOption( $name ) ? $input->getOption( $name ) : $input->getArgument( $name );
+	return filter_var( $option, FILTER_VALIDATE_BOOLEAN );
+}
+
+/**
  * Grabs a value from the console input and validates it as an email.
  *
  * @param   InputInterface  $input         The console input.
@@ -330,6 +357,30 @@ function get_email_input( InputInterface $input, OutputInterface $output, ?calla
 }
 
 /**
+ * Grabs a value from the console input and validates it as a date.
+ *
+ * @param   InputInterface  $input         The console input.
+ * @param   OutputInterface $output        The console output.
+ * @param   string          $format        The expected date format.
+ * @param   callable|null   $no_input_func The function to call if no input is given.
+ * @param   string          $name          The name of the value to grab.
+ *
+ * @return  string
+ */
+function get_date_input( InputInterface $input, OutputInterface $output, string $format, ?callable $no_input_func = null, string $name = 'date' ): string {
+	$date = get_string_input( $input, $output, $name, $no_input_func );
+
+	try {
+		$date = validate_date_format( $date, $format );
+	} catch ( RuntimeException $exception ) {
+		$output->writeln( "<error>{$exception->getMessage()}. Aborting!</error>" );
+		exit( 1 );
+	}
+
+	return $date;
+}
+
+/**
  * Grabs a value from the console input and validates it as a domain.
  *
  * @param   InputInterface  $input         The console input.
@@ -340,9 +391,9 @@ function get_email_input( InputInterface $input, OutputInterface $output, ?calla
  * @return  string
  */
 function get_domain_input( InputInterface $input, OutputInterface $output, ?callable $no_input_func = null, string $name = 'domain' ): string {
-		$domain = get_string_input( $input, $output, $name, $no_input_func );
+	$domain = get_string_input( $input, $output, $name, $no_input_func );
 
-	if ( false !== \strpos( $domain, 'http' ) ) {
+	if ( \str_contains( $domain, 'http' ) ) {
 		$domain = \parse_url( $domain, PHP_URL_HOST );
 	} elseif ( false === \strpos( $domain, '.', 1 ) ) {
 		$domain = null;
@@ -353,9 +404,8 @@ function get_domain_input( InputInterface $input, OutputInterface $output, ?call
 		exit( 1 );
 	}
 
-		return \strtolower( $domain );
+	return \strtolower( $domain );
 }
-
 
 /**
  * Grabs a value from the console input and validates it as a URL or a numeric string.
@@ -417,6 +467,35 @@ function validate_user_choice( mixed $value, array $choices ): mixed {
 	}
 
 	return array_flip( $choices )[ $value ] ?? null;
+}
+
+/**
+ * Validates a given date string against a specific format.
+ *
+ * @param string $date_string The date string input by the user.
+ * @param string $format      The expected date format.
+ *
+ * @throws  \RuntimeException If the date does not match the format.
+ * @return  string
+ */
+function validate_date_format( string $date_string, string $format ): string {
+	if ( str_contains( $format, 'W' ) ) { // https://stackoverflow.com/a/10478469
+		$timestamp = strtotime( $date_string );
+		if ( $timestamp ) {
+			$date = new DateTime();
+			$date->setTimestamp( $timestamp );
+		} else {
+			$date = false;
+		}
+	} else {
+		$date = DateTime::createFromFormat( $format, $date_string );
+	}
+
+	if ( ! $date || $date->format( $format ) !== $date_string ) {
+		throw new \RuntimeException( "The provided date is invalid. Expected format: $format" );
+	}
+
+	return $date_string;
 }
 
 /**
@@ -482,6 +561,65 @@ function dashify( string $value ): string {
 	$value = preg_replace( '/-+/', '-', $value ); // Replace multiple contiguous hyphens with a single hyphen.
 
 	return trim( $value, '-' ); // Trim any leading or trailing hyphens.
+}
+
+// endregion
+
+// region FILESYSTEM
+
+/**
+ * Returns the path to the current user's home directory, optionally appending a path to it.
+ *
+ * @param   string $path The path to append to the user's home directory.
+ *
+ * @return  string
+ */
+function get_user_folder_path( string $path = '' ): string {
+	$path = rtrim( $path, '/' );
+
+	$user_info = posix_getpwuid( posix_getuid() );
+	return $user_info['dir'] . "/$path";
+}
+
+/**
+ * Returns a file handle if the file can be opened, or null if it cannot.
+ *
+ * @param   string $filename  The path to the file to open.
+ * @param   string $extension The extension to append to the filename if it does not have one.
+ * @param   string $mode      The mode to open the file in. Default 'wb'.
+ *
+ * @return  resource|null
+ */
+function maybe_get_file_handle( string $filename, string $extension, string $mode = 'wb' ) {
+	if ( empty( pathinfo( $filename, PATHINFO_EXTENSION ) ) ) {
+		$filename .= ".$extension";
+	}
+
+	$handle = fopen( $filename, $mode );
+	if ( false === $handle ) {
+		return null;
+	}
+
+	return $handle;
+}
+
+/**
+ * Returns a file handle if the file can be opened, or throws an exception if it cannot.
+ *
+ * @param   string $filename  The path to the file to open.
+ * @param   string $extension The extension to append to the filename if it does not have one.
+ * @param   string $mode      The mode to open the file in. Default 'wb'.
+ *
+ * @throws  RuntimeException If the file cannot be opened.
+ * @return  resource
+ */
+function get_file_handle( string $filename, string $extension, string $mode = 'wb' ) {
+	$handle = maybe_get_file_handle( $filename, $extension, $mode );
+	if ( null === $handle ) {
+		throw new RuntimeException( "Could not open file: $filename" );
+	}
+
+	return $handle;
 }
 
 // endregion

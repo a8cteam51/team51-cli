@@ -9,12 +9,15 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
+use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 
 /**
  * Connects a DeployHQ project to a GitHub repository.
  */
 #[AsCommand( name: 'deployhq:connect-project-repository', aliases: array( 'deployhq:connect-project-repo' ) )]
 final class DeployHQ_Project_Repository_Connect extends Command {
+	use AutocompleteTrait;
+
 	// region FIELDS AND CONSTANTS
 
 	/**
@@ -126,7 +129,7 @@ final class DeployHQ_Project_Repository_Connect extends Command {
 	 */
 	private function prompt_repository_input( InputInterface $input, OutputInterface $output ): string {
 		$question = new Question( '<question>Enter the slug of the repository to connect:</question> ' );
-		$question->setAutocompleterValues( array_column( get_github_repositories()?->records ?? array(), 'name' ) );
+		$question->setAutocompleterValues( array_column( get_github_repositories() ?? array(), 'name' ) );
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

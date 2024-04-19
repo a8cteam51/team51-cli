@@ -10,12 +10,15 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\Question;
+use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 
 /**
  * Lists the connected Jetpack sites with a given plugin.
  */
 #[AsCommand( name: 'jetpack:plugin-search' )]
 final class Jetpack_Plugin_Search extends Command {
+	use AutocompleteTrait;
+
 	// region FIELDS AND CONSTANTS
 
 	/**
@@ -86,8 +89,8 @@ final class Jetpack_Plugin_Search extends Command {
 		$input->setArgument( 'plugin', $this->plugin );
 
 		// Set the search parameters.
-		$this->partial = (bool) $input->getOption( 'partial' );
-		$this->version = (string) $input->getOption( 'version-search' );
+		$this->partial = get_bool_input( $input, $output, 'partial' );
+		$this->version = maybe_get_string_input( $input, $output, 'version-search' );
 		if ( ! empty( $this->version ) ) {
 			$this->version_operator = get_enum_input(
 				$input,
@@ -102,12 +105,8 @@ final class Jetpack_Plugin_Search extends Command {
 		$output->writeln( '<comment>Successfully fetched ' . \count( $this->sites ) . ' Jetpack site(s).</comment>' );
 
 		// Compile the list of plugins to process.
-		$this->plugins = get_wpcom_site_plugins_batch( \array_column( $this->sites, 'userblog_id' ) );
-
-		$failed_sites = \array_filter( $this->plugins, static fn( $plugins ) => \is_object( $plugins ) );
-		maybe_output_wpcom_failed_sites_table( $output, $failed_sites, $this->sites, 'Sites that could NOT be searched' );
-
-		$this->plugins = \array_filter( $this->plugins, static fn( $plugins ) => \is_array( $plugins ) );
+		$this->plugins = get_wpcom_site_plugins_batch( \array_column( $this->sites, 'userblog_id' ), $errors );
+		maybe_output_wpcom_failed_sites_table( $output, $errors, $this->sites, 'Sites that could NOT be searched' );
 	}
 
 	/**

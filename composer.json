@@ -7,6 +7,7 @@
   ],
   "require": {
     "ext-json": "*",
+    "ext-posix": "*",
     "phpseclib/phpseclib": "^3.0",
     "symfony/console": "^v7.0",
     "symfony/event-dispatcher": "^v7.0",
@@ -27,6 +28,7 @@
     },
     "files": [
       "includes/api-helper.php",
+      "includes/autocomplete-trait.php",
       "includes/connection-helper-pressable.php",
       "includes/functions.php",
       "includes/functions-1password.php",

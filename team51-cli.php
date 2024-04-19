@@ -17,7 +17,9 @@ $team51_cli_output     = new ConsoleOutput();
 $team51_cli_dispatcher = new EventDispatcher();
 
 // Must be loaded after the application is instantiated, so we can use all the helper functions.
-require_once TEAM51_CLI_ROOT_DIR . '/load-identity.php';
+if ( ! $GLOBALS['team51_is_autocomplete'] ) {
+	require_once TEAM51_CLI_ROOT_DIR . '/load-identity.php';
+}
 
 foreach ( glob( __DIR__ . '/commands/*.php' ) as $command ) {
 	$command = '\\WPCOMSpecialProjects\\CLI\\Command\\' . basename( $command, '.php' );

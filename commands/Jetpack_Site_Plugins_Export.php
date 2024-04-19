@@ -9,12 +9,15 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\Question;
+use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 
 /**
  * Exports a list of plugins installed on Jetpack sites.
  */
 #[AsCommand( name: 'jetpack:export-site-plugins' )]
 final class Jetpack_Site_Plugins_Export extends Command {
+	use AutocompleteTrait;
+
 	// region FIELDS AND CONSTANTS
 
 	/**
@@ -38,6 +41,13 @@ final class Jetpack_Site_Plugins_Export extends Command {
 	 */
 	private ?string $destination = null;
 
+	/**
+	 * The stream to write the output to.
+	 *
+	 * @var resource|null
+	 */
+	private $stream = null;
+
 	// endregion
 
 	// region INHERITED METHODS
@@ -59,10 +69,9 @@ final class Jetpack_Site_Plugins_Export extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
+		// Open the destination file for writing.
 		$this->destination = get_string_input( $input, $output, 'destination', fn() => $this->prompt_destination_input( $input, $output ) );
-		if ( ! \str_ends_with( $this->destination, '.csv' ) ) {
-			$this->destination .= '.csv';
-		}
+		$this->stream      = get_file_handle( $this->destination, 'csv' );
 
 		// If processing a given site, retrieve it from the input.
 		$multiple = get_enum_input( $input, $output, 'multiple', array( 'all' ) );
@@ -72,8 +81,8 @@ final class Jetpack_Site_Plugins_Export extends Command {
 
 			$this->sites = array(
 				$site->ID => (object) array(
-					'blog_id'  => $site->ID,
-					'site_url' => $site->URL, // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+					'userblog_id' => $site->ID,
+					'siteurl'     => $site->URL, // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 				),
 			);
 		} else {
@@ -97,10 +106,7 @@ final class Jetpack_Site_Plugins_Export extends Command {
 							}
 						}
 
-						return (object) array(
-							'blog_id'  => $site->userblog_id,
-							'site_url' => $site->siteurl,
-						);
+						return $site;
 					},
 					get_wpcom_jetpack_sites()
 				)
@@ -109,12 +115,8 @@ final class Jetpack_Site_Plugins_Export extends Command {
 		$output->writeln( '<comment>Successfully fetched ' . \count( $this->sites ) . ' Jetpack site(s).</comment>' );
 
 		// Compile the list of plugins to process.
-		$this->plugins = get_wpcom_site_plugins_batch( \array_column( $this->sites, 'blog_id' ) );
-
-		$failed_sites = \array_filter( $this->plugins, static fn( $plugins ) => \is_object( $plugins ) );
-		maybe_output_wpcom_failed_sites_table( $output, $failed_sites, $this->sites, 'Sites that could NOT be searched' );
-
-		$this->plugins = \array_filter( $this->plugins, static fn( $plugins ) => \is_array( $plugins ) );
+		$this->plugins = get_wpcom_site_plugins_batch( \array_column( $this->sites, 'userblog_id' ), $errors );
+		maybe_output_wpcom_failed_sites_table( $output, $errors, $this->sites, 'Sites that could NOT be searched' );
 	}
 
 	/**
@@ -123,20 +125,14 @@ final class Jetpack_Site_Plugins_Export extends Command {
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		$output->writeln( '<fg=magenta;options=bold>Exporting plugins installed on ' . count( $this->plugins ) . " Jetpack site(s) to $this->destination.</>" );
 
-		$csv = fopen( $this->destination, 'wb' );
-		if ( false === $csv ) {
-			$output->writeln( '<error>Failed to open the destination file.</error>' );
-			return Command::FAILURE;
-		}
-
-		\fputcsv( $csv, array( 'Site ID', 'Site URL', 'Plugin Name', 'Plugin Slug', 'Plugin Version', 'Plugin Status' ) );
+		\fputcsv( $this->stream, array( 'Site ID', 'Site URL', 'Plugin Name', 'Plugin Slug', 'Plugin Version', 'Plugin Status' ) );
 		foreach ( $this->plugins as $site_id => $plugins ) {
 			foreach ( $plugins as $plugin => $plugin_data ) {
 				\fputcsv(
-					$csv,
+					$this->stream,
 					array(
-						$this->sites[ $site_id ]->blog_id,
-						$this->sites[ $site_id ]->site_url,
+						$this->sites[ $site_id ]->userblog_id,
+						$this->sites[ $site_id ]->siteurl,
 						// phpcs:disable WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 						$plugin_data->Name,
 						\dirname( $plugin ),
@@ -147,7 +143,7 @@ final class Jetpack_Site_Plugins_Export extends Command {
 				);
 			}
 		}
-		\fclose( $csv );
+		\fclose( $this->stream );
 
 		$output->writeln( '<fg=green;options=bold>Plugins list exported successfully.</>' );
 		return Command::SUCCESS;
@@ -166,8 +162,7 @@ final class Jetpack_Site_Plugins_Export extends Command {
 	 * @return  string|null
 	 */
 	private function prompt_destination_input( InputInterface $input, OutputInterface $output ): ?string {
-		$default = \getcwd() . '/plugins-on-t51-sites-' . \gmdate( 'Y-m-d-H-i-s' ) . '.csv';
-
+		$default  = get_user_folder_path( 'Downloads/plugins-on-wpcomsp-sites-' . \gmdate( 'Y-m-d-H-i-s' ) . '.csv' );
 		$question = new Question( "<question>Please enter the path to the file you want to save the output to [$default]:</question> ", $default );
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

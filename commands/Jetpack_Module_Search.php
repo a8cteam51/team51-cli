@@ -9,12 +9,15 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\Question;
+use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 
 /**
  * Lists the connected Jetpack sites with a given module either enabled or disabled.
  */
 #[AsCommand( name: 'jetpack:module-search' )]
 final class Jetpack_Module_Search extends Command {
+	use AutocompleteTrait;
+
 	// region FIELDS AND CONSTANTS
 
 	/**
@@ -30,6 +33,13 @@ final class Jetpack_Module_Search extends Command {
 	 * @var string|null
 	 */
 	private ?string $status = null;
+
+	/**
+	 * The list of connected sites.
+	 *
+	 * @var array|null
+	 */
+	private ?array $sites = null;
 
 	// endregion
 
@@ -55,6 +65,9 @@ final class Jetpack_Module_Search extends Command {
 
 		$this->status = get_enum_input( $input, $output, 'status', array( 'on', 'off' ), fn() => $this->prompt_status_input( $input, $output ), 'on' );
 		$input->setOption( 'status', $this->status );
+
+		$this->sites = get_wpcom_jetpack_sites();
+		$output->writeln( '<comment>Successfully fetched ' . \count( $this->sites ) . ' Jetpack site(s).</comment>' );
 	}
 
 	/**
@@ -63,18 +76,12 @@ final class Jetpack_Module_Search extends Command {
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		$output->writeln( "<fg=magenta;options=bold>Listing connected sites where the status of the Jetpack module $this->module is $this->status.</>" );
 
-		$sites = get_wpcom_jetpack_sites();
-		$output->writeln( '<comment>Successfully fetched ' . \count( $sites ) . ' Jetpack site(s).</comment>' );
-
 		// If we try to retrieve the modules for all sites at once, we might hit an out-of-memory error.
 		$sites_found  = array();
 		$failed_sites = array();
 
-		foreach ( array_chunk( $sites, 100, true ) as $sites_chunk ) {
-			$modules        = get_jetpack_site_modules_batch( \array_column( $sites_chunk, 'userblog_id' ) );
-			$failed_sites[] = \array_filter( $modules, static fn( $site_modules ) => \is_object( $site_modules ) );
-
-			$modules = \array_filter( $modules, static fn( $site_modules ) => \is_array( $site_modules ) );
+		foreach ( array_chunk( $this->sites, 100, true ) as $sites_chunk ) {
+			$modules = get_jetpack_site_modules_batch( \array_column( $sites_chunk, 'userblog_id' ), $errors );
 			foreach ( $modules as $site_id => $site_modules ) {
 				$module_data = $site_modules[ $this->module ] ?? null;
 				if ( is_null( $module_data ) ) {
@@ -82,16 +89,18 @@ final class Jetpack_Module_Search extends Command {
 				}
 
 				if ( 'on' === $this->status && $module_data->activated ) {
-					$sites_found[] = $sites[ $site_id ];
+					$sites_found[] = $this->sites[ $site_id ];
 				} elseif ( 'off' === $this->status && ! $module_data->activated ) {
-					$sites_found[] = $sites[ $site_id ];
+					$sites_found[] = $this->sites[ $site_id ];
 				}
 			}
+
+			$failed_sites[] = $errors;
 		}
 		$failed_sites = \array_replace( ...$failed_sites ); // Flatten the array while keeping the keys.
 
 		// Output the results.
-		maybe_output_wpcom_failed_sites_table( $output, $failed_sites, $sites, 'Sites that could NOT be searched' );
+		maybe_output_wpcom_failed_sites_table( $output, $failed_sites, $this->sites, 'Sites that could NOT be searched' );
 		output_table(
 			$output,
 			array_map(

@@ -11,12 +11,15 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
+use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 
 /**
  * Creates a new production site on Pressable.
  */
 #[AsCommand( name: 'pressable:create-site', aliases: array( 'pressable:create-production-site' ) )]
 final class Pressable_Site_Create extends Command {
+	use AutocompleteTrait;
+
 	// region FIELDS AND CONSTANTS
 
 	/**
@@ -128,6 +131,7 @@ final class Pressable_Site_Create extends Command {
 			}
 		}
 
+		$output->writeln( "<fg=green;options=bold>Site $this->name created successfully.</>" );
 		return Command::SUCCESS;
 	}
 
@@ -176,7 +180,7 @@ final class Pressable_Site_Create extends Command {
 		$question = new ConfirmationQuestion( '<question>Would you like to deploy to the site from a GitHub repository? [Y/n]</question> ', true );
 		if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 			$question = new Question( "<question>Please enter the slug of the GitHub repository to deploy from [$this->name]:</question> ", $this->name );
-			$question->setAutocompleterValues( array_column( get_github_repositories()?->records ?? array(), 'name' ) );
+			$question->setAutocompleterValues( array_column( get_github_repositories() ?? array(), 'name' ) );
 
 			return $this->getHelper( 'question' )->ask( $input, $output, $question );
 		}
@@ -200,15 +204,29 @@ final class Pressable_Site_Create extends Command {
 		if ( \is_null( $repository ) ) {
 			$question = new ConfirmationQuestion( "<question>Could not find GitHub repository `$name`. Would you like to create it? [Y/n]</question> ", true );
 			if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
+				$php_globals_long_prefix = \str_replace( '-', '_', $name );
+				if ( 2 <= \substr_count( $php_globals_long_prefix, '_' ) ) {
+					$php_globals_short_prefix = '';
+					foreach ( \explode( '_', $php_globals_long_prefix ) as $part ) {
+						$php_globals_short_prefix .= $part[0];
+					}
+				} else {
+					$php_globals_short_prefix = \explode( '_', $php_globals_long_prefix )[0];
+				}
+
 				/* @noinspection PhpUnhandledExceptionInspection */
 				$status = run_app_command(
 					GitHub_Repository_Create::getDefaultName(),
 					array(
-						'name'   => $name,
-						'--type' => 'project',
+						'name'                => $name,
+						'--homepage'          => "https://$name-production.mystagingwebsite.com",
+						'--type'              => 'project',
+						'--custom-properties' => array(
+							"php-globals-long-prefix=$php_globals_long_prefix",
+							"php-globals-short-prefix=$php_globals_short_prefix",
+						),
 					),
 				);
-
 				if ( Command::SUCCESS !== $status ) {
 					$output->writeln( '<error>Failed to create the repository.</error>' );
 					exit( 1 );

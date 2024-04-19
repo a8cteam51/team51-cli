@@ -10,15 +10,15 @@ use Symfony\Component\Console\Output\OutputInterface;
  *
  * @param   array $params An array of parameters to filter the results by.
  *
- * @return  stdClass|null
+ * @return  stdClass[]|null
  */
-function get_github_repositories( array $params = array() ): ?stdClass {
+function get_github_repositories( array $params = array() ): ?array {
 	$endpoint = 'repositories';
 	if ( ! empty( $params ) ) {
 		$endpoint .= '?' . http_build_query( $params );
 	}
 
-	return API_Helper::make_github_request( $endpoint );
+	return API_Helper::make_github_request( $endpoint )?->records;
 }
 
 /**
@@ -33,23 +33,39 @@ function get_github_repository( string $repository ): ?stdClass {
 }
 
 /**
+ * Sets the topics for a given GitHub repository.
+ *
+ * @param   string   $repository The name of the repository to set the topics for.
+ * @param   string[] $topics     The topics to set for the repository.
+ *
+ * @return  string[]|null
+ */
+function set_github_repository_topics( string $repository, array $topics ): ?array {
+	return API_Helper::make_github_request( "repositories/$repository/topics", 'PUT', array( 'topics' => $topics ) )?->records;
+}
+
+/**
  * Creates a new GitHub repository.
  *
- * @param   string      $name        The name of the repository to create.
- * @param   string|null $type        The type of repository to create aka the name of the template repository to use.
- * @param   string|null $description A short, human-friendly description for this project.
+ * @param   string      $name              The name of the repository to create.
+ * @param   string|null $type              The type of repository to create aka the name of the template repository to use.
+ * @param   string|null $homepage          A URL with more information about the repository.
+ * @param   string|null $description       A short, human-friendly description for this project.
+ * @param   array|null  $custom_properties The custom properties to set for the repository. Must be an array of key-value pairs and match the properties defined on GitHub.
  *
  * @return  stdClass|null
  */
-function create_github_repository( string $name, ?string $type = null, ?string $description = null ): ?stdClass {
+function create_github_repository( string $name, ?string $type = null, ?string $homepage = null, ?string $description = null, ?array $custom_properties = null ): ?stdClass {
 	return API_Helper::make_github_request(
 		'repositories',
 		'POST',
 		array_filter(
 			array(
-				'name'        => $name,
-				'description' => $description,
-				'template'    => $type ? "team51-$type-scaffold" : null,
+				'name'              => $name,
+				'description'       => $description,
+				'homepage'          => $homepage,
+				'template'          => $type ? "team51-$type-scaffold" : null,
+				'custom_properties' => $custom_properties,
 			)
 		)
 	);
@@ -60,10 +76,10 @@ function create_github_repository( string $name, ?string $type = null, ?string $
  *
  * @param   string $repository The name of the repository to retrieve the branches for.
  *
- * @return  stdClass|null
+ * @return  stdClass[]|null
  */
-function get_github_repository_branches( string $repository ): ?stdClass {
-	return API_Helper::make_github_request( "repositories/$repository/branches" );
+function get_github_repository_branches( string $repository ): ?array {
+	return API_Helper::make_github_request( "repositories/$repository/branches" )?->records;
 }
 
 /**
@@ -195,6 +211,32 @@ function parse_github_remote_repository_url( string $url ): ?stdClass {
 	}
 
 	return $components;
+}
+
+/**
+ * Lists all secrets available in a repository without revealing their encrypted values.
+ *
+ * @param   string $repository The name of the repository. The name is not case-sensitive.
+ *
+ * @return  object[]|null
+ */
+function get_github_repository_secrets( string $repository ): ?array {
+	return API_Helper::make_github_request( "repositories/$repository/secrets" )?->records;
+}
+
+/**
+ * Creates or updates a repository secret.
+ *
+ * @param   string $repository   The name of the repository. The name is not case-sensitive.
+ * @param   string $secret_name  The name of the secret.
+ * @param   string $secret_value The plaintext value of the secret. You can pass the name of a constant available on OpsOasis to use its value. OpsOasis will handle the encryption process.
+ *
+ * @link    https://docs.github.com/en/rest/actions/secrets#create-or-update-a-repository-secret
+ *
+ * @return  stdClass|null
+ */
+function set_github_repository_secret( string $repository, string $secret_name, string $secret_value ): ?stdClass {
+	return API_Helper::make_github_request( "repositories/$repository/secrets/$secret_name", 'PUT', array( 'value' => $secret_value ) );
 }
 
 /**

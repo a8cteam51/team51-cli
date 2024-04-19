@@ -9,12 +9,15 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
+use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 
 /**
  * Set the on/off status for a given Jetpack module on a given site.
  */
 #[AsCommand( name: 'jetpack:set-site-module-status', aliases: array( 'jetpack:toggle-site-module' ) )]
 final class Jetpack_Site_Module_Status_Set extends Command {
+	use AutocompleteTrait;
+
 	// region FIELDS AND CONSTANTS
 
 	/**

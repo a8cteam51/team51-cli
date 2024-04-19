@@ -52,22 +52,19 @@ function get_jetpack_site_modules( string $site_id_or_url ): ?array {
 /**
  * Returns the list of complete Jetpack modules information for a list of sites
  *
- * @param   array $site_ids_or_urls The site URLs or WordPress.com site IDs.
+ * @param   array      $site_ids_or_urls The list of site domains or numeric WPCOM IDs.
+ * @param   array|null $errors           The list of errors that occurred during the request.
  *
  * @return  stdClass[][]|null
  */
-function get_jetpack_site_modules_batch( array $site_ids_or_urls ): ?array {
+function get_jetpack_site_modules_batch( array $site_ids_or_urls, array &$errors = null ): ?array {
 	$sites_module_list = API_Helper::make_jetpack_request( 'modules/batch', 'POST', array( 'sites' => $site_ids_or_urls ) );
 	if ( is_null( $sites_module_list ) ) {
 		return null;
 	}
 
-	return array_map(
-		static function ( stdClass $site_module_list ) {
-			return property_exists( $site_module_list, 'errors' ) ? $site_module_list : (array) $site_module_list;
-		},
-		(array) $sites_module_list
-	);
+	$sites_module_list = parse_batch_response( $sites_module_list, $errors );
+	return array_map( static fn( stdClass $site_module_list ) => (array) $site_module_list, $sites_module_list );
 }
 
 /**
