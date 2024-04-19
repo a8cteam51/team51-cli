@@ -694,20 +694,19 @@ function get_pressable_site_php_logs( string $site_id, ?string $status = null, i
 	do {
 		$query_params = http_build_query(
 			array(
-				'scroll_id' => $page->scroll_id ?? null,
+				'scroll_id' => $page->paging->scroll_id ?? null,
 				'status'    => $status,
 			)
 		);
 
-		$page = API_Helper::make_pressable_request( "sites/$site_id/php-errors?$query_params" );
-
+		$page = API_Helper::make_pressable_request( "sites/$site_id/php-logs?$query_params" );
 		if ( is_null( $page ) ) {
 			return null;
 		}
 
 		$max_entries -= 200; // There are 200 entries per page.
-		$logs[]       = $page->logs;
-	} while ( ! is_null( $page->scroll_id ) && $max_entries > 0 );
+		$logs[]       = $page->records;
+	} while ( ! $page->paging->is_last_page && 0 < $max_entries );
 
 	return array_merge( ...$logs );
 }
