@@ -677,4 +677,38 @@ function get_pressable_site_root_name( string $site_id_or_url ): ?string {
 	return str_replace( '-production', '', $site->name );
 }
 
+/**
+ * Get a list of a site's PHP error logs. The logs are available for the past 7 days.
+ *
+ * @param   string      $site_id     The site ID.
+ * @param   string|null $status      Filter by log status. Valid values are 'User', 'Warning', 'Deprecated', and 'Fatal error'.
+ * @param   integer     $max_entries The maximum number of entries to return. The default is 200 or one page.
+ *
+ * @link    https://my.pressable.com/documentation/api/v1#get-php-logs
+ *
+ * @return  object[]|null
+ */
+function get_pressable_site_php_logs( string $site_id, ?string $status = null, int $max_entries = 200 ): ?array {
+	$logs = array();
+
+	do {
+		$query_params = http_build_query(
+			array(
+				'scroll_id' => $page->paging->next_page_params->scroll_id ?? null,
+				'status'    => $status,
+			)
+		);
+
+		$page = API_Helper::make_pressable_request( "sites/$site_id/php-logs?$query_params" );
+		if ( is_null( $page ) ) {
+			return null;
+		}
+
+		$max_entries -= 200; // There are 200 entries per page.
+		$logs[]       = $page->records;
+	} while ( ! $page->paging->is_last_page && 0 < $max_entries );
+
+	return array_merge( ...$logs );
+}
+
 // endregion
