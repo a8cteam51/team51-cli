@@ -80,6 +80,7 @@ $team51_is_autocomplete = false;
 
 foreach ( $argv as $arg ) {
 	switch ( $arg ) {
+		case 'completion':
 		case '_complete':
 			$team51_is_autocomplete = true;
 			return; // Don't run the rest of the script.
