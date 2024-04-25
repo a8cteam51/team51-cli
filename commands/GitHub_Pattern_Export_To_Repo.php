@@ -58,6 +58,9 @@ final class GitHub_Pattern_Export_To_Repo extends Command {
 
 		// Retrieve the given site.
 		$this->pressable_site = \get_pressable_site( $this->prompt_site_input( $input, $output ) );
+		if ( $output->isVerbose() ) {
+			$output->writeln( "<info>Site {$this->pressable_site->id}: {$this->pressable_site->url}</info>" );
+		}
 		if ( \is_null( $this->pressable_site ) ) {
 			exit( 1 ); // Exit if the site does not exist.
 		}
@@ -69,12 +72,18 @@ final class GitHub_Pattern_Export_To_Repo extends Command {
 		if ( ! $input->getArgument( 'pattern-name' ) ) {
 			$this->pattern_name = $this->prompt_pattern_name_input( $input, $output );
 			$input->setArgument('pattern-name', $this->pattern_name );
+			if ( $output->isVerbose() ) {
+				$output->writeln( "<info>Pattern name: {$this->pattern_name}</info>" );
+			}
 		}
 
 		// Check if the category slug was already provided as an argument. If not, prompt the user for it.
 		if ( ! $input->getArgument( 'category-slug' ) ) {
 			$this->category_slug = $this->prompt_category_slug_input( $input, $output );
 			$input->setArgument( 'category-slug', $this->category_slug );
+		}
+		if ( $output->isVerbose() ) {
+			$output->writeln( "<info>Category slug: {$this->category_slug}</info>" );
 		}
 	}
 
@@ -93,14 +102,16 @@ final class GitHub_Pattern_Export_To_Repo extends Command {
 		$ssh_connection = \Pressable_Connection_Helper::get_ssh_connection( $this->pressable_site->id );
 		if ( \is_null( $ssh_connection ) ) {
 			$output->writeln( "<error>Failed to connect via SSH for {$this->pressable_site->url}. Aborting!</error>" );
-			return 1;
+			return Command::FAILURE;
 		}
 
 		// Run script.
 		$result = $ssh_connection->exec( sprintf( "wp eval-file /htdocs/pattern-extract.php '%s'", $this->pattern_name ) );
-
+		if ( $output->isDebug() ) {
+			$output->writeln( "<info>Pattern extraction result: {$result}</info>" );
+		}
 		// Delete script.
-		$ssh_connection->exec( 'rm /htdocs/pattern-extract.php' );
+		// $ssh_connection->exec( 'rm /htdocs/pattern-extract.php' );
 
 		if ( ! empty( $result ) ) {
 
@@ -159,10 +170,11 @@ final class GitHub_Pattern_Export_To_Repo extends Command {
 			\run_system_command( [ 'rm', '-rf', $temp_dir ], sys_get_temp_dir() );
 		} else {
 			$output->writeln( "<error>Pattern not found. Aborting!</error>" );
-			return 1;
+			return Command::FAILURE;
 		}
 
 		$output->writeln( '<comment>Done!</comment>' );
+		return Command::SUCCESS;
 	}
 
 	/**
