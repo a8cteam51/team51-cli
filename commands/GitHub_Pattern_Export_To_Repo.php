@@ -1,20 +1,26 @@
 <?php
 
-namespace Team51\Command;
+namespace WPCOMSpecialProjects\CLI\Command;
 
-use Team51\Helper\API_Helper;
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\Question;
-use Team51\Helper\Pressable_Connection_Helper;
-use function Team51\Helper\get_pressable_site_from_input;
-use function Team51\Helper\get_pressable_sites;
-use function Team51\Helper\run_system_command;
+use WPCOMSpecialProjects\Helper\Pressable_Connection_Helper;
+use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
+use function WPCOMSpecialProjects\Helper\get_pressable_site_from_input;
+use function WPCOMSpecialProjects\Helper\get_pressable_sites;
+use function WPCOMSpecialProjects\Helper\run_system_command;
 
-class Pattern_Export_To_Repo extends Command {
-	protected static $defaultName = 'pattern-export-to-repo';
+/**
+ * Exports a block pattern from a site to the block pattern library.
+ */
+#[AsCommand( name: 'github:pattern-export-to-repo' )]
+final class GitHub_Pattern_Export_To_Repo extends Command {
+	use AutocompleteTrait;
+
 
 	/**
 	 * The Pressable site to process.
@@ -79,7 +85,7 @@ class Pattern_Export_To_Repo extends Command {
 	/**
 	 * {@inheritDoc}
 	 */
-	protected function execute( InputInterface $input, OutputInterface $output ) {
+	protected function execute( InputInterface $input, OutputInterface $output ): int {
 
 		// Upload script.
 		$sftp   = Pressable_Connection_Helper::get_sftp_connection( $this->pressable_site->id );
