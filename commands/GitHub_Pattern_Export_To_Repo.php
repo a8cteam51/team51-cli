@@ -8,11 +8,7 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\Question;
-use WPCOMSpecialProjects\Helper\Pressable_Connection_Helper;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
-use function WPCOMSpecialProjects\Helper\get_pressable_site_from_input;
-use function WPCOMSpecialProjects\Helper\get_pressable_sites;
-use function WPCOMSpecialProjects\Helper\run_system_command;
 
 /**
  * Exports a block pattern from a site to the block pattern library.
@@ -61,7 +57,7 @@ final class GitHub_Pattern_Export_To_Repo extends Command {
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
 
 		// Retrieve the given site.
-		$this->pressable_site = get_pressable_site_from_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
+		$this->pressable_site = \get_pressable_site( $this->prompt_site_input( $input, $output ) );
 		if ( \is_null( $this->pressable_site ) ) {
 			exit( 1 ); // Exit if the site does not exist.
 		}
@@ -88,13 +84,13 @@ final class GitHub_Pattern_Export_To_Repo extends Command {
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 
 		// Upload script.
-		$sftp   = Pressable_Connection_Helper::get_sftp_connection( $this->pressable_site->id );
-		$result = $sftp->put( '/htdocs/pattern-extract.php', file_get_contents( __DIR__ . '/../../scaffold/pattern-extract.php' ) );
+		$sftp   = \Pressable_Connection_Helper::get_sftp_connection( $this->pressable_site->id );
+		$result = $sftp->put( '/htdocs/pattern-extract.php', file_get_contents( __DIR__ . '/../scaffold/pattern-extract.php' ) );
 		if ( ! $result ) {
 			$output->writeln( "<error>Failed to copy pattern-extract.php to {$this->pressable_site->id}.</error>" );
 		}
 
-		$ssh_connection = Pressable_Connection_Helper::get_ssh_connection( $this->pressable_site->id );
+		$ssh_connection = \Pressable_Connection_Helper::get_ssh_connection( $this->pressable_site->id );
 		if ( \is_null( $ssh_connection ) ) {
 			$output->writeln( "<error>Failed to connect via SSH for {$this->pressable_site->url}. Aborting!</error>" );
 			return 1;
@@ -113,7 +109,7 @@ final class GitHub_Pattern_Export_To_Repo extends Command {
 			$repo_url = 'git@github.com:a8cteam51/team51-patterns.git';
 
 			// Clone the repository
-			run_system_command( [ 'git', 'clone', $repo_url, $temp_dir ], sys_get_temp_dir() );
+			\run_system_command( [ 'git', 'clone', $repo_url, $temp_dir ], sys_get_temp_dir() );
 
 			// The 'patterns' folder at the root of the repo.
 			$patterns_dir = $temp_dir . '/patterns';
@@ -123,7 +119,7 @@ final class GitHub_Pattern_Export_To_Repo extends Command {
 			$metadata_path = $category_dir . '/metadata.json';
 
 			// Ensure the category directory exists.
-			run_system_command( [ 'mkdir', '-p', $category_dir ], $temp_dir );
+			\run_system_command( [ 'mkdir', '-p', $category_dir ], $temp_dir );
 
 			// Check if metadata.json exists before creating or overwriting
 			if ( ! file_exists( $metadata_path ) ) {
@@ -131,7 +127,7 @@ final class GitHub_Pattern_Export_To_Repo extends Command {
 				file_put_contents( $metadata_path, json_encode( $metadata, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) );
 
 				// Add metadata.json to the repository
-				run_system_command( [ 'git', 'add', $metadata_path ], $temp_dir );
+				\run_system_command( [ 'git', 'add', $metadata_path ], $temp_dir );
 			}
 
 			// Path to the JSON file for the pattern.
@@ -154,13 +150,13 @@ final class GitHub_Pattern_Export_To_Repo extends Command {
 
 			// Add, commit, and push the change.
 			$branch_name = 'add/' . $pattern_file_base . '-' . time();
-			run_system_command( [ 'git', 'branch', '-m' , $branch_name ], $temp_dir );
-			run_system_command( [ 'git', 'add', $json_file_path ], $temp_dir );
-			run_system_command( [ 'git', 'commit', '-m', 'New pattern: ' . $pattern_file_base ], $temp_dir );
-			run_system_command( [ 'git', 'push', 'origin', $branch_name ], $temp_dir );
+			\run_system_command( [ 'git', 'branch', '-m' , $branch_name ], $temp_dir );
+			\run_system_command( [ 'git', 'add', $json_file_path ], $temp_dir );
+			\run_system_command( [ 'git', 'commit', '-m', 'New pattern: ' . $pattern_file_base ], $temp_dir );
+			\run_system_command( [ 'git', 'push', 'origin', $branch_name ], $temp_dir );
 
 			// Clean up by removing the cloned repository directory, if desired
-			run_system_command( [ 'rm', '-rf', $temp_dir ], sys_get_temp_dir() );
+			\run_system_command( [ 'rm', '-rf', $temp_dir ], sys_get_temp_dir() );
 		} else {
 			$output->writeln( "<error>Pattern not found. Aborting!</error>" );
 			return 1;
@@ -181,8 +177,8 @@ final class GitHub_Pattern_Export_To_Repo extends Command {
 		if ( $input->isInteractive() ) {
 
 			// Ask for the pattern name, providing an example as a hint.
-			$question = new Question( '<question>Enter the site ID or URL to add the domain to:</question> ' );
-			$question->setAutocompleterValues( \array_map( static fn( object $site ) => $site->url, get_pressable_sites() ?? array() ) );
+			$question = new Question( '<question>Enter the site ID or URL to extract the pattern from:</question> ' );
+			$question->setAutocompleterValues( \array_map( static fn( object $site ) => $site->url, \get_pressable_sites() ?? array() ) );
 
 			// Retrieve the user's input.
 			$site = $this->getHelper( 'question' )->ask( $input, $output, $question );
