@@ -57,7 +57,7 @@ final class GitHub_Pattern_Export_To_Repo extends Command {
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
 
 		// Retrieve the given site.
-		$this->pressable_site = \get_pressable_site( $this->prompt_site_input( $input, $output ) );
+		$this->pressable_site = get_pressable_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
 		if ( $output->isVerbose() ) {
 			$output->writeln( "<info>Site {$this->pressable_site->id}: {$this->pressable_site->url}</info>" );
 		}
@@ -68,17 +68,19 @@ final class GitHub_Pattern_Export_To_Repo extends Command {
 		// Store the ID of the site in the argument field.
 		$input->setArgument( 'site', $this->pressable_site->id );
 
+		$this->pattern_name = $input->getArgument( 'pattern-name' );
 		// Check if the pattern name was already provided as an argument. If not, prompt the user for it.
-		if ( ! $input->getArgument( 'pattern-name' ) ) {
+		if ( ! $this->pattern_name ) {
 			$this->pattern_name = $this->prompt_pattern_name_input( $input, $output );
 			$input->setArgument( 'pattern-name', $this->pattern_name );
-			if ( $output->isVerbose() ) {
-				$output->writeln( "<info>Pattern name: {$this->pattern_name}</info>" );
-			}
+		}
+		if ( $output->isVerbose() ) {
+			$output->writeln( "<info>Pattern name: {$this->pattern_name}</info>" );
 		}
 
 		// Check if the category slug was already provided as an argument. If not, prompt the user for it.
-		if ( ! $input->getArgument( 'category-slug' ) ) {
+		$this->category_slug = $input->getArgument( 'category-slug' );
+		if ( ! $this->category_slug ) {
 			$this->category_slug = $this->prompt_category_slug_input( $input, $output );
 			$input->setArgument( 'category-slug', $this->category_slug );
 		}
@@ -186,15 +188,12 @@ final class GitHub_Pattern_Export_To_Repo extends Command {
 	 * @return  string|null
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
-		if ( $input->isInteractive() ) {
+		// Ask for the pattern name, providing an example as a hint.
+		$question = new Question( '<question>Enter the site ID or URL to extract the pattern from:</question> ' );
+		$question->setAutocompleterValues( \array_map( static fn( object $site ) => $site->url, \get_pressable_sites() ?? array() ) );
 
-			// Ask for the pattern name, providing an example as a hint.
-			$question = new Question( '<question>Enter the site ID or URL to extract the pattern from:</question> ' );
-			$question->setAutocompleterValues( \array_map( static fn( object $site ) => $site->url, \get_pressable_sites() ?? array() ) );
-
-			// Retrieve the user's input.
-			$site = $this->getHelper( 'question' )->ask( $input, $output, $question );
-		}
+		// Retrieve the user's input.
+		$site = $this->getHelper( 'question' )->ask( $input, $output, $question );
 
 		return $site ?? null;
 	}
