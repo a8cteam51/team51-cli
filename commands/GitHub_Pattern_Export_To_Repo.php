@@ -162,7 +162,7 @@ final class GitHub_Pattern_Export_To_Repo extends Command {
 			file_put_contents( $json_file_path, $result );
 
 			// Add, commit, and push the change.
-			$branch_name = 'add/' . $pattern_file_base . '-' . time();
+			$branch_name = 'add/pattern/' . $pattern_file_base . '-' . time();
 			\run_system_command( array( 'git', 'branch', '-m', $branch_name ), $temp_dir );
 			\run_system_command( array( 'git', 'add', $json_file_path ), $temp_dir );
 			\run_system_command( array( 'git', 'commit', '-m', 'New pattern: ' . $pattern_file_base ), $temp_dir );
