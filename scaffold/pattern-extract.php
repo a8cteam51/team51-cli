@@ -8,14 +8,14 @@
 
 // Check if an argument is provided, otherwise exit.
 if ( empty( $args ) ) {
-	exit(1);
+	exit( 1 );
 }
 
 $pattern_name = $args[0];
 
 // Attempt to retrieve the registered block pattern.
 $pattern_registry = WP_Block_Patterns_Registry::get_instance();
-$pattern = $pattern_registry->get_registered( $pattern_name );
+$pattern          = $pattern_registry->get_registered( $pattern_name );
 
 $result = array();
 
@@ -26,20 +26,21 @@ if ( ! empty( $pattern ) ) {
 		'content' => $pattern['content'],
 	);
 } else {
-	$post = get_posts( array(
-		'name'           => $pattern_name,
-		'posts_per_page' => 1,
-		'post_type'      => 'wp_block',
-		'post_status'    => 'publish',
-	) );
+	$the_post = get_posts(
+		array(
+			'name'           => $pattern_name,
+			'posts_per_page' => 1,
+			'post_type'      => 'wp_block',
+			'post_status'    => 'publish',
+		)
+	);
 
-	if ( ! empty( $post ) ) {
+	if ( ! empty( $the_post ) ) {
 		$result = array(
-			'title'   => $post[0]->post_title,
-			'content' => $post[0]->post_content,
+			'title'   => $the_post[0]->post_title,
+			'content' => $the_post[0]->post_content,
 		);
 	}
-
 }
 
 // Check if $result is populated, otherwise set default values to prevent errors.

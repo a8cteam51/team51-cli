@@ -71,7 +71,7 @@ final class GitHub_Pattern_Export_To_Repo extends Command {
 		// Check if the pattern name was already provided as an argument. If not, prompt the user for it.
 		if ( ! $input->getArgument( 'pattern-name' ) ) {
 			$this->pattern_name = $this->prompt_pattern_name_input( $input, $output );
-			$input->setArgument('pattern-name', $this->pattern_name );
+			$input->setArgument( 'pattern-name', $this->pattern_name );
 			if ( $output->isVerbose() ) {
 				$output->writeln( "<info>Pattern name: {$this->pattern_name}</info>" );
 			}
@@ -120,38 +120,38 @@ final class GitHub_Pattern_Export_To_Repo extends Command {
 			$repo_url = 'git@github.com:a8cteam51/team51-patterns.git';
 
 			// Clone the repository
-			\run_system_command( [ 'git', 'clone', $repo_url, $temp_dir ], sys_get_temp_dir() );
+			\run_system_command( array( 'git', 'clone', $repo_url, $temp_dir ), sys_get_temp_dir() );
 
 			// The 'patterns' folder at the root of the repo.
 			$patterns_dir = $temp_dir . '/patterns';
 
 			// Additional setup for category directory and metadata.json handling.
-			$category_dir = $patterns_dir . '/' . $this->category_slug;
+			$category_dir  = $patterns_dir . '/' . $this->category_slug;
 			$metadata_path = $category_dir . '/metadata.json';
 
 			// Ensure the category directory exists.
-			\run_system_command( [ 'mkdir', '-p', $category_dir ], $temp_dir );
+			\run_system_command( array( 'mkdir', '-p', $category_dir ), $temp_dir );
 
 			// Check if metadata.json exists before creating or overwriting
 			if ( ! file_exists( $metadata_path ) ) {
-				$metadata = [ 'title' => $this->category_slug ];
+				$metadata = array( 'title' => $this->category_slug );
 				file_put_contents( $metadata_path, json_encode( $metadata, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) );
 
 				// Add metadata.json to the repository
-				\run_system_command( [ 'git', 'add', $metadata_path ], $temp_dir );
+				\run_system_command( array( 'git', 'add', $metadata_path ), $temp_dir );
 			}
 
 			// Path to the JSON file for the pattern.
-			$pattern_file_base = basename( $this->_slugify( $this->pattern_name ) );
+			$pattern_file_base = basename( $this->slugify( $this->pattern_name ) );
 			$pattern_file_name = $pattern_file_base . '.json';
-			$json_file_path = $category_dir . '/' . $pattern_file_name;
+			$json_file_path    = $category_dir . '/' . $pattern_file_name;
 
 			// Check for existing files with the same name and append a number if necessary.
 			$count = 1;
 			while ( file_exists( $json_file_path ) ) {
-				$count++;
+				++$count;
 				$pattern_file_name = $pattern_file_base . '-' . $count . '.json';
-				$json_file_path = $category_dir . '/' . $pattern_file_name;
+				$json_file_path    = $category_dir . '/' . $pattern_file_name;
 			}
 
 			// Save the pattern result to the file. Re-enconded to save as pretty JSON.
@@ -161,15 +161,15 @@ final class GitHub_Pattern_Export_To_Repo extends Command {
 
 			// Add, commit, and push the change.
 			$branch_name = 'add/' . $pattern_file_base . '-' . time();
-			\run_system_command( [ 'git', 'branch', '-m' , $branch_name ], $temp_dir );
-			\run_system_command( [ 'git', 'add', $json_file_path ], $temp_dir );
-			\run_system_command( [ 'git', 'commit', '-m', 'New pattern: ' . $pattern_file_base ], $temp_dir );
-			\run_system_command( [ 'git', 'push', 'origin', $branch_name ], $temp_dir );
+			\run_system_command( array( 'git', 'branch', '-m', $branch_name ), $temp_dir );
+			\run_system_command( array( 'git', 'add', $json_file_path ), $temp_dir );
+			\run_system_command( array( 'git', 'commit', '-m', 'New pattern: ' . $pattern_file_base ), $temp_dir );
+			\run_system_command( array( 'git', 'push', 'origin', $branch_name ), $temp_dir );
 
 			// Clean up by removing the cloned repository directory, if desired
-			\run_system_command( [ 'rm', '-rf', $temp_dir ], sys_get_temp_dir() );
+			\run_system_command( array( 'rm', '-rf', $temp_dir ), sys_get_temp_dir() );
 		} else {
-			$output->writeln( "<error>Pattern not found. Aborting!</error>" );
+			$output->writeln( '<error>Pattern not found. Aborting!</error>' );
 			return Command::FAILURE;
 		}
 
@@ -180,8 +180,8 @@ final class GitHub_Pattern_Export_To_Repo extends Command {
 	/**
 	 * Prompts the user for a site if in interactive mode.
 	 *
-	 * @param   InputInterface      $input      The input object.
-	 * @param   OutputInterface     $output     The output object.
+	 * @param   InputInterface  $input  The input object.
+	 * @param   OutputInterface $output The output object.
 	 *
 	 * @return  string|null
 	 */
@@ -202,8 +202,9 @@ final class GitHub_Pattern_Export_To_Repo extends Command {
 	/**
 	 * Prompts the user for a pattern name in interactive mode.
 	 *
-	 * @param InputInterface $input The input object.
+	 * @param InputInterface  $input  The input object.
 	 * @param OutputInterface $output The output object.
+	 *
 	 * @return string|null
 	 */
 	private function prompt_pattern_name_input( InputInterface $input, OutputInterface $output ): ?string {
@@ -211,7 +212,7 @@ final class GitHub_Pattern_Export_To_Repo extends Command {
 
 			// Ask for the pattern name, providing an example as a hint.
 			$question_text = '<question>Enter the pattern name (e.g., "twentytwentyfour/banner-hero"):</question> ';
-			$question = new Question( $question_text );
+			$question      = new Question( $question_text );
 
 			// Retrieve the user's input.
 			$pattern_name = $this->getHelper( 'question' )->ask( $input, $output, $question );
@@ -223,8 +224,8 @@ final class GitHub_Pattern_Export_To_Repo extends Command {
 	/**
 	 * Prompts the user for a category slug in interactive mode.
 	 *
-	 * @param   InputInterface      $input      The input object.
-	 * @param   OutputInterface     $output     The output object.
+	 * @param   InputInterface  $input  The input object.
+	 * @param   OutputInterface $output The output object.
 	 *
 	 * @return  string|null
 	 */
@@ -238,7 +239,7 @@ final class GitHub_Pattern_Export_To_Repo extends Command {
 			$category_slug = $this->getHelper( 'question' )->ask( $input, $output, $question );
 
 			// Ensure the input matches the expected format.
-			$category_slug = $this->_slugify( $category_slug );
+			$category_slug = $this->slugify( $category_slug );
 		}
 
 		return $category_slug ?? null;
@@ -248,9 +249,10 @@ final class GitHub_Pattern_Export_To_Repo extends Command {
 	 * Convert a text string to something ready to be used as a unique, machine-friendly identifier.s
 	 *
 	 * @param string $_text The input text to be slugified.
+	 *
 	 * @return string The slugified version of the input text.
 	 */
-	protected function _slugify( $_text ) {
+	protected function slugify( $_text ) {
 		$_slug = strtolower( $_text ); // convert to lowercase
 		$_slug = preg_replace( '/\s+/', '-', $_slug ); // convert all contiguous whitespace to a single hyphen
 		$_slug = preg_replace( '/[^a-z0-9\-]/', '', $_slug ); // Lowercase alphanumeric characters and dashes are allowed.
