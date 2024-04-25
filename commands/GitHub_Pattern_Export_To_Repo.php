@@ -162,7 +162,7 @@ final class GitHub_Pattern_Export_To_Repo extends Command {
 			file_put_contents( $json_file_path, $result );
 
 			// Add, commit, and push the change.
-			$branch_name = 'add/pattern/' . $pattern_file_base . '-' . time();
+			$branch_name = 'add/pattern/' . $this->category_slug . '/' . $pattern_file_base . '-' . time();
 			\run_system_command( array( 'git', 'branch', '-m', $branch_name ), $temp_dir );
 			\run_system_command( array( 'git', 'add', $json_file_path ), $temp_dir );
 			\run_system_command( array( 'git', 'commit', '-m', 'New pattern: ' . $pattern_file_base ), $temp_dir );
@@ -170,6 +170,9 @@ final class GitHub_Pattern_Export_To_Repo extends Command {
 
 			// Clean up by removing the cloned repository directory, if desired
 			\run_system_command( array( 'rm', '-rf', $temp_dir ), sys_get_temp_dir() );
+
+			$output->writeln( "<fg=magenta;options=bold>Pattern exported successfully to {$branch_name}!</>");
+			$output->writeln( "<fg=magenta;options=bold>View the branch at </><fg=blue>https://github.com/a8cteam51/team51-cli/tree/{$branch_name}</>");
 		} else {
 			$output->writeln( '<error>Pattern not found. Aborting!</error>' );
 			return Command::FAILURE;
