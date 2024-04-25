@@ -124,6 +124,32 @@ function create_github_repository_webhook( string $repository, array $config, ar
 	);
 }
 
+/**
+ * Creates a new Pull Request for a given GitHub repository and branch.
+ *
+ * @param string $repository The name of the repository to create the Pull Request in.
+ * @param string $branch     The name of the branch to create the Pull Request from.
+ * @param string $title      The title of the Pull Request.
+ * @param string $template   The name of the Pull Request template to use (Optional: Ignored if $body is provided).
+ * @param string $body       The body of the Pull Request (Optional: Ignored if $template is provided).
+ *
+ * @return stdClass|null
+ */
+function create_github_repository_pull_request( string $repository, string $branch, string $title, string $template = null, string $body = null ): ?stdClass {
+	return API_Helper::make_github_request(
+		"repositories/$repository/pull-requests",
+		'POST',
+		array_filter(
+			array(
+				'branch'   => $branch,
+				'title'    => $title,
+				'template' => $template,
+				'body'     => $body,
+			)
+		)
+	);
+}
+
 // endregion
 
 // region CONSOLE
