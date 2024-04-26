@@ -82,6 +82,8 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 
+		$output->writeln( "<fg=magenta;options=bold>Exporting {$this->pattern_name} (Category: {$this->category_slug}) from {$this->pressable_site->displayName} (ID {$this->pressable_site->id}, URL {$this->pressable_site->url})</>" );
+
 		// Upload script.
 		$sftp   = \Pressable_Connection_Helper::get_sftp_connection( $this->pressable_site->id );
 		$result = $sftp->put( '/htdocs/pattern-extract.php', file_get_contents( __DIR__ . '/../scaffold/pattern-extract.php' ) );
@@ -158,8 +160,8 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 			// Clean up by removing the cloned repository directory, if desired
 			\run_system_command( array( 'rm', '-rf', $temp_dir ), sys_get_temp_dir() );
 
-			$output->writeln( "<fg=magenta;options=bold>Pattern exported successfully to {$branch_name}.</>");
-			$output->writeln( "<fg=magenta;options=bold>View the pattern at </><fg=blue>https://github.com/a8cteam51/team51-patterns/compare/trunk...{$branch_name}</>");
+			$output->writeln( "<fg=green;options=bold>Pattern exported successfully to {$branch_name}.</>");
+			$output->writeln( "<fg=green;options=bold>View the pattern at </><fg=blue>https://github.com/a8cteam51/team51-patterns/compare/trunk...{$branch_name}</>");
 		} else {
 			$output->writeln( '<error>Pattern not found. Aborting!</error>' );
 			return Command::FAILURE;
