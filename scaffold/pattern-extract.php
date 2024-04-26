@@ -43,7 +43,7 @@ if ( ! empty( $pattern ) ) {
 	}
 }
 
-// Check if $result is populated, otherwise set default values to prevent errors.
+// Check if $result is populated and set default values. Don't output anything if it's empty.
 if ( ! empty( $result ) ) {
 	$response = array(
 		'__file'     => 'wp_block',
