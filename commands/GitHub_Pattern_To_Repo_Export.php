@@ -61,9 +61,6 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 		if ( $output->isVerbose() ) {
 			$output->writeln( "<info>Site {$this->pressable_site->id}: {$this->pressable_site->url}</info>" );
 		}
-		if ( \is_null( $this->pressable_site ) ) {
-			exit( 1 ); // Exit if the site does not exist.
-		}
 
 		// Store the ID of the site in the argument field.
 		$input->setArgument( 'site', $this->pressable_site->id );
