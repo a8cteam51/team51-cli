@@ -201,17 +201,13 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 	 * @return string|null
 	 */
 	private function prompt_pattern_name_input( InputInterface $input, OutputInterface $output ): ?string {
-		if ( $input->isInteractive() ) {
 
-			// Ask for the pattern name, providing an example as a hint.
-			$question_text = '<question>Enter the pattern name (e.g., "twentytwentyfour/banner-hero"):</question> ';
-			$question      = new Question( $question_text );
+		// Ask for the pattern name, providing an example as a hint.
+		$question_text = '<question>Enter the pattern name (e.g., "twentytwentyfour/banner-hero"):</question> ';
+		$question      = new Question( $question_text );
 
-			// Retrieve the user's input.
-			$pattern_name = $this->getHelper( 'question' )->ask( $input, $output, $question );
-		}
-
-		return $pattern_name ?? null;
+		// Retrieve the user's input.
+		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
 
 	/**
