@@ -64,16 +64,12 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 		// Store the ID of the site in the argument field.
 		$input->setArgument( 'site', $this->pressable_site->id );
 
-		$this->pattern_name = get_string_input( $input, $output, 'pattern-name', fn() => $this->prompt_pattern_name_input( $input, $output ));
 		// Check if the pattern name was already provided as an argument. If not, prompt the user for it.
+		$this->pattern_name = get_string_input( $input, $output, 'pattern-name', fn() => $this->prompt_pattern_name_input( $input, $output ));
 		$output->writeln( "<info>Pattern name: {$this->pattern_name}</info>", Output::VERBOSITY_VERBOSE );
 
 		// Check if the category slug was already provided as an argument. If not, prompt the user for it.
-		$this->category_slug = $input->getArgument( 'category-slug' );
-		if ( ! $this->category_slug ) {
-			$this->category_slug = $this->prompt_category_slug_input( $input, $output );
-			$input->setArgument( 'category-slug', $this->category_slug );
-		}
+		$this->category_slug = slugify( get_string_input( $input, $output, 'category-slug', fn() => $this->prompt_category_slug_input( $input, $output ) ) );
 		$output->writeln( "<info>Category slug: {$this->category_slug}</info>", Output::VERBOSITY_VERBOSE );
 	}
 
@@ -219,18 +215,12 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 	 * @return  string|null
 	 */
 	private function prompt_category_slug_input( InputInterface $input, OutputInterface $output ): ?string {
-		if ( $input->isInteractive() ) {
-
 			// Provide guidance on the expected format for the category slug.
 			$question = new Question( '<question>Enter the category slug (lowercase, hyphens for spaces, e.g., "hero"):</question> ' );
 
 			// Ask the question and retrieve the user's input.
 			$category_slug = $this->getHelper( 'question' )->ask( $input, $output, $question );
 
-			// Ensure the input matches the expected format.
-			$category_slug = slugify( $category_slug );
-		}
-
-		return $category_slug ?? null;
+			return $category_slug;
 	}
 }
