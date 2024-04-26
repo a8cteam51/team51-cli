@@ -85,8 +85,12 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 		$output->writeln( "<fg=magenta;options=bold>Exporting {$this->pattern_name} (Category: {$this->category_slug}) from {$this->pressable_site->displayName} (ID {$this->pressable_site->id}, URL {$this->pressable_site->url})</>" );
 
 		// Upload script.
-		$sftp   = \Pressable_Connection_Helper::get_sftp_connection( $this->pressable_site->id );
-		$result = $sftp->put( '/htdocs/pattern-extract.php', file_get_contents( __DIR__ . '/../scaffold/pattern-extract.php' ) );
+		$sftp_connection   = \Pressable_Connection_Helper::get_sftp_connection( $this->pressable_site->id );
+		if ( \is_null( $sftp_connection ) ) {
+			$output->writeln( '<error>Could not open SFTP connection.</error>' );
+			return Command::FAILURE;
+		}
+		$result = $sftp_connection->put( '/htdocs/pattern-extract.php', file_get_contents( __DIR__ . '/../scaffold/pattern-extract.php' ) );
 		if ( ! $result ) {
 			$output->writeln( "<error>Failed to copy pattern-extract.php to {$this->pressable_site->id}.</error>" );
 		}
