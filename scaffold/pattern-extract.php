@@ -52,5 +52,5 @@ if ( ! empty( $result ) ) {
 		'syncStatus' => '',
 	);
 
-	echo json_encode( $response );
+	echo wp_json_encode( $response );
 }
