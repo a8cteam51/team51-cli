@@ -6,6 +6,7 @@ use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Output\Output;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\Question;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
@@ -58,18 +59,14 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 
 		// Retrieve the given site.
 		$this->pressable_site = get_pressable_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
-		if ( $output->isVerbose() ) {
-			$output->writeln( "<info>Site {$this->pressable_site->id}: {$this->pressable_site->url}</info>" );
-		}
+		$output->writeln( "<info>Site {$this->pressable_site->id}: {$this->pressable_site->url}</info>", Output::VERBOSITY_VERBOSE );
 
 		// Store the ID of the site in the argument field.
 		$input->setArgument( 'site', $this->pressable_site->id );
 
 		$this->pattern_name = get_string_input( $input, $output, 'pattern-name', fn() => $this->prompt_pattern_name_input( $input, $output ));
 		// Check if the pattern name was already provided as an argument. If not, prompt the user for it.
-		if ( $output->isVerbose() ) {
-			$output->writeln( "<info>Pattern name: {$this->pattern_name}</info>" );
-		}
+		$output->writeln( "<info>Pattern name: {$this->pattern_name}</info>", Output::VERBOSITY_VERBOSE );
 
 		// Check if the category slug was already provided as an argument. If not, prompt the user for it.
 		$this->category_slug = $input->getArgument( 'category-slug' );
@@ -77,9 +74,7 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 			$this->category_slug = $this->prompt_category_slug_input( $input, $output );
 			$input->setArgument( 'category-slug', $this->category_slug );
 		}
-		if ( $output->isVerbose() ) {
-			$output->writeln( "<info>Category slug: {$this->category_slug}</info>" );
-		}
+		$output->writeln( "<info>Category slug: {$this->category_slug}</info>", Output::VERBOSITY_VERBOSE );
 	}
 
 	/**
@@ -102,9 +97,8 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 
 		// Run script.
 		$result = $ssh_connection->exec( sprintf( "wp eval-file /htdocs/pattern-extract.php '%s'", $this->pattern_name ) );
-		if ( $output->isDebug() ) {
-			$output->writeln( "<info>Pattern extraction result: {$result}</info>" );
-		}
+		$output->writeln( "<info>Pattern extraction result: {$result}</info>", Output::VERBOSITY_DEBUG );
+
 		// Delete script.
 		// $ssh_connection->exec( 'rm /htdocs/pattern-extract.php' );
 
