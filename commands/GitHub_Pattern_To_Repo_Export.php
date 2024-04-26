@@ -189,9 +189,7 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 		$question->setAutocompleterValues( \array_column( get_pressable_sites() ?? array(), 'url' ) );
 
 		// Retrieve the user's input.
-		$site = $this->getHelper( 'question' )->ask( $input, $output, $question );
-
-		return $site ?? null;
+		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
 
 	/**
