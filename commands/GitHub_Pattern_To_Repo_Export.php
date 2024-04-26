@@ -130,7 +130,7 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 			// Check if metadata.json exists before creating or overwriting
 			if ( ! file_exists( $metadata_path ) ) {
 				$metadata = array( 'title' => $this->category_slug );
-				file_put_contents( $metadata_path, json_encode( $metadata, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) );
+				file_put_contents( $metadata_path, encode_json_content( $metadata, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) );
 
 				// Add metadata.json to the repository
 				\run_system_command( array( 'git', 'add', $metadata_path ), $temp_dir );
@@ -150,8 +150,8 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 			}
 
 			// Save the pattern result to the file. Re-enconded to save as pretty JSON.
-			$result = json_decode( $result, true );
-			$result = json_encode( $result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
+			$result = decode_json_content( $result, true );
+			$result = encode_json_content( $result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
 			file_put_contents( $json_file_path, $result );
 
 			// Add, commit, and push the change.
