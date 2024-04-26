@@ -13,8 +13,8 @@ use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 /**
  * Exports a block pattern from a site to the block pattern library.
  */
-#[AsCommand( name: 'github:pattern-export-to-repo' )]
-final class GitHub_Pattern_Export_To_Repo extends Command {
+#[AsCommand( name: 'github:export-pattern-to-repo	' )]
+final class GitHub_Pattern_To_Repo_Export extends Command {
 	use AutocompleteTrait;
 
 
