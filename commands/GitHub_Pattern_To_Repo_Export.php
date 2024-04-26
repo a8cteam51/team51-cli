@@ -137,7 +137,7 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 			}
 
 			// Path to the JSON file for the pattern.
-			$pattern_file_base = basename( $this->slugify( $this->pattern_name ) );
+			$pattern_file_base = basename( slugify( $this->pattern_name ) );
 			$pattern_file_name = $pattern_file_base . '.json';
 			$json_file_path    = $category_dir . '/' . $pattern_file_name;
 
@@ -228,25 +228,9 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 			$category_slug = $this->getHelper( 'question' )->ask( $input, $output, $question );
 
 			// Ensure the input matches the expected format.
-			$category_slug = $this->slugify( $category_slug );
+			$category_slug = slugify( $category_slug );
 		}
 
 		return $category_slug ?? null;
-	}
-
-	/**
-	 * Convert a text string to something ready to be used as a unique, machine-friendly identifier.s
-	 *
-	 * @param string $_text The input text to be slugified.
-	 *
-	 * @return string The slugified version of the input text.
-	 */
-	protected function slugify( $_text ) {
-		$_slug = strtolower( $_text ); // convert to lowercase
-		$_slug = preg_replace( '/\s+/', '-', $_slug ); // convert all contiguous whitespace to a single hyphen
-		$_slug = preg_replace( '/[^a-z0-9\-]/', '', $_slug ); // Lowercase alphanumeric characters and dashes are allowed.
-		$_slug = preg_replace( '/-+/', '-', $_slug ); // convert multiple contiguous hyphens to a single hyphen
-
-		return $_slug;
 	}
 }
