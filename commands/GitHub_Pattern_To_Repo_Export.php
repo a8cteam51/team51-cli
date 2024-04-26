@@ -65,12 +65,8 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 		// Store the ID of the site in the argument field.
 		$input->setArgument( 'site', $this->pressable_site->id );
 
-		$this->pattern_name = $input->getArgument( 'pattern-name' );
+		$this->pattern_name = get_string_input( $input, $output, 'pattern-name', fn() => $this->prompt_pattern_name_input( $input, $output ));
 		// Check if the pattern name was already provided as an argument. If not, prompt the user for it.
-		if ( ! $this->pattern_name ) {
-			$this->pattern_name = $this->prompt_pattern_name_input( $input, $output );
-			$input->setArgument( 'pattern-name', $this->pattern_name );
-		}
 		if ( $output->isVerbose() ) {
 			$output->writeln( "<info>Pattern name: {$this->pattern_name}</info>" );
 		}
