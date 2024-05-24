@@ -56,6 +56,14 @@ You can then do `team51 <command-name> --help`.
 
 A copy of that documentation is also available on the [Github Wiki for this repository](https://github.com/a8cteam51/team51-cli/wiki/team51-commands). When developing, if you add any new commands or update any descriptions, help, or arguments, [follow these instructions to update the documentation](https://github.com/a8cteam51/team51-cli/wiki/Updating-the-CLI-command-documentation).
 
+### Conventions around defaults
+
+If you run a command without any arguments, the CLI will ask you for the necessary information. Most of the time, a reasonable default will be provided, and you can just hit `Enter` to accept it.
+
+For `yes/no` type of questions, the default option is the capitalized one. For example, if the CLI asks you `Do you want to continue? [Y/n]`, you can just hit `Enter` to accept the default option, which is `Y`.
+
+For multiple choice questions, the default option is the one in square brackets. For example, if the CLI asks you `Which option do you want to choose? [Option 2]`, you can just hit `Enter` to accept the default option, which is `Option 2`.
+
 ## Troubleshooting
 
 ### Before anything else
