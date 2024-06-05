@@ -46,6 +46,6 @@ if ( ! defined( 'OPSOASIS_WP_USERNAME' ) || empty( OPSOASIS_WP_USERNAME ) ) {
 	exit( 1 );
 }
 if ( ! defined( 'OPSOASIS_APP_PASSWORD' ) || empty( OPSOASIS_APP_PASSWORD ) ) {
-	console_writeln( 'Could not find the Team51 identity\'s app password. Aborting!' );
+	console_writeln( 'Could not find the OpsOasis app password. Aborting!' );
 	exit( 1 );
 }
