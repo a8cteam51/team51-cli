@@ -168,7 +168,7 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 			return Command::FAILURE;
 		}
 
-		$output->writeln( '<comment>Done!</comment>' );
+		$output->writeln( '<info>Done!</info>' );
 		return Command::SUCCESS;
 	}
 
