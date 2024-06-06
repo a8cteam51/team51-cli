@@ -59,7 +59,7 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 
 		// Retrieve the given site.
 		$this->pressable_site = get_pressable_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
-		$output->writeln( "<info>Site {$this->pressable_site->id}: {$this->pressable_site->url}</info>", Output::VERBOSITY_VERBOSE );
+		$output->writeln( "<comment>Site {$this->pressable_site->id}: {$this->pressable_site->url}</comment>", Output::VERBOSITY_VERBOSE );
 
 		// Store the ID of the site in the argument field.
 		$input->setArgument( 'site', $this->pressable_site->id );
