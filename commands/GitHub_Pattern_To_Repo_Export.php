@@ -108,7 +108,7 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 		if ( ! empty( $result ) ) {
 
 			// Temporary directory to clone the repository
-			$temp_dir = sys_get_temp_dir() . '/team51-patterns';
+			$temp_dir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . uniqid( 'team51-patterns_', true );
 			$repo_url = 'git@github.com:a8cteam51/team51-patterns.git';
 
 			// Clone the repository
