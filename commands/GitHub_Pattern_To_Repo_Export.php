@@ -48,8 +48,8 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 			->setDescription( 'Exports a block pattern from a site to a GitHub.' )
 			->setHelp( 'This command exports a specified block pattern into a category within a GitHub repository.' )
 			->addArgument( 'site', InputArgument::REQUIRED, 'ID or URL of the Pressable site to run the command on.' )
-			->addArgument( 'pattern-name', InputArgument::REQUIRED, 'The unique identifier of the block pattern to export (e.g., "namespace/pattern-name").' )
-			->addArgument( 'category-slug', InputArgument::REQUIRED, 'The slug of the category under which the pattern should be exported. It should be lowercase with hyphens instead of spaces (e.g., "featured-patterns").' );
+			->addArgument( 'pattern-name', InputArgument::REQUIRED, 'The unique identifier of the block pattern to export (e.g., `namespace/pattern-name`).' )
+			->addArgument( 'category-slug', InputArgument::REQUIRED, 'The slug of the category under which the pattern should be exported. It should be lowercase with hyphens instead of spaces (e.g., `featured-patterns`).' );
 	}
 
 	/**
