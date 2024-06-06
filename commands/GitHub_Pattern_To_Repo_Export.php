@@ -103,7 +103,7 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 		$output->writeln( "<info>Pattern extraction result: {$result}</info>", Output::VERBOSITY_DEBUG );
 
 		// Delete script.
-		// $ssh_connection->exec( 'rm /htdocs/pattern-extract.php' );
+		$ssh_connection->exec( 'rm /htdocs/pattern-extract.php' );
 
 		if ( ! empty( $result ) ) {
 
