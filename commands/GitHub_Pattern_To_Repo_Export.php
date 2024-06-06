@@ -89,6 +89,7 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 		$result = $sftp_connection->put( '/htdocs/pattern-extract.php', file_get_contents( __DIR__ . '/../scaffold/pattern-extract.php' ) );
 		if ( ! $result ) {
 			$output->writeln( "<error>Failed to copy pattern-extract.php to {$this->pressable_site->id}.</error>" );
+			return Command::FAILURE;
 		}
 
 		$ssh_connection = \Pressable_Connection_Helper::get_ssh_connection( $this->pressable_site->id );
