@@ -332,4 +332,31 @@ function maybe_output_wpcom_failed_sites_table( OutputInterface $output, array $
 	);
 }
 
+/**
+ * Creates a new Pressable site.
+ *
+ * @param   string $name       The name of the site to create.
+ * @param   string $datacenter The datacenter code to create the site in.
+ *
+ * @return  stdClass|null
+ */
+function create_wpcom_site( string $name, string $datacenter ): ?stdClass {
+	$agency_id = 231948494;
+
+	// List sites pending to provision
+	$provisioned_sites = API_Helper::make_wpcom_request(
+		"agency/$agency_id/sites/pending",
+		'GET',
+		null,
+		'wpcom/v2'
+	);
+
+	// If no site is encontered, throw an error showing how to buy new licenses
+
+	// Initilize the next site to be provisioned
+
+	print_r( $provisioned_sites );
+}
+
+
 // endregion
