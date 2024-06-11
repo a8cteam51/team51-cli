@@ -61,14 +61,15 @@ final class API_Helper {
 	/**
 	 * Calls a given WPCOM endpoint and returns the response.
 	 *
-	 * @param   string $endpoint The endpoint to call.
-	 * @param   string $method   The HTTP method to use. One of 'GET', 'POST', 'PUT', 'DELETE'.
-	 * @param   mixed  $body     The body to send with the request.
+	 * @param   string $endpoint    The endpoint to call.
+	 * @param   string $method      The HTTP method to use. One of 'GET', 'POST', 'PUT', 'DELETE'.
+	 * @param   mixed  $body        The body to send with the request.
+	 * @param   string $api_version The API version: wpcom/v1 (default) or wpcom/v2.
 	 *
 	 * @return  stdClass|stdClass[]|true|null
 	 */
-	public static function make_wpcom_request( string $endpoint, string $method = 'GET', mixed $body = null ): stdClass|array|true|null {
-		return self::make_request( self::get_request_base_url() . "wpcom/v1/$endpoint", $method, $body );
+	public static function make_wpcom_request( string $endpoint, string $method = 'GET', mixed $body = null, string $api_version = 'wpcom/v1' ): stdClass|array|true|null {
+		return self::make_request( self::get_request_base_url() . "$api_version/$endpoint", $method, $body );
 	}
 
 	// endregion
