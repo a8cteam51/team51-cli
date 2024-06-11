@@ -1,5 +1,6 @@
 <?php
 
+use Symfony\Component\Console\Helper\ProgressBar;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
@@ -335,13 +336,17 @@ function maybe_output_wpcom_failed_sites_table( OutputInterface $output, array $
 /**
  * Creates a new Pressable site.
  *
- * @param   string $name       The name of the site to create.
- * @param   string $datacenter The datacenter code to create the site in.
+ * @param   OutputInterface $output     The console output.
+ * @param   string          $name       The name of the site to create.
+ * @param   string          $datacenter The datacenter code to create the site in.
  *
  * @return  stdClass|null
  */
-function create_wpcom_site( string $name, string $datacenter ): ?stdClass {
+function create_wpcom_site( OutputInterface $output, string $name, string $datacenter ): ?stdClass {
+	// Temporary stuff
 	$agency_id = 231948494;
+	$wpcom_url = 'https://public-api.wordpress.com/';
+	putenv( "TEAM51_OPSOASIS_BASE_URL=$wpcom_url" );
 
 	// List sites pending to provision
 	$provisioned_sites = API_Helper::make_wpcom_request(
@@ -351,12 +356,102 @@ function create_wpcom_site( string $name, string $datacenter ): ?stdClass {
 		'wpcom/v2'
 	);
 
-	// If no site is encontered, throw an error showing how to buy new licenses
+	if ( count( $provisioned_sites ) === 0 ) {
+		$output->writeln( '<error>No sites available to provision. Please buy new licenses at https://agencies.automattic.com/</error>' );
+		exit( 1 );
+	}
 
-	// Initilize the next site to be provisioned
+	$site    = $provisioned_sites[0];
+	$site_id = $site->id;
 
-	print_r( $provisioned_sites );
+	// Provision the site
+	$provisioned_site = API_Helper::make_wpcom_request(
+		"agency/$agency_id/sites/$site_id/provision",
+		'POST',
+		// Not useful for now
+		array(
+			'name'       => $name,
+			'datacenter' => $datacenter,
+		),
+		'wpcom/v2'
+	);
+
+	if ( is_null( $provisioned_site ) || ! $provisioned_site->success ) {
+		$output->writeln( '<error>Failed to create the site.</error>' );
+		exit( 1 );
+	}
+
+	// Temporary stuff
+	putenv( 'TEAM51_OPSOASIS_BASE_URL=https://opsoasis.wpspecialprojects.com/wp-json/wpcomsp/' );
+
+	return $site;
 }
+
+/**
+ * Get a WPCOM Agency site.
+ *
+ * @param   integer $agency_site_id The ID of the agency site to get.
+ *
+ * @return  stdClass|null
+ */
+function get_wpcom_agency_site( int $agency_site_id ): ?stdClass {
+	// Temporary stuff
+	$agency_id = 231948494;
+	$wpcom_url = 'https://public-api.wordpress.com/';
+	putenv( "TEAM51_OPSOASIS_BASE_URL=$wpcom_url" );
+
+	// List sites pending to provision
+	$provisioned_sites = API_Helper::make_wpcom_request(
+		"agency/$agency_id/sites",
+		'GET',
+		null,
+		'wpcom/v2'
+	);
+
+	foreach ( $provisioned_sites as $site ) {
+		if ( $site->id === $agency_site_id ) {
+			return $site;
+		}
+	}
+
+	// Temporary stuff
+	putenv( 'TEAM51_OPSOASIS_BASE_URL=https://opsoasis.wpspecialprojects.com/wp-json/wpcomsp/' );
+
+	return null;
+}
+
+/**
+ * Periodically checks the status of a WordPress site until it's in the given state.
+ *
+ * @param   string          $site_id The ID of the Agency site to check the state of.
+ * @param   string          $state   The state to wait for the site to exit.
+ * @param   OutputInterface $output  The output instance.
+ *
+ * @return  stdClass|null
+ */
+function wait_until_wpcom_site_state( string $site_id, string $state, OutputInterface $output ): ?stdClass {
+	$output->writeln( "<comment>Waiting for WordPress site $site_id to exit $state state.</comment>" );
+
+	$progress_bar = new ProgressBar( $output );
+	$progress_bar->start();
+
+	for ( $try = 0, $delay = 3; true; $try++ ) {
+		$site = get_wpcom_agency_site( $site_id );
+
+		if ( $state === $site->features->wpcom_atomic->state ) {
+			break;
+		}
+
+		$progress_bar->advance();
+		sleep( $delay );
+	}
+
+	$progress_bar->finish();
+	$output->writeln( '' ); // Empty line for UX purposes.
+
+	return $site;
+}
+
 
 
 // endregion
