@@ -63,27 +63,28 @@ final class WPCOM_Site_Create extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->name = slugify( get_string_input( $input, $output, 'name', fn() => $this->prompt_name_input( $input, $output ) ) );
-		$input->setArgument( 'name', $this->name );
+		// $this->name = slugify( get_string_input( $input, $output, 'name', fn() => $this->prompt_name_input( $input, $output ) ) );
+		// $input->setArgument( 'name', $this->name );
+		$input->setArgument( 'name', 'test' );
 
-		$this->datacenter = get_enum_input( $input, $output, 'datacenter', array_keys( get_pressable_datacenters() ), fn() => $this->prompt_datacenter_input( $input, $output ), 'DFW' );
-		$input->setOption( 'datacenter', $this->datacenter );
+		// $this->datacenter = get_enum_input( $input, $output, 'datacenter', array_keys( get_pressable_datacenters() ), fn() => $this->prompt_datacenter_input( $input, $output ), 'DFW' );
+		// $input->setOption( 'datacenter', $this->datacenter );
 
-		$repository          = maybe_get_string_input( $input, $output, 'repository', fn() => $this->prompt_repository_input( $input, $output ) );
-		$this->gh_repository = $repository ? $this->create_or_get_repository( $input, $output, $repository ) : null;
-		$input->setOption( 'repository', $this->gh_repository->name ?? null );
+		// $repository          = maybe_get_string_input( $input, $output, 'repository', fn() => $this->prompt_repository_input( $input, $output ) );
+		// $this->gh_repository = $repository ? $this->create_or_get_repository( $input, $output, $repository ) : null;
+		// $input->setOption( 'repository', $this->gh_repository->name ?? null );
 	}
 
 	/**
 	 * {@inheritDoc}
 	 */
 	protected function interact( InputInterface $input, OutputInterface $output ): void {
-		$repo_query = $this->gh_repository ? "and to connect it to the `{$this->gh_repository->full_name}` repository via DeployHQ" : 'without connecting it to a GitHub repository';
-		$question   = new ConfirmationQuestion( "<question>Are you sure you want to create a new WordPress.com site named `$this->name` in the $this->datacenter datacenter $repo_query? [y/N]</question> ", false );
-		if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
-			$output->writeln( '<comment>Command aborted by user.</comment>' );
-			exit( 2 );
-		}
+		// $repo_query = $this->gh_repository ? "and to connect it to the `{$this->gh_repository->full_name}` repository via DeployHQ" : 'without connecting it to a GitHub repository';
+		// $question   = new ConfirmationQuestion( "<question>Are you sure you want to create a new WordPress.com site named `$this->name` in the $this->datacenter datacenter $repo_query? [y/N]</question> ", false );
+		// if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
+		//  $output->writeln( '<comment>Command aborted by user.</comment>' );
+		//  exit( 2 );
+		// }
 	}
 
 	/**
@@ -96,17 +97,17 @@ final class WPCOM_Site_Create extends Command {
 		$output->writeln( "<fg=magenta;options=bold>Creating new WordPress.com site named `$this->name` in the $this->datacenter datacenter $repo_text.</>" );
 
 		// Create the site and wait for it to be deployed.
-		$site = create_wpcom_site( "$this->name-production", $this->datacenter );
+		$site = create_wpcom_site( $output, "$this->name-production", 'datacenter' );
 		if ( \is_null( $site ) ) {
 			$output->writeln( '<error>Failed to create the site.</error>' );
 			return Command::FAILURE;
 		}
 
-		// $site = wait_on_pressable_site_state( $site->id, 'deploying', $output );
-		// if ( \is_null( $site ) ) {
-		//  $output->writeln( '<error>Failed to check on site deployment status.</error>' );
-		//  return Command::FAILURE;
-		// }
+		$site = wait_until_wpcom_site_state( $site->id, 'active', $output );
+		if ( \is_null( $site ) ) {
+			$output->writeln( '<error>Failed to check on site deployment status.</error>' );
+			return Command::FAILURE;
+		}
 
 		// wait_on_pressable_site_ssh( $site->id, $output )?->disconnect();
 
