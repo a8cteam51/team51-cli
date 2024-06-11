@@ -96,6 +96,9 @@ final class WPCOM_Site_Create extends Command {
 		$repo_text = $this->gh_repository ? "and connecting it to the `{$this->gh_repository->full_name}` repository via DeployHQ" : 'without connecting it to a GitHub repository';
 		$output->writeln( "<fg=magenta;options=bold>Creating new WordPress.com site named `$this->name` in the $this->datacenter datacenter $repo_text.</>" );
 
+		$wpcom_url = 'https://public-api.wordpress.com/';
+		putenv( "TEAM51_OPSOASIS_BASE_URL=$wpcom_url" );
+
 		// Create the site and wait for it to be deployed.
 		$site = create_wpcom_site( $output, "$this->name-production", 'datacenter' );
 		if ( \is_null( $site ) ) {
@@ -109,7 +112,19 @@ final class WPCOM_Site_Create extends Command {
 			return Command::FAILURE;
 		}
 
-		// wait_on_pressable_site_ssh( $site->id, $output )?->disconnect();
+		$site = wait_until_wpcom_site_state( $site->features->wpcom_atomic->blog_id, 'complete', $output );
+
+		if ( \is_null( $site ) ) {
+			$output->writeln( '<error>Failed to check on site deployment status.</error>' );
+			return Command::FAILURE;
+		}
+
+		// $site          = new \stdClass();
+		// $site->id      = 65;
+		// $site->blog_id = 234090567;
+
+		wait_on_wpcom_site_ssh( $site->blog_id, $output )?->disconnect();
+		// wait_on_wpcom_site_ssh( 234095339, $output )?->disconnect();
 
 		// // Run a few commands to set up the site.
 		// run_app_command(

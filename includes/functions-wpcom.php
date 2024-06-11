@@ -1,5 +1,6 @@
 <?php
 
+use phpseclib3\Net\SSH2;
 use Symfony\Component\Console\Helper\ProgressBar;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -52,6 +53,22 @@ function get_wpcom_sites( array $params = array() ): ?array {
  */
 function get_wpcom_site( string $site_id_or_url ): ?stdClass {
 	return API_Helper::make_wpcom_request( "sites/$site_id_or_url" );
+}
+
+/**
+ * Returns a WPCOM site transfer object by site URL or WordPress.com site ID.
+ *
+ * @param   string $site_id_or_url The site URL or WordPress.com site ID.
+ *
+ * @return  stdClass|null
+ */
+function get_wpcom_site_transfer( string $site_id_or_url ): ?stdClass {
+	return API_Helper::make_wpcom_request(
+		"sites/$site_id_or_url/automated-transfers/status",
+		'GET',
+		null,
+		'rest/v1'
+	);
 }
 
 /**
@@ -345,8 +362,6 @@ function maybe_output_wpcom_failed_sites_table( OutputInterface $output, array $
 function create_wpcom_site( OutputInterface $output, string $name, string $datacenter ): ?stdClass {
 	// Temporary stuff
 	$agency_id = 231948494;
-	$wpcom_url = 'https://public-api.wordpress.com/';
-	putenv( "TEAM51_OPSOASIS_BASE_URL=$wpcom_url" );
 
 	// List sites pending to provision
 	$provisioned_sites = API_Helper::make_wpcom_request(
@@ -381,9 +396,6 @@ function create_wpcom_site( OutputInterface $output, string $name, string $datac
 		exit( 1 );
 	}
 
-	// Temporary stuff
-	putenv( 'TEAM51_OPSOASIS_BASE_URL=https://opsoasis.wpspecialprojects.com/wp-json/wpcomsp/' );
-
 	return $site;
 }
 
@@ -397,8 +409,6 @@ function create_wpcom_site( OutputInterface $output, string $name, string $datac
 function get_wpcom_agency_site( int $agency_site_id ): ?stdClass {
 	// Temporary stuff
 	$agency_id = 231948494;
-	$wpcom_url = 'https://public-api.wordpress.com/';
-	putenv( "TEAM51_OPSOASIS_BASE_URL=$wpcom_url" );
 
 	// List sites pending to provision
 	$provisioned_sites = API_Helper::make_wpcom_request(
@@ -413,9 +423,6 @@ function get_wpcom_agency_site( int $agency_site_id ): ?stdClass {
 			return $site;
 		}
 	}
-
-	// Temporary stuff
-	putenv( 'TEAM51_OPSOASIS_BASE_URL=https://opsoasis.wpspecialprojects.com/wp-json/wpcomsp/' );
 
 	return null;
 }
@@ -436,10 +443,18 @@ function wait_until_wpcom_site_state( string $site_id, string $state, OutputInte
 	$progress_bar->start();
 
 	for ( $try = 0, $delay = 3; true; $try++ ) {
-		$site = get_wpcom_agency_site( $site_id );
-
-		if ( $state === $site->features->wpcom_atomic->state ) {
-			break;
+		// WPCOM sites have a 'status' property, while Agency sites have a 'features.wpcom_atomic.state' property.
+		// TODO: we can make this more clear
+		if ( 'complete' === $state ) {
+			$site = get_wpcom_site_transfer( $site_id );
+			if ( 'complete' === $site->status ) {
+				break;
+			}
+		} else {
+			$site = get_wpcom_agency_site( $site_id );
+			if ( $state === $site->features->wpcom_atomic->state ) {
+				break;
+			}
 		}
 
 		$progress_bar->advance();
@@ -452,6 +467,129 @@ function wait_until_wpcom_site_state( string $site_id, string $state, OutputInte
 	return $site;
 }
 
+/**
+ * Periodically checks the status of a WordPress.com site until it accepts SSH connections.
+ *
+ * @param   string          $site_id_or_url The ID or URL of the WordPress.com site to check the state of.
+ * @param   OutputInterface $output         The output instance.
+ *
+ * @return  SSH2|null
+ */
+function wait_on_wpcom_site_ssh( string $site_id_or_url, OutputInterface $output ): ?SSH2 {
+	$output->writeln( "<comment>Waiting for WordPress.com site $site_id_or_url to accept SSH connections.</comment>" );
 
+	$progress_bar = new ProgressBar( $output );
+	$progress_bar->start();
+
+	for ( $try = 0, $delay = 5; true; $try++ ) { // Infinite loop until SSH connection is established.
+		$ssh_connection = WPCOM_Connection_Helper::get_ssh_connection( $site_id_or_url );
+		if ( ! is_null( $ssh_connection ) ) {
+			break;
+		}
+
+		$progress_bar->advance();
+		sleep( $delay );
+	}
+
+	$progress_bar->finish();
+	$output->writeln( '' ); // Empty line for UX purposes.
+
+	return $ssh_connection;
+}
+
+/**
+ * Gets the SSH user for a given WordPress.com site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the WordPress.com site to check the state of.
+ *
+ * @return  string|null
+ */
+function get_wpcom_site_ssh_user( string $site_id_or_url ): ?string {
+	$ssh_users = API_Helper::make_wpcom_request(
+		"sites/$site_id_or_url/hosting/ssh-users",
+		'GET',
+		null,
+		'wpcom/v2'
+	);
+
+	if ( ! isset( $ssh_users->users ) || ! is_array( $ssh_users->users ) || count( $ssh_users->users ) === 0 ) {
+		return null;
+	}
+
+	return $ssh_users->users[0];
+}
+
+/**
+ * Create a new SSH user for a given WordPress.com site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the WordPress.com site to check the state of.
+ *
+ * @return  string|null
+ */
+function create_wpcom_site_ssh_user( string $site_id_or_url ): ?stdClass {
+	return API_Helper::make_wpcom_request(
+		"sites/$site_id_or_url/hosting/ssh-user",
+		'POST',
+		null,
+		'wpcom/v2'
+	);
+}
+
+/**
+ * Checks wether the SSH access is activer or not for a given WordPress.com site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the WordPress.com site to check the state of.
+ *
+ * @return  string|null
+ */
+function get_wpcom_ssh_access( string $site_id_or_url ): bool {
+	$ssh_access = API_Helper::make_wpcom_request(
+		"sites/$site_id_or_url/hosting/ssh-access",
+		'GET',
+		null,
+		'wpcom/v2'
+	);
+
+	if ( isset( $ssh_access->setting ) && 'ssh' === $ssh_access->setting ) {
+		return true;
+	}
+
+	return false;
+}
+
+/**
+ * Eanble SSH access for a given WordPress.com site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the WordPress.com site to check the state of.
+ *
+ * @return  string|null
+ */
+function enable_wpcom_ssh_access( string $site_id_or_url ): ?stdClass {
+	return API_Helper::make_wpcom_request(
+		"sites/$site_id_or_url/hosting/ssh-access",
+		'POST',
+		array(
+			'setting' => 'ssh',
+		),
+		'wpcom/v2'
+	);
+}
+
+/**
+ * Rotates the password of the specified SFTP user on the specified Pressable site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the Pressable site to reset the SFTP user password on.
+ * @param   string $username       The username of the SFTP user to reset the password for.
+ *
+ * @return  stdClass|null
+ */
+function rotate_wpcom_site_sftp_user_password( string $site_id_or_url, string $username ): ?stdClass {
+	return API_Helper::make_wpcom_request(
+		"sites/$site_id_or_url/hosting/ssh-user/$username/reset-password",
+		'POST',
+		null,
+		'wpcom/v2'
+	);
+}
 
 // endregion
