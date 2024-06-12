@@ -4,6 +4,7 @@ use phpseclib3\Net\SSH2;
 use Symfony\Component\Console\Helper\ProgressBar;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
+use WPCOMSpecialProjects\CLI\Command\WPCOM_Site_WP_CLI_Command_Run;
 
 // region API
 
@@ -52,7 +53,12 @@ function get_wpcom_sites( array $params = array() ): ?array {
  * @return  stdClass|null
  */
 function get_wpcom_site( string $site_id_or_url ): ?stdClass {
-	return API_Helper::make_wpcom_request( "sites/$site_id_or_url" );
+	return API_Helper::make_wpcom_request(
+		"sites/$site_id_or_url",
+		'GET',
+		null,
+		'rest/v1'
+	);
 }
 
 /**
@@ -351,7 +357,7 @@ function maybe_output_wpcom_failed_sites_table( OutputInterface $output, array $
 }
 
 /**
- * Creates a new Pressable site.
+ * Creates a new WordPress.com site.
  *
  * @param   OutputInterface $output     The console output.
  * @param   string          $name       The name of the site to create.
@@ -431,13 +437,13 @@ function get_wpcom_agency_site( int $agency_site_id ): ?stdClass {
  * Periodically checks the status of a WordPress site until it's in the given state.
  *
  * @param   string          $site_id The ID of the Agency site to check the state of.
- * @param   string          $state   The state to wait for the site to exit.
+ * @param   string          $state   The state to wait for the site to reach.
  * @param   OutputInterface $output  The output instance.
  *
  * @return  stdClass|null
  */
 function wait_until_wpcom_site_state( string $site_id, string $state, OutputInterface $output ): ?stdClass {
-	$output->writeln( "<comment>Waiting for WordPress site $site_id to exit $state state.</comment>" );
+	$output->writeln( "<comment>Waiting for WordPress site $site_id to reach $state state.</comment>" );
 
 	$progress_bar = new ProgressBar( $output );
 	$progress_bar->start();
@@ -477,6 +483,18 @@ function wait_until_wpcom_site_state( string $site_id, string $state, OutputInte
  */
 function wait_on_wpcom_site_ssh( string $site_id_or_url, OutputInterface $output ): ?SSH2 {
 	$output->writeln( "<comment>Waiting for WordPress.com site $site_id_or_url to accept SSH connections.</comment>" );
+
+	// Verifiy if we have SSH access
+	if ( ! get_wpcom_ssh_access( $site_id_or_url ) ) {
+		$output->writeln( "<comment>SSH access is not enabled for the site $site_id_or_url. Enabling it...</comment>" );
+
+		if ( ! enable_wpcom_ssh_access( $site_id_or_url ) ) {
+			console_writeln( '❌ Could not enable SSH access for this site.' );
+			return null;
+		}
+
+		sleep( 5 );
+	}
 
 	$progress_bar = new ProgressBar( $output );
 	$progress_bar->start();
@@ -576,9 +594,9 @@ function enable_wpcom_ssh_access( string $site_id_or_url ): ?stdClass {
 }
 
 /**
- * Rotates the password of the specified SFTP user on the specified Pressable site.
+ * Rotates the password of the specified SFTP user on the specified WordPress.com site.
  *
- * @param   string $site_id_or_url The ID or URL of the Pressable site to reset the SFTP user password on.
+ * @param   string $site_id_or_url The ID or URL of the WordPress.com site to reset the SFTP user password on.
  * @param   string $username       The username of the SFTP user to reset the password for.
  *
  * @return  stdClass|null
@@ -589,6 +607,46 @@ function rotate_wpcom_site_sftp_user_password( string $site_id_or_url, string $u
 		'POST',
 		null,
 		'wpcom/v2'
+	);
+}
+
+/**
+ * Rotates the password of the specified WP user on the specified WordPress.com site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the WordPress.com site to reset the WP user password on.
+ * @param   string $user           The email, username, or numeric ID of the WP user to reset the password for.
+ *
+ * @return  stdClass|null
+ */
+function rotate_wpcom_site_wp_user_password( string $site_id_or_url, string $user ): ?stdClass {
+	echo 'TO BE IMPLEMENTED';
+	$user           = new stdClass();
+	$user->password = 'password';
+	$user->username = 'username';
+
+	return $user;
+	// return API_Helper::make_pressable_request( "site-wp-users/$site_id_or_url/$user/rotate-password", 'POST' );
+}
+
+/**
+ * Runs a WP-CLI command on the specified WordPress.com site.
+ *
+ * @param   string  $site_id_or_url The ID or URL of the site to run the WP-CLI command on.
+ * @param   string  $wp_cli_command The WP-CLI command to run.
+ * @param   boolean $interactive    Whether to run the command interactively.
+ *
+ * @return  integer
+ * @noinspection PhpDocMissingThrowsInspection
+ */
+function run_wpcom_site_wp_cli_command( string $site_id_or_url, string $wp_cli_command, bool $interactive = false ): int {
+	/* @noinspection PhpUnhandledExceptionInspection */
+	return run_app_command(
+		WPCOM_Site_WP_CLI_Command_Run::getDefaultName(),
+		array(
+			'site'           => $site_id_or_url,
+			'wp-cli-command' => $wp_cli_command,
+		),
+		$interactive
 	);
 }
 
