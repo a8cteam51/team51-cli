@@ -58,16 +58,6 @@ final class WPCOM_Connection_Helper {
 			return null;
 		}
 
-		// Verifiy if we have SSH access
-		if ( ! get_wpcom_ssh_access( $site_id_or_url ) ) {
-			console_writeln( '❌ SSH access is not enabled for this site. Enabling it...' );
-
-			if ( ! enable_wpcom_ssh_access( $site_id_or_url ) ) {
-				console_writeln( '❌ Could not enable SSH access for this site.' );
-				return null;
-			}
-		}
-
 		$connection = new SSH2( self::SSH_HOST );
 		if ( ! $connection->login( $credentials->username, $credentials->password ) ) {
 			$connection->isConnected() && $connection->disconnect();

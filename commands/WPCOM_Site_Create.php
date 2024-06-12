@@ -120,24 +120,24 @@ final class WPCOM_Site_Create extends Command {
 		}
 
 		// $site          = new \stdClass();
-		// $site->id      = 65;
-		// $site->blog_id = 234090567;
+		// $site->id      = 234119330; // 79
+		// $site->blog_id = 234119330;
 
 		wait_on_wpcom_site_ssh( $site->blog_id, $output )?->disconnect();
-		// wait_on_wpcom_site_ssh( 234095339, $output )?->disconnect();
 
-		// // Run a few commands to set up the site.
+		// Run a few commands to set up the site.
+		// Save user password on 1Password.
 		// run_app_command(
-		//  Pressable_Site_WP_User_Password_Rotate::getDefaultName(),
+		//  WPCOM_Site_WP_User_Password_Rotate::getDefaultName(),
 		//  array(
 		//      'site'   => $site->id,
 		//      '--user' => 'concierge@wordpress.com',
 		//  )
 		// );
-		// run_pressable_site_wp_cli_command(
-		//  $site->id,
-		//  'plugin install https://github.com/a8cteam51/plugin-autoupdate-filter/releases/latest/download/plugin-autoupdate-filter.zip --activate',
-		// );
+		run_wpcom_site_wp_cli_command(
+			$site->blog_id,
+			'plugin install https://github.com/a8cteam51/plugin-autoupdate-filter/releases/latest/download/plugin-autoupdate-filter.zip --activate',
+		);
 
 		// // Create a DeployHQ project and server for the site.
 		// if ( ! \is_null( $this->gh_repository ) ) {
