@@ -120,8 +120,7 @@ final class WPCOM_Site_Create extends Command {
 		}
 
 		// $site          = new \stdClass();
-		// $site->id      = 234119330; // 79
-		// $site->blog_id = 234119330;
+		// $site->blog_id = 233668731;
 
 		wait_on_wpcom_site_ssh( $site->blog_id, $output )?->disconnect();
 
@@ -134,18 +133,25 @@ final class WPCOM_Site_Create extends Command {
 		//      '--user' => 'concierge@wordpress.com',
 		//  )
 		// );
+
 		run_wpcom_site_wp_cli_command(
 			$site->blog_id,
 			'plugin install https://github.com/a8cteam51/plugin-autoupdate-filter/releases/latest/download/plugin-autoupdate-filter.zip --activate',
 		);
 
-		// // Create a DeployHQ project and server for the site.
-		// if ( ! \is_null( $this->gh_repository ) ) {
-		//  $deployhq_project = create_deployhq_project_for_pressable_site( $site, $this->gh_repository, $this->name );
-		//  if ( ! \is_null( $deployhq_project ) ) {
-		//      create_deployhq_project_server_for_pressable_site( $site, $deployhq_project, 'Production', 'trunk' );
-		//  }
-		// }
+		/* @noinspection PhpUnhandledExceptionInspection */
+		$status = run_app_command(
+			GitHubDeployments_Project_Create::getDefaultName(),
+			array(
+				'name'         => 'test',
+				'--blog_id'    => $site->blog_id,
+				'--repository' => 'team51-cli',
+			),
+		);
+		if ( Command::SUCCESS !== $status ) {
+			$output->writeln( '<error>Failed to create the repository.</error>' );
+			exit( 1 );
+		}
 
 		$output->writeln( "<fg=green;options=bold>Site $this->name created successfully.</>" );
 		return Command::SUCCESS;
