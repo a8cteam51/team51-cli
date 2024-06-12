@@ -64,23 +64,42 @@ final class Jetpack_Site_Connection_triage extends Command {
 				$site_id          = $line[0];
 				$site_url         = $line[1];
 				$jetpack_endpoint = $site_url . '/wp-json/jetpack/v4';
+				$notes            = '';
+				$status_code	  = '';
+
+				$output->writeln( 'Checking ' . $site_url . '...');
 
 				//fetch
-				$result = get_remote_content( $site_url );
-				// get the status code
-				$status_code = $result['headers']['http_code'];
+				$options = array(
+					'http' => array(
+	
+						'method'        => 'GET',
+						'timeout'       => 60,
+						'ignore_errors' => true,
+					)
+				);
+				$context = stream_context_create( $options );
+				$result = @file_get_contents( $site_url, false, $context );
+				$headers = parse_http_headers( $http_response_header );
+				$status_code = $headers['http_code'];
 
 				if ( 410 === $status_code && strpos( $site_url, 'mystagingwebsite.com' ) !== false ) {
 					// Probably deactivated
 					$notes = 'Site is probably deactivated';
 					// Check Pressable?
-				} elseif ( 404 === $status_code strpos( $site_url, 'mystagingwebsite.com' ) !== false ) {
+				} elseif ( 404 === $status_code && strpos( $site_url, 'mystagingwebsite.com' ) !== false ) {
 					// probably deleted or Jetpack not installed. Next step is to curl the homepage
-				} elseif ( 500 === $status_code strpos( $site_url, 'mystagingwebsite.com' ) !== false ) {
-					// curl the contents and check for the error message
-
+					//$notes = $result['body'];
+					$notes = "404, check site";
+					if ( strpos( $result, 'Domain not found' ) !== false ) {
+						$notes = 'Domain not found, probably deleted from Pressable';
+					}
+				} elseif ( 500 === $status_code ) {
+					//$notes = $result['body'];
+					$notes = "Check site, internal server error";
+				} elseif ( 200 === $status_code && strpos( $site_url, 'mystagingwebsite.com' ) == false ) {
+					$notes = 'Site either moved hosts or has a new JP connection. Check DARC and NA: https://mc.a8c.com/tools/reportcard/domain/?domain=' . $site_url . ' and https://wordpress.com/wp-admin/network/sites.php?s=' . $site_url;
 				}
-
 				// wp-json/jetpack/v4/connection/data
 
 				$broken_site_data[] = array(
@@ -89,8 +108,20 @@ final class Jetpack_Site_Connection_triage extends Command {
 					'status'   => $status_code,
 					'notes'    => $notes,
 				);
+
+				//var_dump( $broken_site_data );
 			}
 			// Write a new CSV from the array
+			$output->writeln( '<info>Making the CSV...<info>' );
+			$timestamp = date( 'Y-m-d-H-i-s' );
+			$fp        = fopen( 'jp-connection-' . $timestamp . '.csv', 'w' );
+			fputcsv( $fp, array( 'Site ID', 'Site URL', 'Status', 'Notes' ) );
+			foreach ( $broken_site_data as $fields ) {
+				fputcsv( $fp, $fields );
+			}
+			fclose( $fp );
+
+			$output->writeln( '<info>Done, CSV saved to your current working directory: jp-connection-' . $timestamp . '.csv<info>' );
 
 		}
 
