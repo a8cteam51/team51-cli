@@ -48,7 +48,7 @@ final class GitHubDeployments_Project_Create extends Command {
 	 *
 	 * @var bool|null
 	 */
-	private ?bool $deploy_after_connect = null;
+	private ?bool $deploy = null;
 
 	// endregion
 
@@ -64,7 +64,7 @@ final class GitHubDeployments_Project_Create extends Command {
 		$this->addOption( 'blog_id', null, InputOption::VALUE_REQUIRED, 'The ID of the blog to create the project in.' )
 			->addOption( 'repository', null, InputOption::VALUE_REQUIRED, 'The slug of the GitHub repository to connect the project to, if any.' )
 			->addOption( 'branch', null, InputOption::VALUE_REQUIRED, 'The branch to deploy from.' )
-			->addOption( 'deploy_after_connect', null, InputOption::VALUE_REQUIRED, 'Y or N for deploying the repository after the connection is complete.' );
+			->addOption( 'deploy', null, InputOption::VALUE_REQUIRED, 'Y or N for deploying the repository after the connection is complete.' );
 	}
 
 	/**
@@ -81,8 +81,8 @@ final class GitHubDeployments_Project_Create extends Command {
 		$this->branch = get_string_input( $input, $output, 'branch', fn() => $this->prompt_branch_input( $input, $output ) );
 		$input->setOption( 'branch', $this->branch );
 
-		$this->deploy_after_connect = strtoupper( get_string_input( $input, $output, 'deploy_after_connect', fn() => $this->prompt_deploy_after_connect( $input, $output ) ) ) === 'Y' ? true : false;
-		$input->setOption( 'deploy_after_connect', $this->deploy_after_connect );
+		$this->deploy = strtoupper( get_string_input( $input, $output, 'deploy', fn() => $this->prompt_deploy( $input, $output ) ) ) === 'Y' ? true : false;
+		$input->setOption( 'deploy', $this->deploy );
 	}
 
 	/**
@@ -131,7 +131,7 @@ final class GitHubDeployments_Project_Create extends Command {
 			return Command::FAILURE;
 		}
 
-		if ( $this->deploy_after_connect ) {
+		if ( $this->deploy ) {
 			$code_deployment_run = create_code_deployment_run( $this->blog_id, $code_deployment->id );
 			if ( \is_null( $code_deployment_run ) ) {
 				$output->writeln( '<error>Failed to deploy the project.</error>' );
@@ -190,7 +190,7 @@ final class GitHubDeployments_Project_Create extends Command {
 	 *
 	 * @return  integer|null
 	 */
-	private function prompt_deploy_after_connect( InputInterface $input, OutputInterface $output ): ?int {
+	private function prompt_deploy( InputInterface $input, OutputInterface $output ): ?int {
 		$question = new Question( '<question>Deploy code after connecting the repository to the server? [y/N]</question></question> ' );
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

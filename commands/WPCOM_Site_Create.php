@@ -143,9 +143,10 @@ final class WPCOM_Site_Create extends Command {
 		$status = run_app_command(
 			GitHubDeployments_Project_Create::getDefaultName(),
 			array(
-				'name'         => 'test',
 				'--blog_id'    => $site->blog_id,
 				'--repository' => 'team51-cli',
+				'--branch'     => 'trunk',
+				'--deploy'     => 'y',
 			),
 		);
 		if ( Command::SUCCESS !== $status ) {
