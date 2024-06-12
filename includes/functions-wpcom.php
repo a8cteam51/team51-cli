@@ -493,7 +493,8 @@ function wait_on_wpcom_site_ssh( string $site_id_or_url, OutputInterface $output
 			return null;
 		}
 
-		sleep( 5 );
+		// TODO: Understand why without this sometimes we recieve "unauthorized error" from /rest/v1/sites/blog_id
+		sleep( 10 );
 	}
 
 	$progress_bar = new ProgressBar( $output );
