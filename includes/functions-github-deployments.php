@@ -84,4 +84,23 @@ function create_code_deployment( string $site_id, array $params = array() ): ?st
 	);
 }
 
+/**
+ * Creates a new code deployment run for a given code deployment.
+ * This will trigger the deployment process.
+ *
+ * @param   string  $site_id            The ID of the site to create the deployment run for.
+ * @param   integer $code_deployment_id The ID of the code deployment to create the run for.
+ *
+ * @return  stdClass|null
+ */
+function create_code_deployment_run( string $site_id, int $code_deployment_id ): ?stdClass {
+	return API_Helper::make_wpcom_request(
+		"sites/$site_id/hosting/code-deployments/$code_deployment_id/runs",
+		'POST',
+		null,
+		'wpcom/v2'
+	);
+}
+
+
 // endregion
