@@ -144,7 +144,7 @@ final class WPCOM_Site_Create extends Command {
 			GitHubDeployments_Project_Create::getDefaultName(),
 			array(
 				'--blog_id'    => $site->blog_id,
-				'--repository' => 'team51-cli',
+				'--repository' => 'team51-project-scaffold',
 				'--branch'     => 'trunk',
 				'--deploy'     => 'y',
 			),
