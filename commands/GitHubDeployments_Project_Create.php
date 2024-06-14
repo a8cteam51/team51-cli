@@ -104,14 +104,10 @@ final class GitHubDeployments_Project_Create extends Command {
 		$server = $this->blog_id;
 		$output->writeln( "<fg=magenta;options=bold>Creating GitHub Deployments project on blog_id $server.</>" );
 
-		// TODO: remove after integrate with opsoasis server
-		$wpcom_url = 'https://public-api.wordpress.com/';
-		putenv( "TEAM51_OPSOASIS_BASE_URL=$wpcom_url" );
-
 		$installation_id = get_wpcom_installation_for_repository( $this->gh_repository );
 
 		if ( \is_null( $installation_id ) ) {
-			$output->writeln( '<error>Failed to get the installation ID for the repository. Did you connected it to your WordPress.com GitHub Deployments?</error>' );
+			$output->writeln( '<error>Failed to get the installation ID for the repository. Did you connect to your WordPress.com GitHub Deployments?</error>' );
 			return Command::FAILURE;
 		}
 
@@ -144,8 +140,6 @@ final class GitHubDeployments_Project_Create extends Command {
 				return Command::FAILURE;
 			}
 		}
-
-		putenv( 'TEAM51_OPSOASIS_BASE_URL=https://opsoasis.wpspecialprojects.com/wp-json/wpcomsp/' );
 
 		$output->writeln( "<fg=green;options=bold>Project `$code_deployment->repository_name` created successfully. Repository link: {$this->gh_repository->html_url}</>" );
 
