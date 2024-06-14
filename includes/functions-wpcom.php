@@ -366,8 +366,7 @@ function maybe_output_wpcom_failed_sites_table( OutputInterface $output, array $
  * @return  stdClass|null
  */
 function create_wpcom_site( OutputInterface $output, string $name, string $datacenter ): ?stdClass {
-	// Temporary stuff
-	$agency_id = 231948494;
+	$agency_id = AGENCY_ID;
 
 	// List sites pending to provision
 	$provisioned_sites = API_Helper::make_wpcom_request(
@@ -413,12 +412,11 @@ function create_wpcom_site( OutputInterface $output, string $name, string $datac
  * @return  stdClass|null
  */
 function get_wpcom_agency_site( int $agency_site_id ): ?stdClass {
-	// Temporary stuff
-	$agency_id = 231948494;
+	$agency_id = AGENCY_ID;
 
 	// List sites pending to provision
 	$provisioned_sites = API_Helper::make_wpcom_request(
-		"agency/$agency_id/sites",
+		"agency/{$agency_id}/sites",
 		'GET',
 		null,
 		'wpcom/v2'
