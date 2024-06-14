@@ -29,8 +29,7 @@ final class API_Helper {
 	 * @return  stdClass|stdClass[]|true|null
 	 */
 	public static function make_github_request( string $endpoint, string $method = 'GET', mixed $body = null ): stdClass|array|true|null {
-		// TODO: temporary stuff move it back after connecting to opoasis server
-		return self::make_request( 'https://opsoasis.wpspecialprojects.com/wp-json/wpcomsp/' . "github/v1/$endpoint", $method, $body );
+		return self::make_request( self::get_request_base_url() . "github/v1/$endpoint", $method, $body );
 	}
 
 	/**
@@ -99,9 +98,13 @@ final class API_Helper {
 	protected static function make_request( string $endpoint, string $method, mixed $body = null ): stdClass|array|true|null {
 		// TODO: temporary stuff move it back after connecting to opoasis server
 		// If detects wpcom/v2 in the endpoint, uses bearer token
-		$authorization = ( str_contains( $endpoint, 'wpcom/v2' ) || str_contains( $endpoint, 'rest/v1' ) ) ?
-			'Bearer ' . TEAM51_OPSOASIS_BEARER_TOKEN :
-			'Basic ' . base64_encode( OPSOASIS_WP_USERNAME . ':' . OPSOASIS_APP_PASSWORD );
+		$authorization = 'Basic ' . base64_encode( OPSOASIS_WP_USERNAME . ':' . OPSOASIS_APP_PASSWORD );
+
+		if ( ( str_contains( $endpoint, 'wpcom/v2' ) || str_contains( $endpoint, 'rest/v1' ) ) ) {
+			$authorization = 'Bearer ' . TEAM51_OPSOASIS_BEARER_TOKEN;
+
+			$endpoint = str_replace( 'opsoasis.wpspecialprojects.com/wp-json/wpcomsp/', 'public-api.wordpress.com/', $endpoint );
+		}
 
 		$body   = is_null( $body ) ? null : encode_json_content( $body );
 		$result = get_remote_content(
