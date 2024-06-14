@@ -4,11 +4,9 @@ namespace WPCOMSpecialProjects\CLI\Command;
 
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
-use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
@@ -44,6 +42,13 @@ final class GitHubDeployments_Project_Create extends Command {
 	private ?string $branch = null;
 
 	/**
+	 * The target directory to deploy to.
+	 *
+	 * @var string|null
+	 */
+	private ?string $target_dir = null;
+
+	/**
 	 * If should deploy after connect.
 	 *
 	 * @var bool|null
@@ -64,6 +69,7 @@ final class GitHubDeployments_Project_Create extends Command {
 		$this->addOption( 'blog_id', null, InputOption::VALUE_REQUIRED, 'The ID of the blog to create the project in.' )
 			->addOption( 'repository', null, InputOption::VALUE_REQUIRED, 'The slug of the GitHub repository to connect the project to, if any.' )
 			->addOption( 'branch', null, InputOption::VALUE_REQUIRED, 'The branch to deploy from.' )
+			->addOption( 'target_dir', null, InputOption::VALUE_REQUIRED, 'The target directory to deploy to.' )
 			->addOption( 'deploy', null, InputOption::VALUE_REQUIRED, 'Y or N for deploying the repository after the connection is complete.' );
 	}
 
@@ -72,16 +78,61 @@ final class GitHubDeployments_Project_Create extends Command {
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
 
-		$this->blog_id = get_string_input( $input, $output, 'blog_id', fn() => $this->prompt_server_id_input( $input, $output ) );
-		$input->setOption( 'blog_id', $this->blog_id );
+		$this->blog_id = intval(
+			get_string_input(
+				$input,
+				$output,
+				'blog_id',
+				fn() => $this->prompt_text(
+					$input,
+					$output,
+					'Please enter the blog_id for the server to deploy the project in:'
+				)
+			)
+		);
 
 		$this->gh_repository = maybe_get_github_repository_input( $input, $output, fn() => $this->prompt_repository_input( $input, $output ) );
 		$input->setOption( 'repository', $this->gh_repository );
 
-		$this->branch = get_string_input( $input, $output, 'branch', fn() => $this->prompt_branch_input( $input, $output ) );
+		$this->branch = get_string_input(
+			$input,
+			$output,
+			'branch',
+			fn() => $this->prompt_text(
+				$input,
+				$output,
+				'Please enter the branch name to deploy the code from:'
+			)
+		);
 		$input->setOption( 'branch', $this->branch );
 
-		$this->deploy = strtoupper( get_string_input( $input, $output, 'deploy', fn() => $this->prompt_deploy( $input, $output ) ) ) === 'Y' ? true : false;
+		$default_target_dir = '/wp-content/plugins/' . $this->gh_repository->name;
+		$target_dir         = get_string_input(
+			$input,
+			$output,
+			'target_dir',
+			fn() => $this->prompt_text(
+				$input,
+				$output,
+				"Please enter the directory to deploy the code to (default to $default_target_dir):"
+			),
+			true
+		);
+		$this->target_dir   = $target_dir ?: $default_target_dir;
+		$input->setOption( 'target_dir', $this->target_dir );
+
+		$this->deploy = strtoupper(
+			get_string_input(
+				$input,
+				$output,
+				'deploy',
+				fn() => $this->prompt_text(
+					$input,
+					$output,
+					'Deploy code after connecting the repository to the server? [y/n]'
+				)
+			)
+		) === 'Y' ? true : false;
 		$input->setOption( 'deploy', $this->deploy );
 	}
 
@@ -117,8 +168,7 @@ final class GitHubDeployments_Project_Create extends Command {
 				'external_repository_id' => $this->gh_repository->id,
 				'branch_name'            => $this->branch,
 				'installation_id'        => $installation_id,
-				// TODO: ask for a target_dir
-				'target_dir'             => '/wp-content/plugins/' . $this->gh_repository->name,
+				'target_dir'             => $this->target_dir,
 			)
 		);
 
@@ -151,41 +201,16 @@ final class GitHubDeployments_Project_Create extends Command {
 	// region HELPERS
 
 	/**
-	 * Prompts the user for a branch name.
+	 * Prompts the user for some text and receive the input.
 	 *
 	 * @param   InputInterface  $input  The input object.
 	 * @param   OutputInterface $output The output object.
+	 * @param   string          $text   The text to prompt the user with.
 	 *
 	 * @return  string|null
 	 */
-	private function prompt_branch_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new Question( '<question>Please enter the branch name to deploy the code from:</question> ' );
-		return $this->getHelper( 'question' )->ask( $input, $output, $question );
-	}
-
-	/**
-	 * Prompts the user for a blog_id.
-	 *
-	 * @param   InputInterface  $input  The input object.
-	 * @param   OutputInterface $output The output object.
-	 *
-	 * @return  integer|null
-	 */
-	private function prompt_server_id_input( InputInterface $input, OutputInterface $output ): ?int {
-		$question = new Question( '<question>Please enter the blog_id for the server to deploy the project in:</question> ' );
-		return $this->getHelper( 'question' )->ask( $input, $output, $question );
-	}
-
-	/**
-	 * Prompts the user for deploying after connect repository or not.
-	 *
-	 * @param   InputInterface  $input  The input object.
-	 * @param   OutputInterface $output The output object.
-	 *
-	 * @return  integer|null
-	 */
-	private function prompt_deploy( InputInterface $input, OutputInterface $output ): ?int {
-		$question = new Question( '<question>Deploy code after connecting the repository to the server? [y/N]</question></question> ' );
+	private function prompt_text( InputInterface $input, OutputInterface $output, string $text ): ?string {
+		$question = new Question( "<question>$text</question></question>" );
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
 
