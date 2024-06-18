@@ -53,28 +53,18 @@ function get_wpcom_sites( array $params = array() ): ?array {
  * @return  stdClass|null
  */
 function get_wpcom_site( string $site_id_or_url ): ?stdClass {
-	return API_Helper::make_wpcom_request(
-		"sites/$site_id_or_url",
-		'GET',
-		null,
-		'rest/v1'
-	);
+	return API_Helper::make_wpcom_request( "sites/$site_id_or_url" );
 }
 
 /**
- * Returns a WPCOM site transfer object by site URL or WordPress.com site ID.
+ * Returns a WPCOM site transfer status object by site URL or WordPress.com site ID.
  *
  * @param   string $site_id_or_url The site URL or WordPress.com site ID.
  *
  * @return  stdClass|null
  */
-function get_wpcom_site_transfer( string $site_id_or_url ): ?stdClass {
-	return API_Helper::make_wpcom_request(
-		"sites/$site_id_or_url/automated-transfers/status",
-		'GET',
-		null,
-		'rest/v1'
-	);
+function get_wpcom_site_transfer_status( string $site_id_or_url ): ?stdClass {
+	return API_Helper::make_wpcom_request( "sites/$site_id_or_url/transfer-status" );
 }
 
 /**
@@ -293,6 +283,17 @@ function remove_wpcom_site_sticker( string $site_id_or_domain, string $sticker )
 	return API_Helper::make_wpcom_request( "site-stickers/$site_id_or_domain/$sticker", 'DELETE' );
 }
 
+/**
+ * Creates a new WordPress.com site.
+ *
+ * @param   string $name The name of the site to create.
+ *
+ * @return  stdClass|null
+ */
+function create_wpcom_site( string $name ): ?stdClass {
+	return API_Helper::make_wpcom_request( 'sites', 'POST', array( 'name' => $name ) );
+}
+
 // endregion
 
 // region CONSOLE
@@ -356,53 +357,7 @@ function maybe_output_wpcom_failed_sites_table( OutputInterface $output, array $
 	);
 }
 
-/**
- * Creates a new WordPress.com site.
- *
- * @param   OutputInterface $output     The console output.
- * @param   string          $name       The name of the site to create.
- * @param   string          $datacenter The datacenter code to create the site in.
- *
- * @return  stdClass|null
- */
-function create_wpcom_site( OutputInterface $output, string $name, string $datacenter ): ?stdClass {
-	$agency_id = AGENCY_ID;
 
-	// List sites pending to provision
-	$provisioned_sites = API_Helper::make_wpcom_request(
-		"agency/$agency_id/sites/pending",
-		'GET',
-		null,
-		'wpcom/v2'
-	);
-
-	if ( count( $provisioned_sites ) === 0 ) {
-		$output->writeln( '<error>No sites available to provision. Please buy new licenses at https://agencies.automattic.com/</error>' );
-		exit( 1 );
-	}
-
-	$site    = $provisioned_sites[0];
-	$site_id = $site->id;
-
-	// Provision the site
-	$provisioned_site = API_Helper::make_wpcom_request(
-		"agency/$agency_id/sites/$site_id/provision",
-		'POST',
-		// Not useful for now
-		array(
-			'name'       => $name,
-			'datacenter' => $datacenter,
-		),
-		'wpcom/v2'
-	);
-
-	if ( is_null( $provisioned_site ) || ! $provisioned_site->success ) {
-		$output->writeln( '<error>Failed to create the site.</error>' );
-		exit( 1 );
-	}
-
-	return $site;
-}
 
 /**
  * Get a WPCOM Agency site.
@@ -450,7 +405,7 @@ function wait_until_wpcom_site_state( string $site_id, string $state, OutputInte
 		// WPCOM sites have a 'status' property, while Agency sites have a 'features.wpcom_atomic.state' property.
 		// TODO: we can make this more clear
 		if ( 'complete' === $state ) {
-			$site = get_wpcom_site_transfer( $site_id );
+			$site = get_wpcom_site_transfer_status( $site_id );
 			if ( 'complete' === $site->status ) {
 				break;
 			}

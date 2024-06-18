@@ -61,15 +61,14 @@ final class API_Helper {
 	/**
 	 * Calls a given WPCOM endpoint and returns the response.
 	 *
-	 * @param   string $endpoint    The endpoint to call.
-	 * @param   string $method      The HTTP method to use. One of 'GET', 'POST', 'PUT', 'DELETE'.
-	 * @param   mixed  $body        The body to send with the request.
-	 * @param   string $api_version The API version: wpcom/v1 (default) or wpcom/v2.
+	 * @param   string $endpoint The endpoint to call.
+	 * @param   string $method   The HTTP method to use. One of 'GET', 'POST', 'PUT', 'DELETE'.
+	 * @param   mixed  $body     The body to send with the request.
 	 *
 	 * @return  stdClass|stdClass[]|true|null
 	 */
-	public static function make_wpcom_request( string $endpoint, string $method = 'GET', mixed $body = null, string $api_version = 'wpcom/v1' ): stdClass|array|true|null {
-		return self::make_request( self::get_request_base_url() . "$api_version/$endpoint", $method, $body );
+	public static function make_wpcom_request( string $endpoint, string $method = 'GET', mixed $body = null ): stdClass|array|true|null {
+		return self::make_request( self::get_request_base_url() . "wpcom/v1/$endpoint", $method, $body );
 	}
 
 	// endregion
@@ -96,23 +95,13 @@ final class API_Helper {
 	 * @return  stdClass|stdClass[]|true|null
 	 */
 	protected static function make_request( string $endpoint, string $method, mixed $body = null ): stdClass|array|true|null {
-		// TODO: temporary stuff move it back after connecting to opoasis server
-		// If detects wpcom/v2 in the endpoint, uses bearer token
-		$authorization = 'Basic ' . base64_encode( OPSOASIS_WP_USERNAME . ':' . OPSOASIS_APP_PASSWORD );
-
-		if ( ( str_contains( $endpoint, 'wpcom/v2' ) || str_contains( $endpoint, 'rest/v1' ) ) ) {
-			$authorization = 'Bearer ' . TEAM51_OPSOASIS_BEARER_TOKEN;
-
-			$endpoint = str_replace( 'opsoasis.wpspecialprojects.com/wp-json/wpcomsp/', 'public-api.wordpress.com/', $endpoint );
-		}
-
 		$body   = is_null( $body ) ? null : encode_json_content( $body );
 		$result = get_remote_content(
 			$endpoint,
 			array(
 				'Accept'        => 'application/json',
 				'Content-type'  => 'application/json',
-				'Authorization' => $authorization,
+				'Authorization' => 'Basic ' . base64_encode( OPSOASIS_WP_USERNAME . ':' . OPSOASIS_APP_PASSWORD ),
 			),
 			$method,
 			$body
