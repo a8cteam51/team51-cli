@@ -94,7 +94,7 @@ final class GitHubDeployments_Project_Create extends Command {
 		$this->gh_repository = maybe_get_github_repository_input( $input, $output, fn() => $this->prompt_repository_input( $input, $output ) );
 		$input->setOption( 'repository', $this->gh_repository );
 
-		$branch       = get_string_input(
+		$branch       = maybe_get_string_input(
 			$input,
 			$output,
 			'branch',
@@ -102,14 +102,13 @@ final class GitHubDeployments_Project_Create extends Command {
 				$input,
 				$output,
 				'Please enter the branch name to deploy the code from (trunk):'
-			),
-			true
+			)
 		);
 		$this->branch = $branch ?: 'trunk';
 		$input->setOption( 'branch', $this->branch );
 
 		$default_target_dir = '/wp-content/plugins/' . $this->gh_repository->name;
-		$target_dir         = get_string_input(
+		$target_dir         = maybe_get_string_input(
 			$input,
 			$output,
 			'target_dir',
@@ -117,8 +116,7 @@ final class GitHubDeployments_Project_Create extends Command {
 				$input,
 				$output,
 				"Please enter the directory to deploy the code to ($default_target_dir):"
-			),
-			true
+			)
 		);
 		$this->target_dir   = $target_dir ?: $default_target_dir;
 		$input->setOption( 'target_dir', $this->target_dir );
