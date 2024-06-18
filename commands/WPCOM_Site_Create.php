@@ -67,7 +67,7 @@ final class WPCOM_Site_Create extends Command {
 	 */
 	protected function interact( InputInterface $input, OutputInterface $output ): void {
 		$repo_query = $this->gh_repository ? "and to connect it to the `{$this->gh_repository->full_name}` repository via GitHub Deployments" : 'without connecting it to a GitHub repository';
-		$question   = new ConfirmationQuestion( "<question>Are you sure you want to create a new WordPress.com site named `$this->name` in the $repo_query? [y/N]</question> ", false );
+		$question   = new ConfirmationQuestion( "<question>Are you sure you want to create a new WordPress.com site named `$this->name` $repo_query? [y/N]</question> ", false );
 		if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 			$output->writeln( '<comment>Command aborted by user.</comment>' );
 			exit( 2 );
@@ -76,15 +76,13 @@ final class WPCOM_Site_Create extends Command {
 
 	/**
 	 * {@inheritDoc}
-	 *
-	 * @noinspection PhpUnhandledExceptionInspection
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		$repo_text = $this->gh_repository ? "and connecting it to the `{$this->gh_repository->full_name}` repository via GitHub Deployments" : 'without connecting it to a GitHub repository';
-		$output->writeln( "<fg=magenta;options=bold>Creating new WordPress.com site named `$this->name` in the $repo_text.</>" );
+		$output->writeln( "<fg=magenta;options=bold>Creating new WordPress.com site named `$this->name` $repo_text.</>" );
 
 		// Create the site and wait for it to be deployed.
-		$site = create_wpcom_site( $output, "$this->name-production", 'datacenter-to-be-implemented' );
+		$site = create_wpcom_site( "$this->name-production" );
 		if ( \is_null( $site ) ) {
 			$output->writeln( '<error>Failed to create the site.</error>' );
 			return Command::FAILURE;
@@ -200,7 +198,7 @@ final class WPCOM_Site_Create extends Command {
 					GitHub_Repository_Create::getDefaultName(),
 					array(
 						'name'                => $name,
-						'--homepage'          => "https://$name-production.mystagingwebsite.com",
+						'--homepage'          => "https://$name-production.wpcomstaging.com",
 						'--type'              => 'project',
 						'--custom-properties' => array(
 							"php-globals-long-prefix=$php_globals_long_prefix",
