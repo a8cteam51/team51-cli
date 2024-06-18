@@ -276,18 +276,17 @@ function maybe_get_string_input( InputInterface $input, OutputInterface $output,
 /**
  * Grabs a value from the console input. Exits if no input is given.
  *
- * @param   InputInterface  $input          The input instance.
- * @param   OutputInterface $output         The output instance.
- * @param   string          $name           The name of the value to grab.
- * @param   callable|null   $no_input_func  The function to call if no input is given.
- * @param   boolean         $optional_input Whether the input is optional or not.
+ * @param   InputInterface  $input         The input instance.
+ * @param   OutputInterface $output        The output instance.
+ * @param   string          $name          The name of the value to grab.
+ * @param   callable|null   $no_input_func The function to call if no input is given.
  *
- * @return  string|null
+ * @return  string
  */
-function get_string_input( InputInterface $input, OutputInterface $output, string $name, ?callable $no_input_func = null, bool $optional_input = false ): ?string {
+function get_string_input( InputInterface $input, OutputInterface $output, string $name, ?callable $no_input_func = null ): string {
 	$string = maybe_get_string_input( $input, $output, $name, $no_input_func );
 
-	if ( empty( $string ) && ! $optional_input ) {
+	if ( empty( $string ) ) {
 		$output->writeln( "<error>No value was provided for the '$name' input. Aborting!</error>" );
 		exit( 1 );
 	}
