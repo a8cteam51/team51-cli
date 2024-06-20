@@ -14,36 +14,9 @@ final class WPCOM_Connection_Helper {
 	 */
 	public const SSH_HOST = 'ssh.atomicsites.net';
 
-	/**
-	 * The SFTP URL.
-	 */
-	public const SFTP_HOST = 'sftp.pressable.com';
-
 	// endregion
 
 	// region METHODS
-
-	/**
-	 * Opens a new SFTP connection to a WordPress.com site.
-	 *
-	 * @param   string $site_id_or_url The ID or URL of the WordPress.com site to open a connection to.
-	 *
-	 * @return  SFTP|null
-	 */
-	public static function get_sftp_connection( string $site_id_or_url ): ?SFTP {
-		$credentials = self::get_credentials( $site_id_or_url );
-		if ( \is_null( $credentials ) ) {
-			return null;
-		}
-
-		$connection = new SFTP( self::SFTP_HOST );
-		if ( ! $connection->login( $credentials->username, $credentials->password ) ) {
-			$connection->isConnected() && $connection->disconnect();
-			return null;
-		}
-
-		return $connection;
-	}
 
 	/**
 	 * Opens a new SSH connection to a WordPress.com site.
@@ -91,17 +64,13 @@ final class WPCOM_Connection_Helper {
 		static $cache = array();
 
 		if ( empty( $cache[ $site_id_or_url ] ) ) {
-			$collaborator = get_wpcom_site_ssh_user( $site_id_or_url );
-
-			if ( ! $collaborator ) {
-				$collaborator = create_wpcom_site_ssh_user( $site_id_or_url )?->username;
+			$ssh_username = get_wpcom_site_ssh_username( $site_id_or_url );
+			if ( \is_null( $ssh_username ) ) {
+				console_writeln( '❌ Could not find the WordPress.com site SSH username.' );
+				return null;
 			}
 
-			if ( \is_null( $collaborator ) ) {
-				console_writeln( '❌ Could not find the WordPress.com site collaborator.' );
-			}
-
-			$cache[ $site_id_or_url ] = rotate_wpcom_site_sftp_user_password( $site_id_or_url, $collaborator );
+			$cache[ $site_id_or_url ] = rotate_wpcom_site_sftp_user_password( $site_id_or_url, $ssh_username );
 		}
 
 		return $cache[ $site_id_or_url ];
