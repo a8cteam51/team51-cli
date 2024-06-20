@@ -81,30 +81,32 @@ final class WPCOM_Site_Create extends Command {
 		$repo_text = $this->gh_repository ? "and connecting it to the `{$this->gh_repository->full_name}` repository via GitHub Deployments" : 'without connecting it to a GitHub repository';
 		$output->writeln( "<fg=magenta;options=bold>Creating new WordPress.com site named `$this->name` $repo_text.</>" );
 
-		// Create the site and wait for it to be deployed.
-		$site = create_wpcom_site( "$this->name-production" );
-		if ( \is_null( $site ) ) {
+		// Create the site and wait for it to be provisioned.
+		$agency_site = create_wpcom_site( "$this->name-production" );
+		if ( \is_null( $agency_site ) ) {
 			$output->writeln( '<error>Failed to create the site.</error>' );
 			return Command::FAILURE;
 		}
 
-		$site = wait_until_wpcom_site_state( $site->id, 'active', $output );
-		if ( \is_null( $site ) ) {
+		$agency_site = wait_until_wpcom_agency_site_state( $agency_site->id, 'active', $output );
+		if ( \is_null( $agency_site ) ) {
 			$output->writeln( '<error>Failed to check on site deployment status.</error>' );
 			return Command::FAILURE;
 		}
 
-		$site = wait_until_wpcom_site_state( $site->features->wpcom_atomic->blog_id, 'complete', $output );
+		$output->writeln( "<comment>Agency site $agency_site->id successfully provisioned as WPCOM site {$agency_site->features->wpcom_atomic->blog_id}.</comment>" );
 
-		if ( \is_null( $site ) ) {
-			$output->writeln( '<error>Failed to check on site deployment status.</error>' );
+		$transfer = wait_until_wpcom_site_transfer_state( $agency_site->features->wpcom_atomic->blog_id, 'complete', $output );
+		if ( \is_null( $transfer ) ) {
+			$output->writeln( '<error>Failed to check on site transfer status.</error>' );
 			return Command::FAILURE;
 		}
 
-		wait_on_wpcom_site_ssh( $site->blog_id, $output )?->disconnect();
+		wait_on_wpcom_site_ssh( $transfer->blog_id, $output )?->disconnect();
 
+		// TODO: Implement a command to reset a WPCOM site's password.
 		run_wpcom_site_wp_cli_command(
-			$site->blog_id,
+			$transfer->blog_id,
 			'plugin install https://github.com/a8cteam51/plugin-autoupdate-filter/releases/latest/download/plugin-autoupdate-filter.zip --activate',
 		);
 
@@ -113,7 +115,7 @@ final class WPCOM_Site_Create extends Command {
 			$status = run_app_command(
 				GitHubDeployments_Project_Create::getDefaultName(),
 				array(
-					'--blog_id'    => $site->blog_id,
+					'--blog_id'    => $agency_site->blog_id,
 					'--repository' => $this->gh_repository->name,
 					'--branch'     => 'trunk',
 					'--target_dir' => '/',

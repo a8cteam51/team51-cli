@@ -1,6 +1,7 @@
 <?php
 
 // region API
+use Symfony\Component\Console\Output\OutputInterface;
 
 /**
  * Returns the WPCOM installation of a GitHub repository.
@@ -100,6 +101,41 @@ function create_code_deployment_run( string $site_id, int $code_deployment_id ):
 		null,
 		'wpcom/v2'
 	);
+}
+
+/**
+ * Periodically checks the status of a WordPress.com site until it accepts SSH connections.
+ *
+ * @param   object          $code_deployment The code deployment object.
+ * @param   string          $state           The state to wait for the site to reach.
+ * @param   OutputInterface $output          The output instance.
+ *
+ * @return  stdClass|null
+ */
+function wait_until_wpcom_code_deployment_run_state( object $code_deployment, string $state, OutputInterface $output ): ?stdClass {
+	$output->writeln( "<comment>Waiting for Deployment $code_deployment->id to be in the $state state.</comment>" );
+
+	$progress_bar = new ProgressBar( $output );
+	$progress_bar->start();
+
+	for ( $try = 0, $delay = 5; true; $try++ ) { // Infinite loop until the deployment is completed.
+		$code_deployments = get_code_deployments( $code_deployment->blog_id );
+
+		// Currently we only check the first deployment
+		$deployment = reset( $code_deployments );
+
+		if ( $deployment->current_deployment_run->code_deployment_id === $code_deployment->id && $deployment->current_deployment_run->status === $state ) {
+			break;
+		}
+
+		$progress_bar->advance();
+		sleep( $delay );
+	}
+
+	$progress_bar->finish();
+	$output->writeln( '' ); // Empty line for UX purposes.
+
+	return $deployment;
 }
 
 
