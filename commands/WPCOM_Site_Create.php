@@ -110,8 +110,9 @@ final class WPCOM_Site_Create extends Command {
 			'plugin install https://github.com/a8cteam51/plugin-autoupdate-filter/releases/latest/download/plugin-autoupdate-filter.zip --activate',
 		);
 
+		/* TODO: Finish migrating to OpsOasis.
 		if ( ! \is_null( $this->gh_repository ) ) {
-			/* @noinspection PhpUnhandledExceptionInspection */
+			/* @noinspection PhpUnhandledExceptionInspection /
 			$status = run_app_command(
 				GitHubDeployments_Project_Create::getDefaultName(),
 				array(
@@ -127,6 +128,7 @@ final class WPCOM_Site_Create extends Command {
 				exit( 1 );
 			}
 		}
+		*/
 
 		$output->writeln( "<fg=green;options=bold>Site $this->name created successfully.</>" );
 		return Command::SUCCESS;
