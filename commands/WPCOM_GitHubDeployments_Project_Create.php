@@ -14,8 +14,8 @@ use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 /**
  * Creates a new project on GitHubDeployments at WordPress.com.
  */
-#[AsCommand( name: 'wpcom:create-code-project' )]
-final class GitHubDeployments_Project_Create extends Command {
+#[AsCommand( name: 'wpcom:create-github-deployment' )]
+final class WPCOM_GitHubDeployments_Project_Create extends Command {
 	use AutocompleteTrait;
 
 	// region FIELDS AND CONSTANTS
@@ -77,62 +77,23 @@ final class GitHubDeployments_Project_Create extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-
-		$this->blog_id = intval(
-			get_string_input(
-				$input,
-				$output,
-				'blog_id',
-				fn() => $this->prompt_text(
-					$input,
-					$output,
-					'Please enter the blog_id for the server to deploy the project in:'
-				)
-			)
-		);
+		$this->blog_id = intval( get_string_input( $input, $output, 'blog_id', fn() => $this->prompt_text( $input, $output, 'Please enter the blog_id for the server to deploy the project in:' ) ) );
+		$input->setOption( 'blog_id', $this->blog_id );
 
 		$this->gh_repository = maybe_get_github_repository_input( $input, $output, fn() => $this->prompt_repository_input( $input, $output ) );
 		$input->setOption( 'repository', $this->gh_repository );
 
-		$branch       = maybe_get_string_input(
-			$input,
-			$output,
-			'branch',
-			fn() => $this->prompt_text(
-				$input,
-				$output,
-				'Please enter the branch name to deploy the code from (trunk):'
-			)
-		);
+		$branch = maybe_get_string_input( $input, $output, 'branch', fn() => $this->prompt_text( $input, $output, 'Please enter the branch name to deploy the code from (trunk):' ) );
+
 		$this->branch = $branch ?: 'trunk';
 		$input->setOption( 'branch', $this->branch );
 
-		$default_target_dir = '/wp-content/plugins/' . $this->gh_repository->name;
-		$target_dir         = maybe_get_string_input(
-			$input,
-			$output,
-			'target_dir',
-			fn() => $this->prompt_text(
-				$input,
-				$output,
-				"Please enter the directory to deploy the code to ($default_target_dir):"
-			)
-		);
+		$default_target_dir = '/wp-content/';
+		$target_dir         = maybe_get_string_input( $input, $output, 'target_dir', fn() => $this->prompt_text( $input, $output, "Please enter the directory to deploy the code to ($default_target_dir):" ) );
 		$this->target_dir   = $target_dir ?: $default_target_dir;
 		$input->setOption( 'target_dir', $this->target_dir );
 
-		$this->deploy = strtoupper(
-			get_string_input(
-				$input,
-				$output,
-				'deploy',
-				fn() => $this->prompt_text(
-					$input,
-					$output,
-					'Deploy code after connecting the repository to the server? [y/n]'
-				)
-			)
-		) === 'Y' ? true : false;
+		$this->deploy = strtoupper( get_string_input( $input, $output, 'deploy', fn() => $this->prompt_text( $input, $output, 'Deploy code after connecting the repository to the server? [y/N]' ) ) ) === 'Y';
 		$input->setOption( 'deploy', $this->deploy );
 	}
 
@@ -177,7 +138,11 @@ final class GitHubDeployments_Project_Create extends Command {
 			return Command::FAILURE;
 		}
 
+		$output->writeln( "<fg=green;options=bold>Project `$code_deployment->repository_name` created successfully. Repository link: {$this->gh_repository->html_url}</>" );
+
 		if ( $this->deploy ) {
+			$output->writeln( "<fg=magenta;options=bold>Deploying $this->branch to $this->target_dir on blog_id $server.</>" );
+
 			$code_deployment_run = create_code_deployment_run( $this->blog_id, $code_deployment->id );
 			if ( \is_null( $code_deployment_run ) ) {
 				$output->writeln( '<error>Failed to deploy the project.</error>' );
@@ -189,9 +154,9 @@ final class GitHubDeployments_Project_Create extends Command {
 				$output->writeln( '<error>Failed to check on project deployment status.</error>' );
 				return Command::FAILURE;
 			}
-		}
 
-		$output->writeln( "<fg=green;options=bold>Project `$code_deployment->repository_name` created successfully. Repository link: {$this->gh_repository->html_url}</>" );
+			$output->writeln( "<fg=green;options=bold>Successfully deployed $this->branch to $this->target_dir on blog_id $server.</>" );
+		}
 
 		return Command::SUCCESS;
 	}
@@ -210,7 +175,7 @@ final class GitHubDeployments_Project_Create extends Command {
 	 * @return  string|null
 	 */
 	private function prompt_text( InputInterface $input, OutputInterface $output, string $text ): ?string {
-		$question = new Question( "<question>$text</question></question>" );
+		$question = new Question( "<question>$text</question> " );
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
 

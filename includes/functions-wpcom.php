@@ -1,6 +1,7 @@
 <?php
 
 use phpseclib3\Net\SSH2;
+use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\ProgressBar;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -73,7 +74,7 @@ function get_wpcom_site( string $site_id_or_url ): ?stdClass {
  * Returns an agency site object by its ID. These site IDs are not the same as WordPress.com site IDs and are unique to the agency but not globally unique.
  * For provisioned sites, the WPCOM site ID can be found in the `features.wpcom_atomic.blog_id` property of the agency site object.
  *
- * @param   int $agency_site_id The ID of the agency site to get.
+ * @param   integer $agency_site_id The ID of the agency site to get.
  *
  * @return  stdClass|null
  */
@@ -214,7 +215,7 @@ function get_wpcom_site_users( string $site_id_or_url, array $params = array() )
 		$endpoint .= '?' . http_build_query( $params );
 	}
 
-	return API_Helper::make_wpcom_request( $endpoint );
+	return API_Helper::make_wpcom_request( $endpoint )->records ?? API_Helper::make_wpcom_request( $endpoint );
 }
 
 /**
@@ -333,6 +334,39 @@ function rotate_wpcom_site_sftp_user_password( string $site_id_or_url, string $u
 }
 
 /**
+ * Rotates the password of the specified WP user on the specified WPCOM site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the WPCOM site to reset the WP user password on.
+ * @param   string $user           The email, username, or numeric ID of the WP user to reset the password for.
+ *
+ * @return stdClass|null
+ */
+function rotate_wpcom_site_wp_user_password( string $site_id_or_url, string $user ): ?stdClass {
+	$ssh = \WPCOM_Connection_Helper::get_ssh_connection( $site_id_or_url );
+	if ( \is_null( $ssh ) ) {
+		return null;
+	}
+
+	$password = null;
+
+	$ssh->setTimeout( 0 ); // Disable timeout in case the command takes a long time.
+	$ssh->exec(
+		"wp user reset-password $user --skip-email --porcelain",
+		function ( $pw_reset_output ) use ( &$password ) {
+			$password = $pw_reset_output; // Append the received string to the output.
+		}
+	);
+
+	$ssh->disconnect();
+
+	$result           = new stdClass();
+	$result->password = $password;
+	$result->username = $user;
+
+	return $result;
+}
+
+/**
  * Creates a new WordPress.com site.
  *
  * @param   string $name The name of the site to create.
@@ -341,6 +375,25 @@ function rotate_wpcom_site_sftp_user_password( string $site_id_or_url, string $u
  */
 function create_wpcom_site( string $name ): ?stdClass {
 	return API_Helper::make_wpcom_request( 'sites', 'POST', array( 'name' => $name ) );
+}
+
+/**
+ * Updates settings of a WordPress.com site.
+ *
+ * @param string $name     The name of the site to update.
+ * @param array  $settings The settings to update.
+ *
+ * @return stdClass|null
+ */
+function update_wpcom_site( string $name, array $settings ): ?stdClass {
+	return API_Helper::make_wpcom_request(
+		'sites',
+		'PUT',
+		array(
+			'name'     => $name,
+			'settings' => $settings,
+		)
+	);
 }
 
 /**
@@ -420,6 +473,10 @@ function wait_on_wpcom_site_ssh( string $site_id_or_url, OutputInterface $output
 	$progress_bar->start();
 
 	sleep( 5 ); // Wait a bit before checking the SSH connection. Helps prevent "API calls to this blog have been disabled" errors.
+	$progress_bar->advance();
+	sleep( 3 );
+	$progress_bar->advance();
+
 	for ( $try = 0, $delay = 5; true; $try++ ) { // Infinite loop until SSH connection is established.
 		$ssh_connection = WPCOM_Connection_Helper::get_ssh_connection( $site_id_or_url );
 		if ( ! is_null( $ssh_connection ) ) {

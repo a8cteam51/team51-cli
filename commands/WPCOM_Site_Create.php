@@ -66,7 +66,7 @@ final class WPCOM_Site_Create extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function interact( InputInterface $input, OutputInterface $output ): void {
-		$repo_query = $this->gh_repository ? "and to connect it to the `{$this->gh_repository->full_name}` repository via GitHub Deployments" : 'without connecting it to a GitHub repository';
+		$repo_query = $this->gh_repository ? "and to connect it to the `{$this->gh_repository->full_name}` repository via WPCOM GitHub Deployments" : 'without connecting it to a GitHub repository';
 		$question   = new ConfirmationQuestion( "<question>Are you sure you want to create a new WordPress.com site named `$this->name` $repo_query? [y/N]</question> ", false );
 		if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 			$output->writeln( '<comment>Command aborted by user.</comment>' );
@@ -78,7 +78,7 @@ final class WPCOM_Site_Create extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
-		$repo_text = $this->gh_repository ? "and connecting it to the `{$this->gh_repository->full_name}` repository via GitHub Deployments" : 'without connecting it to a GitHub repository';
+		$repo_text = $this->gh_repository ? "and connecting it to the `{$this->gh_repository->full_name}` repository via WPCOM GitHub Deployments" : 'without connecting it to a GitHub repository';
 		$output->writeln( "<fg=magenta;options=bold>Creating new WordPress.com site named `$this->name` $repo_text.</>" );
 
 		// Create the site and wait for it to be provisioned.
@@ -104,22 +104,39 @@ final class WPCOM_Site_Create extends Command {
 
 		wait_on_wpcom_site_ssh( $transfer->blog_id, $output )?->disconnect();
 
-		// TODO: Implement a command to reset a WPCOM site's password.
+		$output->writeln( "<fg=magenta;options=bold>Updating Agency site $agency_site->id name to $this->name-production.</>" );
+
+		$update = update_wpcom_site( $transfer->blog_id, array( 'blogname' => "$this->name-production" ) );
+
+		if ( $update && isset( $update->updated->blogname ) && "$this->name-production" === $update->updated->blogname ) {
+			$output->writeln( "<fg=green;options=bold>Agency site $agency_site->id name successfully updated to $this->name-production.</>" );
+		} else {
+			$output->writeln( '<error>Failed to set site name.</error>' );
+		}
+
+		// Run a few commands to set up the site.
+		run_app_command(
+			WPCOM_Site_WP_User_Password_Rotate::getDefaultName(),
+			array(
+				'site'   => $transfer->blog_id,
+				'--user' => 'concierge@wordpress.com',
+			)
+		);
+
 		run_wpcom_site_wp_cli_command(
 			$transfer->blog_id,
 			'plugin install https://github.com/a8cteam51/plugin-autoupdate-filter/releases/latest/download/plugin-autoupdate-filter.zip --activate',
 		);
 
-		/* TODO: Finish migrating to OpsOasis.
 		if ( ! \is_null( $this->gh_repository ) ) {
-			/* @noinspection PhpUnhandledExceptionInspection /
+			/* @noinspection PhpUnhandledExceptionInspection */
 			$status = run_app_command(
-				GitHubDeployments_Project_Create::getDefaultName(),
+				WPCOM_GitHubDeployments_Project_Create::getDefaultName(),
 				array(
-					'--blog_id'    => $agency_site->blog_id,
+					'--blog_id'    => $transfer->blog_id,
 					'--repository' => $this->gh_repository->name,
 					'--branch'     => 'trunk',
-					'--target_dir' => '/',
+					'--target_dir' => '/wp-content/',
 					'--deploy'     => 'y',
 				),
 			);
@@ -128,7 +145,6 @@ final class WPCOM_Site_Create extends Command {
 				exit( 1 );
 			}
 		}
-		*/
 
 		$output->writeln( "<fg=green;options=bold>Site $this->name created successfully.</>" );
 		return Command::SUCCESS;
