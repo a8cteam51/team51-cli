@@ -1,6 +1,7 @@
 <?php
 
 // region API
+use Symfony\Component\Console\Helper\ProgressBar;
 use Symfony\Component\Console\Output\OutputInterface;
 
 /**
@@ -39,10 +40,7 @@ function get_wpcom_installation_for_repository( stdClass $repository ): ?int {
  */
 function get_github_installations(): ?array {
 	return API_Helper::make_wpcom_request(
-		'hosting/github/installations',
-		'GET',
-		null,
-		'wpcom/v2'
+		'hosting/github/installations'
 	);
 }
 
@@ -55,10 +53,7 @@ function get_github_installations(): ?array {
  */
 function get_code_deployments( int $site_id ): ?array {
 	return API_Helper::make_wpcom_request(
-		"sites/$site_id/hosting/code-deployments",
-		'GET',
-		null,
-		'wpcom/v2'
+		"sites/$site_id/hosting/code-deployments"
 	);
 }
 
@@ -80,8 +75,7 @@ function create_code_deployment( string $site_id, array $params = array() ): ?st
 	return API_Helper::make_wpcom_request(
 		"sites/$site_id/hosting/code-deployments",
 		'POST',
-		$params,
-		'wpcom/v2'
+		array( 'params' => $params )
 	);
 }
 
@@ -97,9 +91,7 @@ function create_code_deployment( string $site_id, array $params = array() ): ?st
 function create_code_deployment_run( string $site_id, int $code_deployment_id ): ?stdClass {
 	return API_Helper::make_wpcom_request(
 		"sites/$site_id/hosting/code-deployments/$code_deployment_id/runs",
-		'POST',
-		null,
-		'wpcom/v2'
+		'POST'
 	);
 }
 
