@@ -66,11 +66,11 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 
 		// Check if the pattern name was already provided as an argument. If not, prompt the user for it.
 		$this->pattern_name = get_string_input( $input, $output, 'pattern-name', fn() => $this->prompt_pattern_name_input( $input, $output ));
-		$output->writeln( "<info>Pattern name: {$this->pattern_name}</info>", Output::VERBOSITY_VERBOSE );
+		$output->writeln( "<comment>Pattern name: {$this->pattern_name}</comment>", Output::VERBOSITY_DEBUG );
 
 		// Check if the category slug was already provided as an argument. If not, prompt the user for it.
 		$this->category_slug = slugify( get_string_input( $input, $output, 'category-slug', fn() => $this->prompt_category_slug_input( $input, $output ) ) );
-		$output->writeln( "<info>Category slug: {$this->category_slug}</info>", Output::VERBOSITY_VERBOSE );
+		$output->writeln( "<comment>Category slug: {$this->category_slug}</comment>", Output::VERBOSITY_VERBOSE );
 	}
 
 	/**
@@ -100,7 +100,7 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 
 		// Run script.
 		$result = $ssh_connection->exec( sprintf( "wp eval-file /htdocs/pattern-extract.php %s", escapeshellarg( $this->pattern_name ) ) );
-		$output->writeln( "<info>Pattern extraction result: {$result}</info>", Output::VERBOSITY_DEBUG );
+		$output->writeln( "<comment>Pattern extraction result: {$result}</comment>", Output::VERBOSITY_DEBUG );
 
 		// Delete script.
 		$ssh_connection->exec( 'rm /htdocs/pattern-extract.php' );
