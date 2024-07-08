@@ -17,7 +17,7 @@ $pattern_name = $args[0];
 $pattern_registry = WP_Block_Patterns_Registry::get_instance();
 $pattern          = $pattern_registry->get_registered( $pattern_name );
 
-$result = array();
+$result = null;
 
 // If a pattern is found, use it; otherwise, attempt to retrieve a post by the same name.
 if ( ! empty( $pattern ) ) {
@@ -44,7 +44,7 @@ if ( ! empty( $pattern ) ) {
 }
 
 // Check if $result is populated and set default values. Don't output anything if it's empty.
-if ( ! empty( $result ) ) {
+if ( ! is_null( $result ) ) {
 	$response = array(
 		'__file'     => 'wp_block',
 		'title'      => $result['title'],
