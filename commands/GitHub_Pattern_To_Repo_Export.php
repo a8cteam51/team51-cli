@@ -99,7 +99,7 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 		}
 
 		// Run script.
-		$result = $ssh_connection->exec( sprintf( "wp eval-file /htdocs/pattern-extract.php %s", escapeshellarg( $this->pattern_name ) ) );
+		$result = $ssh_connection->exec( sprintf( "wp --skip-plugins --skip-theme eval-file /htdocs/pattern-extract.php %s", escapeshellarg( $this->pattern_name ) ) );
 		$output->writeln( "<comment>Pattern extraction result: {$result}</comment>", Output::VERBOSITY_DEBUG );
 
 		// Delete script.
