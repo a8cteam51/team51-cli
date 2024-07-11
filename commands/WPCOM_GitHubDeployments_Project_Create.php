@@ -83,7 +83,7 @@ final class WPCOM_GitHubDeployments_Project_Create extends Command {
 		$this->gh_repository = maybe_get_github_repository_input( $input, $output, fn() => $this->prompt_repository_input( $input, $output ) );
 		$input->setOption( 'repository', $this->gh_repository );
 
-		$branch = maybe_get_string_input( $input, $output, 'branch', fn() => $this->prompt_text( $input, $output, 'Please enter the branch name to deploy the code from (trunk):' ) );
+		$branch = maybe_get_string_input( $input, $output, 'branch', fn() => $this->prompt_branch_input( $input, $output ) );
 
 		$this->branch = $branch ?: 'trunk';
 		$input->setOption( 'branch', $this->branch );
@@ -93,7 +93,8 @@ final class WPCOM_GitHubDeployments_Project_Create extends Command {
 		$this->target_dir   = $target_dir ?: $default_target_dir;
 		$input->setOption( 'target_dir', $this->target_dir );
 
-		$this->deploy = strtoupper( get_string_input( $input, $output, 'deploy', fn() => $this->prompt_text( $input, $output, 'Deploy code after connecting the repository to the server? [y/N]' ) ) ) === 'Y';
+		$deploy       = maybe_get_string_input( $input, $output, 'deploy', fn() => $this->prompt_text( $input, $output, 'Deploy code after connecting the repository to the server? [y/N]' ) );
+		$this->deploy = $deploy && strtoupper( $deploy ) === 'Y';
 		$input->setOption( 'deploy', $this->deploy );
 	}
 
@@ -102,7 +103,7 @@ final class WPCOM_GitHubDeployments_Project_Create extends Command {
 	 */
 	protected function interact( InputInterface $input, OutputInterface $output ): void {
 		$server   = $this->blog_id;
-		$question = new ConfirmationQuestion( "<question>Are you sure you want to create a GitHub Deployments project on blog_id $server? [y/N]</question> ", false );
+		$question = new ConfirmationQuestion( "<question>Are you sure you want to create a GitHub Deployments project on blog_id $server connecting it to the branch $this->branch of {$this->gh_repository->name}? [y/N]</question> ", false );
 		if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 			$output->writeln( '<comment>Command aborted by user.</comment>' );
 			exit( 2 );
@@ -114,7 +115,7 @@ final class WPCOM_GitHubDeployments_Project_Create extends Command {
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		$server = $this->blog_id;
-		$output->writeln( "<fg=magenta;options=bold>Creating GitHub Deployments project on blog_id $server.</>" );
+		$output->writeln( "<fg=magenta;options=bold>Creating GitHub Deployments project on blog_id $server connecting it to the branch $this->branch of {$this->gh_repository->name}.</>" );
 
 		$installation_id = get_wpcom_installation_for_repository( $this->gh_repository );
 
@@ -190,6 +191,21 @@ final class WPCOM_GitHubDeployments_Project_Create extends Command {
 	private function prompt_repository_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Please enter the slug of the GitHub repository to connect the project to:</question> ' );
 		$question->setAutocompleterValues( array_column( get_github_repositories() ?? array(), 'name' ) );
+
+		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+	}
+
+	/**
+	 * Prompts the user for a branch name.
+	 *
+	 * @param   InputInterface  $input  The input object.
+	 * @param   OutputInterface $output The output object.
+	 *
+	 * @return  string|null
+	 */
+	private function prompt_branch_input( InputInterface $input, OutputInterface $output ): ?string {
+		$question = new Question( '<question>Enter the branch to deploy from [trunk]:</question> ', 'trunk' );
+		$question->setAutocompleterValues( array_column( get_github_repository_branches( $this->gh_repository->name ) ?? array(), 'name' ) );
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
