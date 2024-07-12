@@ -74,7 +74,7 @@ final class WPCOM_Site_Staging_Create extends Command {
 		$this->site = get_wpcom_site_input( $input, $output, fn() => $this->prompt_name_input( $input, $output ) );
 		$input->setArgument( 'site', $this->site );
 
-		$wpcom_gh_repositories = get_code_deployments( $this->site->ID );
+		$wpcom_gh_repositories = get_wpcom_site_code_deployments( $this->site->ID );
 
 		if ( empty( $wpcom_gh_repositories ) ) {
 			$output->writeln( '<error>Unable to find a WPCOM GitHub Deployments for the site.</error>' );
@@ -232,7 +232,7 @@ final class WPCOM_Site_Staging_Create extends Command {
 		if ( ! \is_null( $this->gh_repository_name ) ) {
 			/* @noinspection PhpUnhandledExceptionInspection */
 			$status = run_app_command(
-				WPCOM_GitHubDeployments_Project_Create::getDefaultName(),
+				WPCOM_Site_Repository_Connect::getDefaultName(),
 				array(
 					'--blog_id'    => $transfer->blog_id,
 					'--repository' => $this->gh_repository_name,

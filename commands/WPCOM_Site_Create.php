@@ -127,22 +127,18 @@ final class WPCOM_Site_Create extends Command {
 			'plugin install https://github.com/a8cteam51/plugin-autoupdate-filter/releases/latest/download/plugin-autoupdate-filter.zip --activate',
 		);
 
+		// Create a GitHub Deployment project for the site.
 		if ( ! \is_null( $this->gh_repository ) ) {
-			/* @noinspection PhpUnhandledExceptionInspection */
-			$status = run_app_command(
-				WPCOM_GitHubDeployments_Project_Create::getDefaultName(),
+			run_app_command(
+				WPCOM_Site_Repository_Connect::getDefaultName(),
 				array(
-					'--blog_id'    => $transfer->blog_id,
-					'--repository' => $this->gh_repository->name,
+					'site'         => $transfer->blog_id,
+					'repository'   => $this->gh_repository->name,
 					'--branch'     => 'trunk',
 					'--target_dir' => '/wp-content/',
-					'--deploy'     => 'y',
-				),
+					'--deploy'     => true,
+				)
 			);
-			if ( Command::SUCCESS !== $status ) {
-				$output->writeln( '<error>Failed to create the repository.</error>' );
-				exit( 1 );
-			}
 		}
 
 		$output->writeln( "<fg=green;options=bold>Site $this->name created successfully.</>" );

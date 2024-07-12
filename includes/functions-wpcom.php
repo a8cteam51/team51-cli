@@ -512,6 +512,87 @@ function wait_on_wpcom_site_ssh( string $site_id_or_url, OutputInterface $output
 }
 
 /**
+ * Connects a WordPress.com site to a GitHub repository for code deployments.
+ *
+ * @param   string     $site_id_or_url         The ID or URL of the WordPress.com site to connect to the GitHub repository.
+ * @param   string     $external_repository_id The ID of the external repository.
+ * @param   string     $branch_name            The branch to deploy.
+ * @param   string     $target_dir             The target directory to deploy to.
+ * @param   array|null $params                 Optional. Additional parameters to pass to the request.
+ *
+ * @return  stdClass|null
+ */
+function create_wpcom_site_code_deployment( string $site_id_or_url, string $external_repository_id, string $branch_name, string $target_dir, ?array $params = null ): ?stdClass {
+	return API_Helper::make_wpcom_request(
+		"sites/$site_id_or_url/code-deployments",
+		'POST',
+		array(
+			'external_repository_id' => $external_repository_id,
+			'branch_name'            => $branch_name,
+			'target_dir'             => $target_dir,
+			'is_automated'           => true,
+		) + (array) $params
+	);
+}
+
+/**
+ * Triggers a code deployment run for a given code deployment.
+ *
+ * @param   string $site_id_or_url     The ID or URL of the WordPress.com site to create the run for.
+ * @param   string $code_deployment_id The ID of the code deployment to create the run for.
+ *
+ * @return  stdClass|null
+ */
+function create_wpcom_site_code_deployment_run( string $site_id_or_url, string $code_deployment_id ): ?stdClass {
+	return API_Helper::make_wpcom_request( "sites/$site_id_or_url/code-deployments/$code_deployment_id/runs", 'POST' );
+}
+
+/**
+ * Returns the list of code deployments for a given WordPress.com site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the WordPress.com site to get the repositories for.
+ *
+ * @return  stdClass[]|null
+ */
+function get_wpcom_site_code_deployments( string $site_id_or_url ): ?array {
+	return API_Helper::make_wpcom_request( "sites/$site_id_or_url/code-deployments" )?->records;
+}
+
+/**
+ * Periodically checks the status of a WordPress.com site until it accepts SSH connections.
+ *
+ * @param   stdClass        $code_deployment The code deployment object.
+ * @param   string          $state           The state to wait for the site to reach.
+ * @param   OutputInterface $output          The output instance.
+ *
+ * @return  stdClass|null
+ */
+function wait_until_wpcom_code_deployment_run_state( stdClass $code_deployment, string $state, OutputInterface $output ): ?stdClass {
+	$output->writeln( "<comment>Waiting for Deployment $code_deployment->id to reach the `$state` state.</comment>" );
+
+	$progress_bar = new ProgressBar( $output );
+	$progress_bar->start();
+
+	for ( $try = 0, $delay = 5; true; $try++ ) { // Infinite loop until the deployment is completed.
+		$code_deployments = get_wpcom_site_code_deployments( $code_deployment->blog_id );
+
+		// Currently we only check the first deployment
+		$deployment = reset( $code_deployments );
+		if ( $deployment->current_deployment_run->code_deployment_id === $code_deployment->id && $deployment->current_deployment_run->status === $state ) {
+			break;
+		}
+
+		$progress_bar->advance();
+		sleep( $delay );
+	}
+
+	$progress_bar->finish();
+	$output->writeln( '' ); // Empty line for UX purposes.
+
+	return $deployment;
+}
+
+/**
  * Runs a WP-CLI command on the specified WordPress.com site.
  *
  * @param   string  $site_id_or_url The ID or URL of the site to run the WP-CLI command on.

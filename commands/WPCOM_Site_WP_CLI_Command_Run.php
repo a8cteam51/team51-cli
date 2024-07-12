@@ -112,7 +112,7 @@ final class WPCOM_Site_WP_CLI_Command_Run extends Command {
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the domain or WordPress.com site ID to run the WP-CLI command on:</question> ' );
-		$question->setAutocompleterValues( \array_column( get_wpcom_sites() ?? array(), 'url' ) );
+		$question->setAutocompleterValues( \array_column( get_wpcom_sites( array( 'fields' => 'ID,URL' ) ) ?? array(), 'url' ) );
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

@@ -36,7 +36,6 @@
       "includes/functions.php",
       "includes/functions-1password.php",
       "includes/functions-deployhq.php",
-      "includes/functions-wpcom-github-deployments.php",
       "includes/functions-github.php",
       "includes/functions-jetpack.php",
       "includes/functions-pressable.php",

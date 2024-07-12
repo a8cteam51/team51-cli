@@ -89,7 +89,7 @@ final class WPCOM_Site_WP_User_Password_Rotate extends Command {
 
 		// Compile the lists of sites to process.
 		$this->sites = match ( $this->multiple ) {
-			'all' => get_wpcom_sites(),
+			'all' => get_wpcom_sites( array( 'fields' => 'ID,URL' ) ),
 			default => array( $site ),
 		};
 	}
@@ -167,7 +167,7 @@ final class WPCOM_Site_WP_User_Password_Rotate extends Command {
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the site ID or URL to rotate the WP user password on:</question> ' );
-		$question->setAutocompleterValues( \array_column( get_wpcom_sites() ?? array(), 'url' ) );
+		$question->setAutocompleterValues( \array_column( get_wpcom_sites( array( 'fields' => 'ID,URL' ) ) ?? array(), 'url' ) );
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
