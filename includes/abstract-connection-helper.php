@@ -48,7 +48,7 @@ abstract class Abstract_Connection_Helper {
 	/**
 	 * Opens a new SSH connection to the given site.
 	 *
-	 * @param   string  $site_identifier The site to open a connection to.
+	 * @param   string $site_identifier The site to open a connection to.
 	 *
 	 * @return  SFTP|null
 	 */

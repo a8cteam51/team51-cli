@@ -76,6 +76,8 @@ final class WPCOM_Site_Create extends Command {
 
 	/**
 	 * {@inheritDoc}
+	 *
+	 * @noinspection PhpUnhandledExceptionInspection
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		$repo_text = $this->gh_repository ? "and connecting it to the `{$this->gh_repository->full_name}` repository via WPCOM GitHub Deployments" : 'without connecting it to a GitHub repository';
@@ -104,14 +106,12 @@ final class WPCOM_Site_Create extends Command {
 
 		wait_on_wpcom_site_ssh( $transfer->blog_id, $output )?->disconnect();
 
-		$output->writeln( "<fg=magenta;options=bold>Updating Agency site $agency_site->id name to $this->name-production.</>" );
-
+		// The site is ready but the API doesn't support setting the name during creation so we have to update it.
 		$update = update_wpcom_site( $transfer->blog_id, array( 'blogname' => "$this->name-production" ) );
-
-		if ( $update && isset( $update->updated->blogname ) && "$this->name-production" === $update->updated->blogname ) {
-			$output->writeln( "<fg=green;options=bold>Agency site $agency_site->id name successfully updated to $this->name-production.</>" );
+		if ( $update && isset( $update->blogname ) && "$this->name-production" === $update->blogname ) {
+			$output->writeln( "<fg=green;options=bold>WPCOM site $transfer->blog_id name successfully updated to `$this->name-production`. Site URL: $agency_site->url</>" );
 		} else {
-			$output->writeln( '<error>Failed to set site name.</error>' );
+			$output->writeln( "<error>Failed to set site name. Site URL: $agency_site->url</error>" );
 		}
 
 		// Run a few commands to set up the site.
@@ -122,7 +122,6 @@ final class WPCOM_Site_Create extends Command {
 				'--user' => 'concierge@wordpress.com',
 			)
 		);
-
 		run_wpcom_site_wp_cli_command(
 			$transfer->blog_id,
 			'plugin install https://github.com/a8cteam51/plugin-autoupdate-filter/releases/latest/download/plugin-autoupdate-filter.zip --activate',

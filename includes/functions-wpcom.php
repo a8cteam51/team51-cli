@@ -368,7 +368,7 @@ function rotate_wpcom_staging_site_sftp_user_password( string $site_id_or_url, s
 function rotate_wpcom_site_wp_user_password( string $site_id_or_url, string $user ): ?stdClass {
 	$credentials = null;
 
-	$exit_code = run_wpcom_site_wp_cli_command( $site_id_or_url, "user reset-password $user --skip-email" );
+	$exit_code = run_wpcom_site_wp_cli_command( $site_id_or_url, "user reset-password $user --skip-email --porcelain" );
 	if ( Command::SUCCESS === $exit_code ) {
 		$credentials = (object) array(
 			'username' => $user,
@@ -393,26 +393,19 @@ function create_wpcom_site( string $name ): ?stdClass {
 /**
  * Updates settings of a WordPress.com site.
  *
- * @param string $name     The name of the site to update.
- * @param array  $settings The settings to update.
+ * @param   string $site_id_or_url The ID or URL of the WordPress.com site to update.
+ * @param   array  $settings       The settings to update.
  *
- * @return stdClass|null
+ * @return  stdClass|null
  */
-function update_wpcom_site( string $name, array $settings ): ?stdClass {
-	return API_Helper::make_wpcom_request(
-		'sites',
-		'PUT',
-		array(
-			'name'     => $name,
-			'settings' => $settings,
-		)
-	);
+function update_wpcom_site( string $site_id_or_url, array $settings ): ?stdClass {
+	return API_Helper::make_wpcom_request( "sites/$site_id_or_url", 'PUT', array( 'settings' => $settings ) );
 }
 
 /**
  * Creates a new WordPress.com staging site.
  *
- * @param string $site_id_or_url The ID or URL of the WordPress.com site to create the staging site for.
+ * @param   string $site_id_or_url The ID or URL of the WordPress.com site to create the staging site for.
  *
  * @return  stdClass|null
  */
