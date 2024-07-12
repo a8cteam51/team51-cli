@@ -159,10 +159,15 @@ final class WPCOM_Site_Staging_Create extends Command {
 
 		$ssh_connection = wait_on_wpcom_site_ssh( $transfer->blog_id, $output, true );
 
-		$update = update_wpcom_site( $transfer->blog_id, array( 'blogname' => "{$this->site->name}-staging" ) );
+		$staging_site_name = "{$this->site->name}-staging";
+		if ( str_contains( $this->site->name, 'production' ) ) {
+			$staging_site_name = str_replace( 'production', 'staging', $this->site->name );
+		}
 
-		if ( $update && isset( $update->updated->blogname ) && "{$this->site->name}-staging" === $update->updated->blogname ) {
-			$output->writeln( "<fg=green;options=bold>Staging site $transfer->blog_id name successfully updated to {$this->site->name}-staging.</>" );
+		$update = update_wpcom_site( $transfer->blog_id, array( 'blogname' => $staging_site_name ) );
+
+		if ( $update && isset( $update->updated->blogname ) && $staging_site_name === $update->updated->blogname ) {
+			$output->writeln( "<fg=green;options=bold>Staging site $transfer->blog_id name successfully updated to $staging_site_name.</>" );
 		} else {
 			$output->writeln( '<error>Failed to set site name.</error>' );
 		}
