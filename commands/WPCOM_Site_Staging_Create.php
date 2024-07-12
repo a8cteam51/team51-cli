@@ -30,11 +30,11 @@ final class WPCOM_Site_Staging_Create extends Command {
 	private ?\stdClass $site = null;
 
 	/**
-	 * The GitHub repository name to deploy to the site.
+	 * The GitHub repository to connect the project to, if any.
 	 *
-	 * @var string|null
+	 * @var \stdClass|null
 	 */
-	private ?string $gh_repository_name = null;
+	private ?\stdClass $gh_repository = null;
 
 	/**
 	 * The GitHub branch to deploy to the site from.
@@ -71,37 +71,35 @@ final class WPCOM_Site_Staging_Create extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->site = get_wpcom_site_input( $input, $output, fn() => $this->prompt_name_input( $input, $output ) );
+		$this->site = get_wpcom_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
 		$input->setArgument( 'site', $this->site );
 
 		$wpcom_gh_repositories = get_wpcom_site_code_deployments( $this->site->ID );
-
 		if ( empty( $wpcom_gh_repositories ) ) {
-			$output->writeln( '<error>Unable to find a WPCOM GitHub Deployments for the site.</error>' );
+			$output->writeln( '<error>Unable to find any connected GitHub repositories for this site. The staging site will not be connected to any code deployments.</error>' );
+		} else {
+			if ( 1 < count( $wpcom_gh_repositories ) ) {
+				$output->writeln( '<comment>Found multiple WPCOM GitHub Deployments for the site.</comment>' );
 
-			$question = new ConfirmationQuestion( '<question>Do you want to continue anyway? [y/N]</question> ', false );
-			if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
-				$output->writeln( '<comment>Command aborted by user.</comment>' );
+				$question = new ChoiceQuestion(
+					'<question>Choose from which repository you want to deploy to the staging site from:</question> ',
+					\array_column( $wpcom_gh_repositories, 'repository_name' ),
+					0
+				);
+				$question->setErrorMessage( 'Repository %s is invalid.' );
+
+				$gh_repo_name = $this->getHelper( 'question' )->ask( $input, $output, $question );
+			} else {
+				$gh_repo_name = $wpcom_gh_repositories[0]->repository_name;
+			}
+
+			$gh_repo_name = explode( '/', $gh_repo_name )[1] ?? null;
+			$this->gh_repository = get_github_repository( $gh_repo_name );
+			if ( empty( $this->gh_repository ) ) {
+				$output->writeln( '<error>Failed to get the repository.</error>' );
 				exit( 1 );
 			}
-		}
 
-		if ( 1 < count( $wpcom_gh_repositories ) ) {
-			$output->writeln( '<comment>Found multiple WPCOM GitHub Deployments for the site.</comment>' );
-
-			$question = new ChoiceQuestion(
-				'<question>Choose from which repository you want to deploy to the staging site:</question> ',
-				\array_column( $wpcom_gh_repositories, 'repository_name' ),
-				0
-			);
-			$question->setErrorMessage( 'Repository %s is invalid.' );
-
-			$this->gh_repository_name = $this->get_repository_slug_from_repository_name( $this->getHelper( 'question' )->ask( $input, $output, $question ) );
-		} elseif ( 1 === count( $wpcom_gh_repositories ) ) {
-			$this->gh_repository_name = $this->get_repository_slug_from_repository_name( $wpcom_gh_repositories[0]->repository_name );
-		}
-
-		if ( $this->gh_repository_name ) {
 			$this->gh_repo_branch = get_string_input( $input, $output, 'branch', fn() => $this->prompt_branch_input( $input, $output ) );
 			$input->setOption( 'branch', $this->gh_repo_branch );
 		}
@@ -114,8 +112,8 @@ final class WPCOM_Site_Staging_Create extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function interact( InputInterface $input, OutputInterface $output ): void {
-		$repo_query = $this->gh_repo_branch ? "and connect it to the branch `$this->gh_repo_branch` of {$this->gh_repository_name}" : 'without connecting it to a GitHub repository';
-		$question   = new ConfirmationQuestion( "<question>Are you sure you want to create a staging site for the WordPress.com site {$this->site->name} (ID {$this->site->ID}, URL {$this->site->URL}) $repo_query? [y/N]</question> ", false );
+		$repo_query = $this->gh_repo_branch ? "and connect it to the branch `$this->gh_repo_branch` of {$this->gh_repository->full_name}" : 'without connecting it to a GitHub repository';
+		$question   = new ConfirmationQuestion( "<question>Are you sure you want to create a staging site for the WordPress.com site `{$this->site->name}` (ID {$this->site->ID}, URL {$this->site->URL}) $repo_query? [y/N]</question> ", false );
 		if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 			$output->writeln( '<comment>Command aborted by user.</comment>' );
 			exit( 2 );
@@ -136,7 +134,7 @@ final class WPCOM_Site_Staging_Create extends Command {
 	 * @noinspection PhpUnhandledExceptionInspection
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
-		$repo_text = $this->gh_repo_branch ? "and connect it to the branch `$this->gh_repo_branch` of {$this->gh_repository_name}" : 'without connecting it to a GitHub repository';
+		$repo_text = $this->gh_repo_branch ? "and connect it to the branch `$this->gh_repo_branch` of {$this->gh_repository->full_name}" : 'without connecting it to a GitHub repository';
 		$output->writeln( "<fg=magenta;options=bold>Creating a staging site of the WordPress.com site {$this->site->name} (ID {$this->site->ID}, URL {$this->site->URL}) $repo_text.</>" );
 
 		// Create the site and wait for it to be deployed+cloned.
@@ -263,7 +261,7 @@ final class WPCOM_Site_Staging_Create extends Command {
 	 *
 	 * @return  string|null
 	 */
-	private function prompt_name_input( InputInterface $input, OutputInterface $output ): ?string {
+	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Please enter the name of the site for which to create the staging site:</question> ' );
 		$question->setAutocompleterValues( \array_column( get_wpcom_agency_sites() ?? array(), 'url' ) );
 
@@ -280,22 +278,9 @@ final class WPCOM_Site_Staging_Create extends Command {
 	 */
 	private function prompt_branch_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the branch to deploy from [develop]:</question> ', 'develop' );
-		$question->setAutocompleterValues( array_column( get_github_repository_branches( $this->gh_repository_name ) ?? array(), 'name' ) );
+		$question->setAutocompleterValues( array_column( get_github_repository_branches( $this->gh_repository->name ) ?? array(), 'name' ) );
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
-	}
-
-	/**
-	 * Gets the repository slug from the owner/repo-slug name.
-	 *
-	 * @param string $repository_name The repository name.
-	 *
-	 * @return string|null
-	 */
-	private function get_repository_slug_from_repository_name( string $repository_name ): ?string {
-		$repository_parts = explode( '/', $repository_name );
-
-		return $repository_parts[1] ?? null;
 	}
 
 	// endregion
