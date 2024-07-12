@@ -90,6 +90,7 @@ final class WPCOM_Site_WP_CLI_Command_Run extends Command {
 		$ssh->exec(
 			"wp $this->wp_command",
 			static function ( string $str ): void {
+				$GLOBALS['wp_cli_output'] = $str;
 				echo $str;
 			}
 		);

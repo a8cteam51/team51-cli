@@ -64,8 +64,7 @@ final class WPCOM_Site_WP_User_Password_Rotate extends Command {
 		$this->addArgument( 'site', InputArgument::OPTIONAL, 'The domain or numeric WPCOM ID of the site on which to rotate the WP user password.' )
 			->addOption( 'user', 'u', InputOption::VALUE_REQUIRED, 'The email of the site WP user for which to rotate the password. The default is concierge@wordpress.com.' );
 
-		//      TODO check if works for multiple and dry-run and do fixes and implement for related check the pressable command
-		$this->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Determines whether the `site` argument is optional or not. Accepted values are `related` and `all`.' )
+		$this->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Determines whether the `site` argument is optional or not. Accepted value is `all`.' )
 			->addOption( 'dry-run', null, InputOption::VALUE_NONE, 'Execute a dry run. It will output all the steps, but will keep the current WP user password. Useful for checking whether a given input is valid.' );
 	}
 
@@ -75,14 +74,13 @@ final class WPCOM_Site_WP_User_Password_Rotate extends Command {
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
 		// Retrieve and validate the modifier options.
 		$this->dry_run  = get_bool_input( $input, $output, 'dry-run' );
-		$this->multiple = get_enum_input( $input, $output, 'multiple', array( 'all', 'related' ) );
+		$this->multiple = get_enum_input( $input, $output, 'multiple', array( 'all' ) );
 
 		// If processing a given site, retrieve it from the input.
 		$site = match ( $this->multiple ) {
 			'all' => null,
 			default => get_wpcom_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) ),
 		};
-
 		$input->setArgument( 'site', $site );
 
 		// Retrieve the WP user email.

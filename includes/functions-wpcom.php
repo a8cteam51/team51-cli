@@ -363,31 +363,20 @@ function rotate_wpcom_staging_site_sftp_user_password( string $site_id_or_url, s
  * @param   string $site_id_or_url The ID or URL of the WPCOM site to reset the WP user password on.
  * @param   string $user           The email, username, or numeric ID of the WP user to reset the password for.
  *
- * @return stdClass|null
+ * @return  stdClass|null
  */
 function rotate_wpcom_site_wp_user_password( string $site_id_or_url, string $user ): ?stdClass {
-	$ssh = \WPCOM_Connection_Helper::get_ssh_connection( $site_id_or_url );
-	if ( \is_null( $ssh ) ) {
-		return null;
+	$credentials = null;
+
+	$exit_code = run_wpcom_site_wp_cli_command( $site_id_or_url, "user reset-password $user --skip-email" );
+	if ( Command::SUCCESS === $exit_code ) {
+		$credentials = (object) array(
+			'username' => $user,
+			'password' => $GLOBALS['wp_cli_output'],
+		);
 	}
 
-	$password = null;
-
-	$ssh->setTimeout( 0 ); // Disable timeout in case the command takes a long time.
-	$ssh->exec(
-		"wp user reset-password $user --skip-email --porcelain",
-		function ( $pw_reset_output ) use ( &$password ) {
-			$password = $pw_reset_output; // Append the received string to the output.
-		}
-	);
-
-	$ssh->disconnect();
-
-	$result           = new stdClass();
-	$result->password = $password;
-	$result->username = $user;
-
-	return $result;
+	return $credentials;
 }
 
 /**
