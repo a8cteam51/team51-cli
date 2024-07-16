@@ -46,7 +46,7 @@ final class WPCOM_Site_Stickers_Add extends Command {
 			->setHelp( 'Use this command to associate a new sticker with a WPCOM site.' );
 
 		$this->addArgument( 'site', InputArgument::REQUIRED, 'Domain or WPCOM ID of the site to add the sticker to.' )
-			->addArgument( 'sticker', InputArgument::REQUIRED, 'Sticker to add to the site.' );
+			->addArgument( 'sticker', InputArgument::REQUIRED, 'Sticker to add to the site. Any sticker with the <fg=green;options=bold>team-51-</> prefix and the <fg=green;options=bold>blocked-from-atomic-transfer</> sticker.' );
 	}
 
 	/**
