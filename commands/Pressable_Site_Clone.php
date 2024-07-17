@@ -245,15 +245,16 @@ final class Pressable_Site_Clone extends Command {
 							$output->writeln( '<error>Failed to install SafetyNet!</error>' );
 						}
 						if ( ! str_contains( $stream, 'load-safety-net.php' ) ) {
-							$sftp = \Pressable_Connection_Helper::get_sftp_connection( $site_clone->id );
-							if ( \is_null( $sftp ) ) {
+							$sftp_connection = \Pressable_Connection_Helper::get_sftp_connection( $site_clone->id );
+							if ( \is_null( $sftp_connection ) ) {
 								$output->writeln( '<error>Failed to connect to the site via SFTP. Cannot copy SafetyNet loader!</error>' );
 							} else {
-								$result = $sftp->put( '/htdocs/wp-content/mu-plugins/load-safety-net.php', file_get_contents( __DIR__ . '/../scaffold/load-safety-net.php' ) );
+								$result = $sftp_connection->put( '/htdocs/wp-content/mu-plugins/load-safety-net.php', file_get_contents( __DIR__ . '/../scaffold/load-safety-net.php' ) );
 								if ( ! $result ) {
 									$output->writeln( '<error>Failed to copy the SafetyNet loader!</error>' );
 								}
 							}
+							$sftp_connection?->disconnect();
 						}
 					}
 				);

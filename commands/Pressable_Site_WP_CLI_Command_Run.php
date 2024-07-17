@@ -94,6 +94,7 @@ final class Pressable_Site_WP_CLI_Command_Run extends Command {
 			}
 		);
 
+		$ssh->disconnect();
 		return Command::SUCCESS;
 	}
 
