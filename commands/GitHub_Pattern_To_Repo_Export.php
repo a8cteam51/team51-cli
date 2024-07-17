@@ -65,7 +65,7 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 		$input->setArgument( 'site', $this->pressable_site->id );
 
 		// Check if the pattern name was already provided as an argument. If not, prompt the user for it.
-		$this->pattern_name = get_string_input( $input, $output, 'pattern-name', fn() => $this->prompt_pattern_name_input( $input, $output ));
+		$this->pattern_name = get_string_input( $input, $output, 'pattern-name', fn() => $this->prompt_pattern_name_input( $input, $output ) );
 		$output->writeln( "<comment>Pattern name: {$this->pattern_name}</comment>", Output::VERBOSITY_DEBUG );
 
 		// Check if the category slug was already provided as an argument. If not, prompt the user for it.
@@ -81,7 +81,7 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 		$output->writeln( "<fg=magenta;options=bold>Exporting {$this->pattern_name} (Category: {$this->category_slug}) from {$this->pressable_site->displayName} (ID {$this->pressable_site->id}, URL {$this->pressable_site->url})</>" );
 
 		// Upload script.
-		$sftp_connection   = \Pressable_Connection_Helper::get_sftp_connection( $this->pressable_site->id );
+		$sftp_connection = \Pressable_Connection_Helper::get_sftp_connection( $this->pressable_site->id );
 		if ( \is_null( $sftp_connection ) ) {
 			$output->writeln( '<error>Could not open SFTP connection.</error>' );
 			return Command::FAILURE;
@@ -99,7 +99,7 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 		}
 
 		// Run script.
-		$result = $ssh_connection->exec( sprintf( "wp --skip-plugins --skip-theme eval-file /htdocs/pattern-extract.php %s", escapeshellarg( $this->pattern_name ) ) );
+		$result = $ssh_connection->exec( sprintf( 'wp --skip-plugins --skip-theme eval-file /htdocs/pattern-extract.php %s', escapeshellarg( $this->pattern_name ) ) );
 		$output->writeln( "<comment>Pattern extraction result: {$result}</comment>", Output::VERBOSITY_DEBUG );
 
 		// Delete script.
@@ -161,8 +161,8 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 			// Clean up by removing the cloned repository directory, if desired
 			\run_system_command( array( 'rm', '-rf', $temp_dir ), sys_get_temp_dir() );
 
-			$output->writeln( "<fg=green;options=bold>Pattern exported successfully to {$branch_name}.</>");
-			$output->writeln( "<fg=green;options=bold>View the pattern at </><fg=blue>https://github.com/a8cteam51/team51-patterns/compare/trunk...{$branch_name}</>");
+			$output->writeln( "<fg=green;options=bold>Pattern exported successfully to {$branch_name}.</>" );
+			$output->writeln( "<fg=green;options=bold>View the pattern at </><fg=blue>https://github.com/a8cteam51/team51-patterns/compare/trunk...{$branch_name}</>" );
 		} else {
 			$output->writeln( '<error>Pattern not found. Aborting!</error>' );
 			return Command::FAILURE;

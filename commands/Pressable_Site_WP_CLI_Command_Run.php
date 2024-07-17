@@ -86,16 +86,22 @@ final class Pressable_Site_WP_CLI_Command_Run extends Command {
 
 		$output->writeln( '<fg=green;options=bold>SSH connection established.</>', OutputInterface::VERBOSITY_VERBOSE );
 
-		$ssh->setTimeout( 0 ); // Disable timeout in case the command takes a long time.
-		$ssh->exec(
-			"wp $this->wp_command",
-			static function ( string $str ): void {
-				echo $str;
-			}
-		);
+		try {
+			$ssh->setTimeout( 0 ); // Disable timeout in case the command takes a long time.
+			$ssh->exec(
+				"wp $this->wp_command",
+				static function ( string $str ): void {
+					echo $str;
+				}
+			);
 
-		$ssh->disconnect();
-		return Command::SUCCESS;
+			return Command::SUCCESS;
+		} catch ( \RuntimeException $exception ) {
+			$output->writeln( "<error>Something went wrong. Please double-check if things worked out. This is what we know: {$exception->getMessage()}</error>" );
+			return Command::FAILURE;
+		} finally {
+			$ssh->disconnect();
+		}
 	}
 
 	// endregion
