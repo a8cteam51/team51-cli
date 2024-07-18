@@ -6,6 +6,7 @@
     }
   ],
   "require": {
+    "ext-gd": "*",
     "ext-json": "*",
     "ext-posix": "*",
     "phpseclib/phpseclib": "^3.0",
