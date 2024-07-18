@@ -134,7 +134,7 @@ final class WPCOM_Site_Staging_Create extends Command {
 	 * @noinspection PhpUnhandledExceptionInspection
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
-		$repo_text = $this->gh_repo_branch ? "and connect it to the branch `$this->gh_repo_branch` of {$this->gh_repository->full_name}" : 'without connecting it to a GitHub repository';
+		$repo_text = $this->gh_repo_branch ? "and connecting it to the branch `$this->gh_repo_branch` of {$this->gh_repository->full_name}" : 'without connecting it to a GitHub repository';
 		$output->writeln( "<fg=magenta;options=bold>Creating a staging site of the WordPress.com site {$this->site->name} (ID {$this->site->ID}, URL {$this->site->URL}) $repo_text.</>" );
 
 		// Create the site and wait for it to be deployed+cloned.
@@ -163,8 +163,7 @@ final class WPCOM_Site_Staging_Create extends Command {
 		}
 
 		$update = update_wpcom_site( $transfer->blog_id, array( 'blogname' => $staging_site_name ) );
-
-		if ( $update && isset( $update->updated->blogname ) && $staging_site_name === $update->updated->blogname ) {
+		if ( $update && isset( $update->blogname ) && $staging_site_name === $update->blogname ) {
 			$output->writeln( "<fg=green;options=bold>Staging site $transfer->blog_id name successfully updated to $staging_site_name.</>" );
 		} else {
 			$output->writeln( '<error>Failed to set site name.</error>' );
@@ -227,22 +226,18 @@ final class WPCOM_Site_Staging_Create extends Command {
 
 		$ssh_connection?->disconnect();
 
-		if ( ! \is_null( $this->gh_repository_name ) ) {
-			/* @noinspection PhpUnhandledExceptionInspection */
-			$status = run_app_command(
+		// Create a GitHub Deployment project for the site.
+		if ( ! \is_null( $this->gh_repository ) ) {
+			run_app_command(
 				WPCOM_Site_Repository_Connect::getDefaultName(),
 				array(
-					'--blog_id'    => $transfer->blog_id,
-					'--repository' => $this->gh_repository_name,
+					'site'         => $transfer->blog_id,
+					'repository'   => $this->gh_repository->name,
 					'--branch'     => $this->gh_repo_branch,
 					'--target_dir' => '/wp-content/',
-					'--deploy'     => 'y',
-				),
+					'--deploy'     => true,
+				)
 			);
-			if ( Command::SUCCESS !== $status ) {
-				$output->writeln( '<error>Failed to create the repository.</error>' );
-				exit( 1 );
-			}
 		}
 
 		$output->writeln( "<fg=green;options=bold>Staging site {$update->updated->blogname} created successfully $staging_site->url.</>" );
@@ -263,7 +258,7 @@ final class WPCOM_Site_Staging_Create extends Command {
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Please enter the name of the site for which to create the staging site:</question> ' );
-		$question->setAutocompleterValues( \array_column( get_wpcom_agency_sites() ?? array(), 'url' ) );
+		$question->setAutocompleterValues( \array_column( get_wpcom_sites( array( 'fields' => 'ID,URL' ) ) ?? array(), 'URL' ) );
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

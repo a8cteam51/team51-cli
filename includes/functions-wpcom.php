@@ -496,7 +496,7 @@ function wait_on_wpcom_site_ssh( string $site_id_or_url, OutputInterface $output
 	$progress_bar->advance();
 
 	for ( $try = 0, $delay = 5; true; $try++ ) { // Infinite loop until SSH connection is established.
-		$ssh_connection = WPCOM_Connection_Helper::get_ssh_connection( $site_id_or_url, $staging );
+		$ssh_connection = WPCOM_Connection_Helper::get_ssh_connection( $site_id_or_url );
 		if ( ! is_null( $ssh_connection ) ) {
 			break;
 		}
