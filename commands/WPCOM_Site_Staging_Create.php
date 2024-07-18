@@ -157,18 +157,6 @@ final class WPCOM_Site_Staging_Create extends Command {
 
 		$ssh_connection = wait_on_wpcom_site_ssh( $transfer->blog_id, $output, true );
 
-		$staging_site_name = "{$this->site->name}-staging";
-		if ( str_contains( $this->site->name, 'production' ) ) {
-			$staging_site_name = str_replace( 'production', 'staging', $this->site->name );
-		}
-
-		$update = update_wpcom_site( $transfer->blog_id, array( 'blogname' => $staging_site_name ) );
-		if ( $update && isset( $update->blogname ) && $staging_site_name === $update->blogname ) {
-			$output->writeln( "<fg=green;options=bold>Staging site $transfer->blog_id name successfully updated to $staging_site_name.</>" );
-		} else {
-			$output->writeln( '<error>Failed to set site name.</error>' );
-		}
-
 		// Run a few commands to set up the site.
 		run_app_command(
 			WPCOM_Site_WP_User_Password_Rotate::getDefaultName(),
@@ -240,7 +228,7 @@ final class WPCOM_Site_Staging_Create extends Command {
 			);
 		}
 
-		$output->writeln( "<fg=green;options=bold>Staging site {$update->updated->blogname} created successfully $staging_site->url.</>" );
+		$output->writeln( '<fg=green;options=bold>Staging site created successfully.</>' );
 		return Command::SUCCESS;
 	}
 

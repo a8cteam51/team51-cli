@@ -54,7 +54,7 @@ final class WPCOM_Site_Create extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->name = slugify( get_string_input( $input, $output, 'name', fn() => $this->prompt_name_input( $input, $output ) ) );
+		$this->name = str_replace( '-', '', slugify( get_string_input( $input, $output, 'name', fn() => $this->prompt_name_input( $input, $output ) ) ) ); // No dashes allowed in site names.
 		$input->setArgument( 'name', $this->name );
 
 		$repository          = maybe_get_string_input( $input, $output, 'repository', fn() => $this->prompt_repository_input( $input, $output ) );
@@ -84,7 +84,7 @@ final class WPCOM_Site_Create extends Command {
 		$output->writeln( "<fg=magenta;options=bold>Creating new WordPress.com site named `$this->name` $repo_text.</>" );
 
 		// Create the site and wait for it to be provisioned.
-		$agency_site = create_wpcom_site( "$this->name-production" );
+		$agency_site = create_wpcom_site( $this->name );
 		if ( \is_null( $agency_site ) ) {
 			$output->writeln( '<error>Failed to create the site.</error>' );
 			return Command::FAILURE;
