@@ -6,6 +6,7 @@ use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
@@ -34,6 +35,13 @@ final class WPCOM_Site_WP_CLI_Command_Run extends Command {
 	 */
 	private ?string $wp_command = null;
 
+	/**
+	 * Whether to skip outputting the response to the console.
+	 *
+	 * @var bool|null
+	 */
+	private ?bool $skip_output = null;
+
 	// endregion
 
 	// region INHERITED METHODS
@@ -46,7 +54,8 @@ final class WPCOM_Site_WP_CLI_Command_Run extends Command {
 			->setHelp( 'This command allows you to run an arbitrary WP-CLI command on a WordPress.com site.' );
 
 		$this->addArgument( 'site', InputArgument::REQUIRED, 'The domain or numeric WordPress.com ID of the site to open the shell to.' )
-			->addArgument( 'wp-cli-command', InputArgument::REQUIRED, 'The WP-CLI command to run.' );
+			->addArgument( 'wp-cli-command', InputArgument::REQUIRED, 'The WP-CLI command to run.' )
+			->addOption( 'skip-output', null, InputOption::VALUE_NONE, 'Skip outputting the response to the console.' );
 	}
 
 	/**
@@ -57,8 +66,13 @@ final class WPCOM_Site_WP_CLI_Command_Run extends Command {
 		$input->setArgument( 'site', $this->site );
 
 		$this->wp_command = get_string_input( $input, $output, 'wp-cli-command', fn() => $this->prompt_command_input( $input, $output ) );
-		$this->wp_command = \escapeshellcmd( \trim( \preg_replace( '/^wp/', '', \trim( $this->wp_command ) ) ) );
+		$this->wp_command = \trim( \preg_replace( '/^wp/', '', \trim( $this->wp_command ) ) );
+		if ( false === \str_contains( $this->wp_command, 'eval' ) ) {
+			$this->wp_command = \escapeshellcmd( $this->wp_command );
+		}
 		$input->setArgument( 'wp-cli-command', $this->wp_command );
+
+		$this->skip_output = get_bool_input( $input, $output, 'skip-output' );
 	}
 
 	/**
@@ -86,16 +100,25 @@ final class WPCOM_Site_WP_CLI_Command_Run extends Command {
 
 		$output->writeln( '<fg=green;options=bold>SSH connection established.</>', OutputInterface::VERBOSITY_VERBOSE );
 
-		$ssh->setTimeout( 0 ); // Disable timeout in case the command takes a long time.
-		$ssh->exec(
-			"wp $this->wp_command",
-			static function ( string $str ): void {
-				$GLOBALS['wp_cli_output'] = $str;
-				echo $str;
-			}
-		);
+		try {
+			$ssh->setTimeout( 0 ); // Disable timeout in case the command takes a long time.
+			$ssh->exec(
+				"wp $this->wp_command",
+				function ( string $str ): void {
+					$GLOBALS['wp_cli_output'] = $str;
+					if ( ! $this->skip_output ) {
+						echo "$str\n";
+					}
+				}
+			);
 
-		return Command::SUCCESS;
+			return Command::SUCCESS;
+		} catch ( \RuntimeException $exception ) {
+			$output->writeln( "<error>Something went wrong. Please double-check if things worked out. This is what we know: {$exception->getMessage()}</error>" );
+			return Command::FAILURE;
+		} finally {
+			$ssh->disconnect();
+		}
 	}
 
 	// endregion

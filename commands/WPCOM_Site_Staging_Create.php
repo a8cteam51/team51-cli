@@ -93,7 +93,7 @@ final class WPCOM_Site_Staging_Create extends Command {
 				$gh_repo_name = $wpcom_gh_repositories[0]->repository_name;
 			}
 
-			$gh_repo_name = explode( '/', $gh_repo_name )[1] ?? null;
+			$gh_repo_name        = explode( '/', $gh_repo_name )[1] ?? null;
 			$this->gh_repository = get_github_repository( $gh_repo_name );
 			if ( empty( $this->gh_repository ) ) {
 				$output->writeln( '<error>Failed to get the repository.</error>' );

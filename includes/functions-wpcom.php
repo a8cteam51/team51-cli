@@ -368,7 +368,7 @@ function rotate_wpcom_staging_site_sftp_user_password( string $site_id_or_url, s
 function rotate_wpcom_site_wp_user_password( string $site_id_or_url, string $user ): ?stdClass {
 	$credentials = null;
 
-	$exit_code = run_wpcom_site_wp_cli_command( $site_id_or_url, "user reset-password $user --skip-email --porcelain" );
+	$exit_code = run_wpcom_site_wp_cli_command( $site_id_or_url, "user reset-password $user --skip-email --porcelain", true );
 	if ( Command::SUCCESS === $exit_code ) {
 		$credentials = (object) array(
 			'username' => $user,
@@ -597,18 +597,20 @@ function wait_until_wpcom_code_deployment_run_state( stdClass $code_deployment, 
  *
  * @param   string  $site_id_or_url The ID or URL of the site to run the WP-CLI command on.
  * @param   string  $wp_cli_command The WP-CLI command to run.
+ * @param   boolean $skip_output    Whether to skip outputting the response to the console.
  * @param   boolean $interactive    Whether to run the command interactively.
  *
  * @return  integer
  * @noinspection PhpDocMissingThrowsInspection
  */
-function run_wpcom_site_wp_cli_command( string $site_id_or_url, string $wp_cli_command, bool $interactive = false ): int {
+function run_wpcom_site_wp_cli_command( string $site_id_or_url, string $wp_cli_command, bool $skip_output = false, bool $interactive = false ): int {
 	/* @noinspection PhpUnhandledExceptionInspection */
 	return run_app_command(
 		WPCOM_Site_WP_CLI_Command_Run::getDefaultName(),
 		array(
 			'site'           => $site_id_or_url,
 			'wp-cli-command' => $wp_cli_command,
+			'--skip-output'  => $skip_output,
 		),
 		$interactive
 	);
