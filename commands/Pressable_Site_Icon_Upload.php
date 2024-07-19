@@ -135,15 +135,20 @@ final class Pressable_Site_Icon_Upload extends Command {
 	 */
 	private function process_image( string $data, OutputInterface $output ): string|false {
 		$image_info = getimagesizefromstring( $data );
-		if ( $image_info && IMAGETYPE_PNG === $image_info[2] ) {
-			$output->writeln( '<comment>Image is already PNG. Skipping conversion.</comment>', OutputInterface::VERBOSITY_VERBOSE );
-			return $data;
+		if ( ! $image_info ) { // Data is not a binary image.
+			$output->writeln( '<error>Unsupported image format. Please handle this manually!</error>' );
+			return false;
 		}
 
-		ob_start();
-		imagepng( imagecreatefromstring( $data ) );
+		if ( IMAGETYPE_PNG !== $image_info[2] ) {
+			$output->writeln( '<comment>Converting image to PNG...</comment>', OutputInterface::VERBOSITY_VERBOSE );
 
-		return ob_get_clean();
+			ob_start();
+			imagepng( imagecreatefromstring( $data ) );
+			$data = ob_get_clean();
+		}
+
+		return $data;
 	}
 
 	// endregion
