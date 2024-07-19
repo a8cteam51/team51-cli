@@ -142,7 +142,7 @@ final class Jetpack_Module_Search extends Command {
 	 * @return  string|null
 	 */
 	private function prompt_status_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new Question( '<question>Enter the status to check the module for [on]:</question> ' );
+		$question = new Question( '<question>Enter the status to check the module for [on]:</question> ', 'on' );
 		$question->setAutocompleterValues( array( 'on', 'off' ) );
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
