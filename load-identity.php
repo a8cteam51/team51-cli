@@ -24,7 +24,7 @@ if ( ! empty( getenv( 'TEAM51_OPSOASIS_APP_PASSWORD' ) ) ) {
 	);
 
 	foreach ( $team51_op_logins as $op_login ) {
-		foreach ( $op_login->urls as $url ) {
+		foreach ( $op_login->urls ?? array() as $url ) {
 			if ( 'opsoasis.wpspecialprojects.com' !== parse_url( $url->href, PHP_URL_HOST ) ) {
 				continue;
 			}
