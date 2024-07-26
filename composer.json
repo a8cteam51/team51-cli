@@ -30,7 +30,9 @@
     "files": [
       "includes/api-helper.php",
       "includes/autocomplete-trait.php",
+      "includes/abstract-connection-helper.php",
       "includes/connection-helper-pressable.php",
+      "includes/connection-helper-wpcom.php",
       "includes/functions.php",
       "includes/functions-1password.php",
       "includes/functions-deployhq.php",

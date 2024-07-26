@@ -1,6 +1,7 @@
 <?php
 
 use phpseclib3\Net\SSH2;
+use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\ProgressBar;
 use Symfony\Component\Console\Helper\TableSeparator;
 use Symfony\Component\Console\Input\InputInterface;
@@ -325,7 +326,18 @@ function get_pressable_site_wp_user( string $site_id_or_url, string $user ): ?st
  * @return  stdClass|null
  */
 function rotate_pressable_site_wp_user_password( string $site_id_or_url, string $user ): ?stdClass {
-	return API_Helper::make_pressable_request( "site-wp-users/$site_id_or_url/$user/rotate-password", 'POST' );
+	$credentials = API_Helper::make_pressable_request( "site-wp-users/$site_id_or_url/$user/rotate-password", 'POST' );
+	if ( is_null( $credentials ) ) {
+		$exit_code = run_pressable_site_wp_cli_command( $site_id_or_url, "user reset-password $user --skip-email --porcelain" );
+		if ( Command::SUCCESS === $exit_code ) {
+			$credentials = (object) array(
+				'username' => $user,
+				'password' => $GLOBALS['wp_cli_output'],
+			);
+		}
+	}
+
+	return $credentials;
 }
 
 /**
