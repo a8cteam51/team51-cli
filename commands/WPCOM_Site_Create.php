@@ -213,7 +213,7 @@ final class WPCOM_Site_Create extends Command {
 					GitHub_Repository_Create::getDefaultName(),
 					array(
 						'name'                => $name,
-						'--homepage'          => "https://$name-production.wpcomstaging.com",
+						'--homepage'          => "https://$name.wpcomstaging.com",
 						'--type'              => 'project',
 						'--custom-properties' => array(
 							"php-globals-long-prefix=$php_globals_long_prefix",
