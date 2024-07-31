@@ -36,7 +36,7 @@ abstract class Abstract_Connection_Helper {
 			return null;
 		}
 
-		$connection = new SFTP( self::SFTP_HOST );
+		$connection = new SFTP( static::SFTP_HOST );
 		if ( ! $connection->login( $credentials->username, $credentials->password ) ) {
 			$connection->isConnected() && $connection->disconnect();
 			return null;
