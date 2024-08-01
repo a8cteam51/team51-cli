@@ -65,6 +65,11 @@ final class WPCOM_Site_WP_CLI_Command_Run extends Command {
 		$this->site = get_wpcom_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
 		$input->setArgument( 'site', $this->site );
 
+		if ( ! $this->site->is_wpcom_atomic ) {
+			$output->writeln( '<error>This command is only available for WordPress.com Atomic sites.</error>' );
+			exit( 1 );
+		}
+
 		$this->wp_command = get_string_input( $input, $output, 'wp-cli-command', fn() => $this->prompt_command_input( $input, $output ) );
 		$this->wp_command = \trim( \preg_replace( '/^wp/', '', \trim( $this->wp_command ) ) );
 		if ( false === \str_contains( $this->wp_command, 'eval' ) ) {

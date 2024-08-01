@@ -353,7 +353,16 @@ final class WPCOM_Sites_List extends Command {
 			if ( in_array( parse_url( $site->URL, PHP_URL_HOST ), $pressable_urls, true ) ) { // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 				$server = 'Pressable';
 			} else {
-				$server = 'Other';
+				// TODO: Handle the wpvip.com sites (that's the actual value of the following variable).
+				$known_host = get_remote_content( $site->URL . '/.well-known/hosting-provider' ); // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+				if ( $known_host && 200 === $known_host['headers']['http_code'] ) {
+					$server = \str_replace( "\n", '', $known_host['body'] );
+					if ( 'Pressable' !== $server ) {
+						$server = 'Other';
+					}
+				} else {
+					$server = 'Other';
+				}
 			}
 		} else {
 			$server = 'Simple'; // Need a better way to determine if site is simple. For example, 410'd Jurassic Ninja sites will show as Simple.

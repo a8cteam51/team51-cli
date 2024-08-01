@@ -92,6 +92,12 @@ final class WPCOM_Site_WP_User_Password_Rotate extends Command {
 			'all' => get_wpcom_sites( array( 'fields' => 'ID,URL' ) ),
 			default => array( $site ),
 		};
+		$this->sites = \array_filter( $this->sites, static fn( $site ) => $site->is_wpcom_atomic );
+
+		if ( empty( $this->sites ) ) {
+			$output->writeln( '<error>No valid WordPress.com Atomic sites found.</error>' );
+			exit( 1 );
+		}
 	}
 
 	/**

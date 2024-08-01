@@ -80,6 +80,7 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 				}
 			);
 		}
+		$sites = \array_filter( $sites, static fn( $site ) => $site->is_wpcom_atomic );
 
 		// Compile the list of users to process.
 		$this->users = get_wpcom_site_users_batch(

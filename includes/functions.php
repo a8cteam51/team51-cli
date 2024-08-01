@@ -1,6 +1,5 @@
 <?php
 
-use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Exception\ExceptionInterface;
 use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Input\ArrayInput;
@@ -48,7 +47,7 @@ function get_remote_content( string $url, array $headers = array(), string $meth
 
 	return array(
 		'headers' => parse_http_headers( $http_response_header ),
-		'body'    => '' === $result ? null : decode_json_content( $result ),
+		'body'    => $result,
 	);
 }
 
