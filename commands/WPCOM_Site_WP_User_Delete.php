@@ -71,7 +71,7 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 			$sites = array( $site->ID => $site );
 		} else {
 			$sites = \array_filter(
-				get_wpcom_sites( array( 'fields' => 'ID,URL' ) ),
+				get_wpcom_sites( array( 'fields' => 'ID,URL,is_wpcom_atomic' ) ),
 				static function ( \stdClass $site ) {
 					$exclude_sites = array( 'woocommerce.com', 'woo.com' );
 					$site_domain   = \parse_url( $site->URL, PHP_URL_HOST );
