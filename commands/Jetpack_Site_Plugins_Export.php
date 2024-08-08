@@ -177,7 +177,9 @@ final class Jetpack_Site_Plugins_Export extends Command {
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the domain or WPCOM site ID to export the plugins for:</question> ' );
-		$question->setAutocompleterValues( \array_column( get_wpcom_jetpack_sites() ?? array(), 'domain' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array_column( get_wpcom_jetpack_sites() ?? array(), 'domain' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

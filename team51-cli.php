@@ -27,6 +27,7 @@ foreach ( glob( __DIR__ . '/commands/*.php' ) as $command ) {
 }
 foreach ( $team51_cli_app->all() as $command ) {
 	$command->addOption( '--dev', null, InputOption::VALUE_NONE, 'Run the CLI tool in developer mode.' );
+	$command->addOption( '--no-autocomplete', null, InputOption::VALUE_NONE, 'Do not provide options to initialization questions.' );
 }
 
 $team51_cli_app->run( $team51_cli_input, $team51_cli_output );

@@ -101,7 +101,9 @@ final class Pressable_Site_Collaborator_Create extends Command {
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the domain or Pressable site ID to create the collaborator on:</question> ' );
-		$question->setAutocompleterValues( \array_column( get_pressable_sites() ?? array(), 'url' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array_column( get_pressable_sites() ?? array(), 'url' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

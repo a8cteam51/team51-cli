@@ -205,7 +205,9 @@ final class Pressable_Site_PHP_Errors_List extends Command {
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the site ID or URL to display the errors for:</question> ' );
-		$question->setAutocompleterValues( \array_column( get_pressable_sites() ?? array(), 'url' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( \array_column( get_pressable_sites() ?? array(), 'url' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

@@ -209,7 +209,9 @@ final class DeployHQ_Project_Server_Create extends Command {
 	 */
 	private function prompt_project_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the slug of the project to create the server for:</question> ' );
-		$question->setAutocompleterValues( array_column( get_deployhq_projects() ?? array(), 'permalink' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array_column( get_deployhq_projects() ?? array(), 'permalink' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
@@ -224,7 +226,9 @@ final class DeployHQ_Project_Server_Create extends Command {
 	 */
 	private function prompt_branch_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the branch to deploy from:</question> ' );
-		$question->setAutocompleterValues( array_column( get_github_repository_branches( $this->gh_repository->name ) ?? array(), 'name' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array_column( get_github_repository_branches( $this->gh_repository->name ) ?? array(), 'name' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
@@ -241,7 +245,9 @@ final class DeployHQ_Project_Server_Create extends Command {
 		$existing_branches = array_column( get_github_repository_branches( $this->gh_repository->name ) ?? array(), 'name' );
 
 		$question = new Question( '<question>Enter the branch to create the new one off of [trunk]:</question> ', 'trunk' );
-		$question->setAutocompleterValues( array_column( $existing_branches, 'name' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array_column( $existing_branches, 'name' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
@@ -256,7 +262,9 @@ final class DeployHQ_Project_Server_Create extends Command {
 	 */
 	private function prompt_pressable_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the domain or numeric Pressable ID of the site to connect the server to:</question> ' );
-		$question->setAutocompleterValues( array_column( get_pressable_sites() ?? array(), 'url' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array_column( get_pressable_sites() ?? array(), 'url' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

@@ -112,7 +112,9 @@ final class Jetpack_Site_Module_Status_Set extends Command {
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the domain or WPCOM site ID to set the module status on:</question> ' );
-		$question->setAutocompleterValues( \array_column( get_wpcom_jetpack_sites() ?? array(), 'domain' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array_column( get_wpcom_jetpack_sites() ?? array(), 'domain' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
@@ -127,7 +129,9 @@ final class Jetpack_Site_Module_Status_Set extends Command {
 	 */
 	private function prompt_module_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the module to set the status for:</question> ' );
-		$question->setAutocompleterValues( array_keys( get_jetpack_site_modules( $this->site->ID ) ?? array() ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array_keys( get_jetpack_site_modules( $this->site->ID ) ?? array() ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
@@ -142,7 +146,9 @@ final class Jetpack_Site_Module_Status_Set extends Command {
 	 */
 	private function prompt_status_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the status to set the module to:</question> ' );
-		$question->setAutocompleterValues( array( 'on', 'off' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array( 'on', 'off' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

@@ -154,12 +154,14 @@ final class WPCOM_Site_Repository_Connect extends Command {
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the domain or WPCOM site ID to connect the repository to to:</question> ' );
-		$question->setAutocompleterValues(
-			\array_map(
-				static fn( string $url ) => \parse_url( $url, PHP_URL_HOST ),
-				\array_column( get_wpcom_sites( array( 'fields' => 'ID,URL' ) ) ?? array(), 'URL' )
-			)
-		);
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues(
+				\array_map(
+					static fn( string $url ) => \parse_url( $url, PHP_URL_HOST ),
+					\array_column( get_wpcom_sites( array( 'fields' => 'ID,URL' ) ) ?? array(), 'URL' )
+				)
+			);
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
@@ -174,7 +176,9 @@ final class WPCOM_Site_Repository_Connect extends Command {
 	 */
 	private function prompt_repository_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Please enter the slug of the GitHub repository to connect the project to:</question> ' );
-		$question->setAutocompleterValues( array_column( get_github_repositories() ?? array(), 'name' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array_column( get_github_repositories() ?? array(), 'name' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
@@ -189,7 +193,9 @@ final class WPCOM_Site_Repository_Connect extends Command {
 	 */
 	private function prompt_branch_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the branch to deploy from [trunk]:</question> ', 'trunk' );
-		$question->setAutocompleterValues( array_column( get_github_repository_branches( $this->gh_repository->name ) ?? array(), 'name' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array_column( get_github_repository_branches( $this->gh_repository->name ) ?? array(), 'name' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

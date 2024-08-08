@@ -290,7 +290,9 @@ final class Pressable_Site_Clone extends Command {
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the domain or Pressable site ID to clone:</question> ' );
-		$question->setAutocompleterValues( \array_column( get_pressable_sites() ?? array(), 'url' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( \array_column( get_pressable_sites() ?? array(), 'url' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
@@ -305,7 +307,9 @@ final class Pressable_Site_Clone extends Command {
 	 */
 	private function prompt_branch_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the branch to deploy from [develop]:</question> ', 'develop' );
-		$question->setAutocompleterValues( array_column( get_github_repository_branches( $this->gh_repository->name ) ?? array(), 'name' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array_column( get_github_repository_branches( $this->gh_repository->name ) ?? array(), 'name' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

@@ -156,7 +156,9 @@ final class GitHub_Repository_Create extends Command {
 	 */
 	private function prompt_type_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Please enter the type of repository to create or press enter for an empty repo:</question> ' );
-		$question->setAutocompleterValues( array( 'project', 'plugin', 'issues' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array( 'project', 'plugin', 'issues' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

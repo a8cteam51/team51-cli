@@ -147,7 +147,9 @@ final class GitHub_Repository_Secret_Update extends Command {
 	 */
 	private function prompt_repository_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Please enter the slug of the repository to update the secrets from:</question> ' );
-		$question->setAutocompleterValues( array_column( get_github_repositories() ?? array(), 'name' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array_column( get_github_repositories() ?? array(), 'name' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
@@ -162,7 +164,7 @@ final class GitHub_Repository_Secret_Update extends Command {
 	 */
 	private function prompt_secret_name_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Please enter the name of the secret to update:</question> ' );
-		if ( 'all' !== $this->multiple ) {
+		if ( 'all' !== $this->multiple && ! $input->getOption( 'no-autocomplete' ) ) {
 			$question->setAutocompleterValues( array_column( get_github_repository_secrets( $this->repositories[0]->name ) ?? array(), 'name' ) );
 		}
 

@@ -192,7 +192,9 @@ final class Pressable_Site_SFTP_User_Password_Rotate extends Command {
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the site ID or URL to rotate the SFTP user password on:</question> ' );
-		$question->setAutocompleterValues( \array_column( get_pressable_sites() ?? array(), 'url' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( \array_column( get_pressable_sites() ?? array(), 'url' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
@@ -207,7 +209,7 @@ final class Pressable_Site_SFTP_User_Password_Rotate extends Command {
 	 */
 	private function prompt_user_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the email of the SFTP user to rotate the password for [concierge@wordpress.com]:</question> ', 'concierge@wordpress.com' );
-		if ( 'all' !== $this->multiple ) {
+		if ( 'all' !== $this->multiple && ! $input->getOption( 'no-autocomplete' ) ) {
 			$question->setAutocompleterValues( \array_map( static fn( object $user ) => $user->email, get_pressable_site_sftp_users( $input->getArgument( 'site' )->id ) ?? array() ) );
 		}
 

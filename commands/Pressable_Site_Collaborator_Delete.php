@@ -162,8 +162,10 @@ final class Pressable_Site_Collaborator_Delete extends Command {
 	 */
 	private function prompt_email_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the email address of the collaborator to delete:</question> ' );
-		$question->setAutocompleterValues( array_column( get_pressable_collaborators() ?? array(), 'email' ) );
 		$question->setValidator( fn( $value ) => filter_var( $value, FILTER_VALIDATE_EMAIL ) ? $value : throw new \RuntimeException( 'Invalid email address.' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array_column( get_pressable_collaborators() ?? array(), 'email' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
@@ -178,7 +180,9 @@ final class Pressable_Site_Collaborator_Delete extends Command {
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the site ID or URL to delete the collaborator from:</question> ' );
-		$question->setAutocompleterValues( \array_column( get_pressable_sites() ?? array(), 'url' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array_column( get_pressable_sites() ?? array(), 'url' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

@@ -172,7 +172,9 @@ final class Pressable_Site_WP_User_Password_Rotate extends Command {
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the site ID or URL to rotate the WP user password on:</question> ' );
-		$question->setAutocompleterValues( \array_column( get_pressable_sites() ?? array(), 'url' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( \array_column( get_pressable_sites() ?? array(), 'url' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
@@ -187,7 +189,7 @@ final class Pressable_Site_WP_User_Password_Rotate extends Command {
 	 */
 	private function prompt_user_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the email of the WP user to rotate the password for [concierge@wordpress.com]:</question> ', 'concierge@wordpress.com' );
-		if ( 'all' !== $this->multiple ) {
+		if ( 'all' !== $this->multiple && ! $input->getOption( 'no-autocomplete' ) ) {
 			$site = get_pressable_site( $input->getArgument( 'site' ) );
 			if ( ! \is_null( $site ) ) {
 				$question->setAutocompleterValues( \array_map( static fn( object $wp_user ) => $wp_user->email, get_wpcom_site_users( $site->url ) ?? array() ) );
