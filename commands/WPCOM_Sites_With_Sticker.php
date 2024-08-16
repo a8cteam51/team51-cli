@@ -1,4 +1,4 @@
-<?php
+<?php declare( strict_types=1 );
 
 namespace WPCOMSpecialProjects\CLI\Command;
 
@@ -13,8 +13,8 @@ use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 /**
  * Lists the WPCOM blog IDs that have a specific sticker.
  */
-#[AsCommand( name: 'wpcom:list-site-stickers' )]
-final class WPCOM_Sites_With_Stickers_List extends Command {
+#[AsCommand( name: 'wpcom:sites-with-sticker' )]
+final class WPCOM_Sites_With_Sticker extends Command {
 	use AutocompleteTrait;
 
 	// region FIELDS AND CONSTANTS
@@ -22,9 +22,9 @@ final class WPCOM_Sites_With_Stickers_List extends Command {
 	/**
 	 * Sticker to search sites with.
 	 *
-	 * @var \stdClass|null
+	 * @var string|null
 	 */
-	private ?\stdClass $sticker = null;
+	private ?string $sticker = null;
 
 	// endregion
 
@@ -44,7 +44,7 @@ final class WPCOM_Sites_With_Stickers_List extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->site = prompt_sticker_input( $input, $output, fn() => $this->prompt_sticker_input( $input, $output ) );
+		$this->sticker = get_string_input( $input, $output, 'sticker', fn () => $this->prompt_sticker_input( $input, $output ) );
 		$input->setArgument( 'sticker', $this->sticker );
 	}
 
@@ -52,7 +52,7 @@ final class WPCOM_Sites_With_Stickers_List extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
-		$output->writeln( "<fg=magenta;options=bold>Listing sites for {$this->sticker}.</>" );
+		$output->writeln( "<fg=magenta;options=bold>Listing sites with {$this->sticker}.</>" );
 
 		$sites = get_wpcom_sites_with_sticker( $this->sticker );
 		if ( is_null( $sites ) ) {
