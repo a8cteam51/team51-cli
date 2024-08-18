@@ -89,7 +89,7 @@ final class WPCOM_Site_WP_User_Password_Rotate extends Command {
 
 		// Compile the lists of sites to process.
 		$this->sites = match ( $this->multiple ) {
-			'all' => get_wpcom_sites( array( 'fields' => 'ID,URL' ) ),
+			'all' => get_wpcom_sites( array( 'fields' => 'ID,URL,name,is_wpcom_atomic,jetpack' ) ),
 			default => array( $site ),
 		};
 		$this->sites = \array_filter( $this->sites, static fn( $site ) => $site->is_wpcom_atomic );
