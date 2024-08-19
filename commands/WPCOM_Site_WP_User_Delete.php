@@ -4,6 +4,7 @@ namespace WPCOMSpecialProjects\CLI\Command;
 
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Helper\ProgressBar;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -36,6 +37,13 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 	 * @var \stdClass[]|null
 	 */
 	private ?array $users = null;
+
+	/**
+	 * The list of user objects to process using SSH to connect to the site.
+	 *
+	 * @var \stdClass[]|null
+	 */
+	private ?array $ssh_users = null;
 
 	// endregion
 
@@ -80,7 +88,6 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 				}
 			);
 		}
-		$sites = \array_filter( $sites, static fn( $site ) => $site->is_wpcom_atomic );
 
 		// Compile the list of users to process.
 		$this->users = get_wpcom_site_users_batch(
@@ -99,6 +106,15 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 			),
 			$errors
 		);
+
+		if ( $errors ) {
+			$number_of_errors = count( $errors );
+			$output->writeln( "<comment>There are $number_of_errors sites that could NOT be searched.</comment>" );
+			$output->writeln( '<fg=magenta;options=bold>Trying to connect to those sites using SSH.</>' );
+
+			$errors = $this->maybe_get_user_using_ssh( $output, $errors, $sites );
+		}
+
 		maybe_output_wpcom_failed_sites_table( $output, $errors, $sites, 'Sites that could NOT be searched' );
 
 		$this->users = \array_filter(
@@ -123,6 +139,7 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 				$this->users
 			)
 		);
+
 		if ( empty( $this->users ) ) {
 			$output->writeln( '<error>No users found with the given email address.</error>' );
 			exit( 1 );
@@ -158,13 +175,45 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
+
 		$output->writeln( "<fg=magenta;options=bold>Deleting user `$this->email` from " . count( $this->users ) . ' WPCOM site(s).</>' );
 
 		foreach ( $this->users as $user ) {
-			$result = delete_wpcom_site_user( $user->site_ID, $user->ID );
-			if ( true !== $result ) {
-				$output->writeln( "<error>Failed to delete user $user->ID from WPCOM site $user->site_URL (ID $user->site_ID).</error>" );
-				continue;
+			if ( isset( $this->ssh_users[ $user->site_ID ] ) ) {
+				$ssh_user_data = $this->ssh_users[ $user->site_ID ];
+				$output->writeln( "<fg=magenta;options=bold>Connecting to site ID {$ssh_user_data['id']} using SSH.</>" );
+				$ssh = 'pressable' === $ssh_user_data['type'] ? \Pressable_Connection_Helper::get_ssh_connection( $ssh_user_data['id'] ) : \WPCOM_Connection_Helper::get_ssh_connection( $ssh_user_data['id'] );
+
+				if ( ! $ssh ) {
+					$output->writeln( "<error>Failed to connect to site ID {$ssh_user_data['id']} using SSH.</error>" );
+					continue;
+				}
+
+				try {
+					$ssh->setTimeout( 0 ); // Disable timeout in case the command takes a long time.
+					$ssh->exec(
+						"wp user delete $user->ID --yes",
+						function ( string $str ) use ( $output ): void {
+							$GLOBALS['wp_cli_output'] = $str;
+						}
+					);
+
+					if ( ! is_string( $GLOBALS['wp_cli_output'] ) || ! str_contains( $GLOBALS['wp_cli_output'], 'Success' ) ) {
+						$output->writeln( "<error>Failed to delete user $user->ID from WPCOM site $user->site_URL (ID $user->site_ID).</error>" );
+						continue;
+					}
+
+					$ssh->disconnect();
+				} catch ( \RuntimeException $exception ) {
+					$output->writeln( "<error>SSH command failed for site ID {$user->site_ID}: {$exception->getMessage()}</error>" );
+					continue;
+				}
+			} else {
+				$result = delete_wpcom_site_user( $user->site_ID, $user->ID );
+				if ( true !== $result ) {
+					$output->writeln( "<error>Failed to delete user $user->ID from WPCOM site $user->site_URL (ID $user->site_ID).</error>" );
+					continue;
+				}
 			}
 
 			$output->writeln( "<fg=green;options=bold>Deleted user $user->ID from WPCOM site $user->site_URL (ID $user->site_ID) successfully.</>" );
@@ -212,6 +261,72 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+	}
+
+	/**
+	 * Check if we can get the user with SSH on Jetpack API failed sites.
+	 *
+	 * @param OutputInterface $output            The output interface.
+	 * @param array           $sites_with_errors Sites with errors when using Jetpack API.
+	 * @param array           $sites             The sites.
+	 *
+	 * @return array
+	 */
+	private function maybe_get_user_using_ssh( OutputInterface $output, array $sites_with_errors, array $sites ): array {
+
+		$sites_hosted     = array_reduce( $sites, static fn( $carry, $site ) => $carry + array( $site->ID => $site ), array() );
+		$failed_ssh_sites = array();
+		$ssh_sites        = 0;
+		$progress_bar     = new ProgressBar( $output, count( $sites_with_errors ) );
+		$progress_bar->start();
+
+		foreach ( $sites_with_errors as $site_id => $site_error_data ) {
+			$progress_bar->advance();
+			$output->writeln( '' );
+			$site      = $sites_hosted[ $site_id ];
+			$is_atomic = $site->is_wpcom_atomic;
+			$ssh       = $is_atomic ? \WPCOM_Connection_Helper::get_ssh_connection( $site_id ) : null;
+
+			if ( ! $is_atomic ) {
+				$pressable_site = get_pressable_site( $site->URL );
+				$ssh            = $pressable_site ? \Pressable_Connection_Helper::get_ssh_connection( $pressable_site->id ) : null;
+			}
+
+			if ( $ssh ) {
+				try {
+					$ssh->setTimeout( 0 ); // Disable timeout in case the command takes a long time.
+					$ssh->exec(
+						"wp user get $this->email --fields=ID,email --format=json",
+						function ( string $str ) use ( $output ): void {
+							$GLOBALS['wp_cli_output'] = $str;
+						}
+					);
+					++$ssh_sites;
+					$user = json_decode( $GLOBALS['wp_cli_output'] );
+					if ( $user ) {
+						$this->users[ $site_id ]     = array( $user );
+						$ssh_user_data['type']       = ! empty( $pressable_site ) ? 'pressable' : 'wpcom';
+						$ssh_user_data['id']         = ! empty( $pressable_site ) ? $pressable_site->id : $site_id;
+						$this->ssh_users[ $site_id ] = $ssh_user_data;
+					}
+				} catch ( \RuntimeException $exception ) {
+					$output->writeln( "<error>SSH command failed for site ID {$site_id}: {$exception->getMessage()}</error>" );
+					$failed_ssh_sites[ $site_id ] = $site_error_data;
+				} finally {
+					$ssh->disconnect();
+				}
+			} else {
+				$error_message = $is_atomic ? 'NO SSH WPCOM connection available' : 'NO Pressable SSH connection available';
+				$output->writeln( "<error>{$error_message} for site ID {$site_id}</error>" );
+				$failed_ssh_sites[ $site_id ] = $site_error_data;
+			}
+		}
+
+		$progress_bar->finish();
+		$output->writeln( '' );
+		$output->writeln( "<comment>Connected to $ssh_sites sites using SSH.</comment>" );
+
+		return $failed_ssh_sites;
 	}
 
 	// endregion
