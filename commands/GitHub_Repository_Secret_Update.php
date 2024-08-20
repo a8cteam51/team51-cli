@@ -89,7 +89,7 @@ final class GitHub_Repository_Secret_Update extends Command {
 		$this->secret_name = strtoupper( get_string_input( $input, $output, 'secret-name', fn() => $this->prompt_secret_name_input( $input, $output ) ) );
 		$input->setArgument( 'secret-name', $this->secret_name );
 
-		$this->secret_value = 'GH_BOT_TOKEN' === $this->secret_name ? 'WPCOMSP_GITHUB_API_TOKEN' : $this->secret_name; // Legacy support.
+		$this->secret_value = 'GH_BOT_TOKEN' === $this->secret_name ? 'WPCOMSP_GITHUB_BOT_API_TOKEN' : $this->secret_name; // Legacy support.
 	}
 
 	/**
