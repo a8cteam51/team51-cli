@@ -298,6 +298,17 @@ function add_wpcom_site_sticker( string $site_id_or_domain, string $sticker ): ?
 }
 
 /**
+ * Lists sites with a given sticker.
+ *
+ * @param   string $sticker The sticker to search for.
+ *
+ * @return string[]|null
+ */
+function get_wpcom_sites_with_sticker( string $sticker ): ?array {
+	return API_Helper::make_wpcom_request( "sites-with-sticker/$sticker" )?->records;
+}
+
+/**
  * Removes a given sticker from a given WPCOM site.
  *
  * @param   string $site_id_or_domain The site URL or WordPress.com site ID.

@@ -319,6 +319,26 @@ function get_enum_input( InputInterface $input, OutputInterface $output, string 
 
 	return $option;
 }
+/**
+ * Grabs a value from the console input and validates it as a valid sticker for WPCOM_Sites_With_Sticker command.
+ *
+ * @param   InputInterface  $input         The console input.
+ * @param   OutputInterface $output        The console output.
+ * @param   string          $name          The name of the value to grab.
+ * @param   callable|null   $no_input_func The function to call if no input is given.
+ *
+ * @return  string
+ */
+function get_team51_sticker_input( InputInterface $input, OutputInterface $output, string $name, ?callable $no_input_func = null ): string {
+	$sticker = get_string_input( $input, $output, $name, $no_input_func );
+
+	if ( ! str_starts_with( $sticker, 'team-51-' ) ) {
+		$sticker = 'team-51-' . $sticker;
+	}
+
+	return $sticker;
+}
+
 
 /**
  * Grabs a value from the console input and validates it as a boolean.
