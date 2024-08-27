@@ -44,7 +44,7 @@ final class WPCOM_Sites_With_Sticker extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->sticker = get_string_input( $input, $output, 'sticker', fn () => $this->prompt_sticker_input( $input, $output ) );
+		$this->sticker = get_team51_sticker_input( $input, $output, 'sticker', fn () => $this->prompt_sticker_input( $input, $output ) );
 		$input->setArgument( 'sticker', $this->sticker );
 	}
 
@@ -63,7 +63,13 @@ final class WPCOM_Sites_With_Sticker extends Command {
 		if ( empty( $sites ) ) {
 			$output->writeln( '<fg=yellow;options=bold>There are no sites with the chosen sticker.</>' );
 		} else {
-			output_table( $output, $sites );
+			output_table(
+				$output,
+				array_map( static fn( $site ) => array( $site ), $sites ),
+				array( 'Blog ID' ),
+			);
+
+			$output->writeln( sprintf( "<fg=magenta;options=bold>Found <fg=yellow>%d</> sites with <fg=yellow>%s</>.</>", count( $sites ), $this->sticker ) );
 		}
 
 		return Command::SUCCESS;
