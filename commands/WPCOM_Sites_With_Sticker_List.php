@@ -13,8 +13,8 @@ use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 /**
  * Lists the WPCOM blog IDs that have a specific sticker.
  */
-#[AsCommand( name: 'wpcom:sites-with-sticker' )]
-final class WPCOM_Sites_With_Sticker extends Command {
+#[AsCommand( name: 'wpcom:list-sites-with-sticker' )]
+final class WPCOM_Sites_With_Sticker_List extends Command {
 	use AutocompleteTrait;
 
 	// region FIELDS AND CONSTANTS
