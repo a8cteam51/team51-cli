@@ -67,7 +67,7 @@ final class CLI_Commands_Export extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$format           = get_enum_input( $input, $output, 'format', array( 'md', 'txt', 'json', 'xml' ) );
+		$format           = get_enum_input( $input, 'format', array( 'md', 'txt', 'json', 'xml' ) );
 		$this->descriptor = match ( $format ) {
 			'md' => new MarkdownDescriptor(),
 			'json' => new JsonDescriptor(),
@@ -75,7 +75,7 @@ final class CLI_Commands_Export extends Command {
 			'txt' => new TextDescriptor(),
 		};
 
-		$this->destination = maybe_get_string_input( $input, $output, 'destination', fn() => $this->prompt_destination_input( $input, $output ) );
+		$this->destination = maybe_get_string_input( $input, 'destination', fn() => $this->prompt_destination_input( $input, $output ) );
 		if ( ! \is_null( $this->destination ) ) {
 			$stream       = get_file_handle( $this->destination, $format );
 			$this->output = new StreamOutput( $stream );

@@ -61,13 +61,13 @@ final class Jetpack_Site_Module_Status_Set extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->site = get_wpcom_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
+		$this->site = get_wpcom_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
 		$input->setArgument( 'site', $this->site );
 
-		$this->module = get_enum_input( $input, $output, 'module', array_keys( get_jetpack_site_modules( $this->site->ID ) ?? array() ), fn() => $this->prompt_module_input( $input, $output ) );
+		$this->module = get_enum_input( $input, 'module', array_keys( get_jetpack_site_modules( $this->site->ID ) ?? array() ), fn() => $this->prompt_module_input( $input, $output ) );
 		$input->setArgument( 'module', $this->module );
 
-		$this->status = get_enum_input( $input, $output, 'status', array( 'on', 'off' ), fn() => $this->prompt_status_input( $input, $output ), 'on' );
+		$this->status = get_enum_input( $input, 'status', array( 'on', 'off' ), fn() => $this->prompt_status_input( $input, $output ), 'on' );
 		$input->setArgument( 'status', $this->status );
 	}
 

@@ -108,7 +108,7 @@ final class Pressable_Site_Clone extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->site = get_pressable_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
+		$this->site = get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
 		$input->setArgument( 'site', $this->site );
 
 		$this->site_root_name = get_pressable_site_root_name( $this->site->id );
@@ -142,17 +142,17 @@ final class Pressable_Site_Clone extends Command {
 				exit( 1 );
 			}
 
-			$this->gh_repo_branch = get_string_input( $input, $output, 'branch', fn() => $this->prompt_branch_input( $input, $output ) );
+			$this->gh_repo_branch = get_string_input( $input, 'branch', fn() => $this->prompt_branch_input( $input, $output ) );
 			$input->setOption( 'branch', $this->gh_repo_branch );
 		}
 
-		$this->label = slugify( get_string_input( $input, $output, 'label', fn() => $this->prompt_label_input( $input, $output ) ) );
+		$this->label = slugify( get_string_input( $input, 'label', fn() => $this->prompt_label_input( $input, $output ) ) );
 		$input->setArgument( 'label', $this->label );
 
-		$this->datacenter = get_enum_input( $input, $output, 'datacenter', array_keys( get_pressable_datacenters() ), fn() => $this->prompt_datacenter_input( $input, $output ), $this->site->datacenterCode );
+		$this->datacenter = get_enum_input( $input, 'datacenter', array_keys( get_pressable_datacenters() ), fn() => $this->prompt_datacenter_input( $input, $output ), $this->site->datacenterCode );
 		$input->setOption( 'datacenter', $this->datacenter );
 
-		$this->skip_safety_net = get_bool_input( $input, $output, 'skip-safety-net' );
+		$this->skip_safety_net = get_bool_input( $input, 'skip-safety-net' );
 		$input->setOption( 'skip-safety-net', $this->skip_safety_net );
 	}
 

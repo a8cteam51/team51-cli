@@ -62,7 +62,7 @@ final class WPCOM_Site_WP_CLI_Command_Run extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->site = get_wpcom_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
+		$this->site = get_wpcom_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
 		$input->setArgument( 'site', $this->site );
 
 		if ( ! $this->site->is_wpcom_atomic ) {
@@ -70,14 +70,14 @@ final class WPCOM_Site_WP_CLI_Command_Run extends Command {
 			exit( 1 );
 		}
 
-		$this->wp_command = get_string_input( $input, $output, 'wp-cli-command', fn() => $this->prompt_command_input( $input, $output ) );
+		$this->wp_command = get_string_input( $input, 'wp-cli-command', fn() => $this->prompt_command_input( $input, $output ) );
 		$this->wp_command = \trim( \preg_replace( '/^wp/', '', \trim( $this->wp_command ) ) );
 		if ( false === \str_contains( $this->wp_command, 'eval' ) ) {
 			$this->wp_command = \escapeshellcmd( $this->wp_command );
 		}
 		$input->setArgument( 'wp-cli-command', $this->wp_command );
 
-		$this->skip_output = get_bool_input( $input, $output, 'skip-output' );
+		$this->skip_output = get_bool_input( $input, 'skip-output' );
 	}
 
 	/**

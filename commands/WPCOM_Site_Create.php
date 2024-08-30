@@ -54,10 +54,10 @@ final class WPCOM_Site_Create extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->name = str_replace( '-', '', slugify( get_string_input( $input, $output, 'name', fn() => $this->prompt_name_input( $input, $output ) ) ) ); // No dashes allowed in site names.
+		$this->name = str_replace( '-', '', slugify( get_string_input( $input, 'name', fn() => $this->prompt_name_input( $input, $output ) ) ) ); // No dashes allowed in site names.
 		$input->setArgument( 'name', $this->name );
 
-		$repository          = maybe_get_string_input( $input, $output, 'repository', fn() => $this->prompt_repository_input( $input, $output ) );
+		$repository          = maybe_get_string_input( $input, 'repository', fn() => $this->prompt_repository_input( $input, $output ) );
 		$this->gh_repository = $repository ? $this->create_or_get_repository( $input, $output, $repository ) : null;
 		$input->setOption( 'repository', $this->gh_repository->name ?? null );
 	}

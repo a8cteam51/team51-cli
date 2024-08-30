@@ -79,19 +79,19 @@ final class WPCOM_Site_Repository_Connect extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->site = get_wpcom_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
+		$this->site = get_wpcom_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
 		$input->setArgument( 'site', $this->site );
 
-		$this->gh_repository = get_github_repository_input( $input, $output, fn() => $this->prompt_repository_input( $input, $output ) );
+		$this->gh_repository = get_github_repository_input( $input, fn() => $this->prompt_repository_input( $input, $output ) );
 		$input->setArgument( 'repository', $this->gh_repository );
 
-		$this->gh_repo_branch = get_string_input( $input, $output, 'branch', fn() => $this->prompt_branch_input( $input, $output ) );
+		$this->gh_repo_branch = get_string_input( $input, 'branch', fn() => $this->prompt_branch_input( $input, $output ) );
 		$input->setOption( 'branch', $this->gh_repo_branch );
 
-		$this->wpcom_target_dir = get_string_input( $input, $output, 'target_dir', fn() => $this->prompt_target_dir_input( $input, $output ) );
+		$this->wpcom_target_dir = get_string_input( $input, 'target_dir', fn() => $this->prompt_target_dir_input( $input, $output ) );
 		$input->setOption( 'target_dir', $this->wpcom_target_dir );
 
-		$this->deploy = get_bool_input( $input, $output, 'deploy' );
+		$this->deploy = get_bool_input( $input, 'deploy' );
 	}
 
 	/**

@@ -73,18 +73,18 @@ final class Pressable_Site_WP_User_Password_Rotate extends Command {
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
 		// Retrieve and validate the modifier options.
-		$this->dry_run  = get_bool_input( $input, $output, 'dry-run' );
-		$this->multiple = get_enum_input( $input, $output, 'multiple', array( 'all', 'related' ) );
+		$this->dry_run  = get_bool_input( $input, 'dry-run' );
+		$this->multiple = get_enum_input( $input, 'multiple', array( 'all', 'related' ) );
 
 		// If processing a given site, retrieve it from the input.
 		$site = match ( $this->multiple ) {
 			'all' => null,
-			default => get_pressable_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) ),
+			default => get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) ),
 		};
 		$input->setArgument( 'site', $site );
 
 		// Retrieve the WP user email.
-		$this->wp_user_email = get_email_input( $input, $output, fn() => $this->prompt_user_input( $input, $output ), 'user' );
+		$this->wp_user_email = get_email_input( $input, fn() => $this->prompt_user_input( $input, $output ), 'user' );
 		$input->setOption( 'user', $this->wp_user_email );
 
 		// Compile the lists of sites to process.

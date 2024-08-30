@@ -72,11 +72,11 @@ final class Pressable_Site_WP_CLI_Command_Run extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->skip_output = get_bool_input( $input, $output, 'skip-output' );
-		$this->multiple    = get_enum_input( $input, $output, 'multiple', array( 'all' ) );
+		$this->skip_output = get_bool_input( $input, 'skip-output' );
+		$this->multiple    = get_enum_input( $input, 'multiple', array( 'all' ) );
 
 		if ( 'all' !== $this->multiple ) {
-			$site = get_pressable_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
+			$site = get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
 			$input->setArgument( 'site', $site );
 
 			$this->sites = array( $site );
@@ -84,7 +84,7 @@ final class Pressable_Site_WP_CLI_Command_Run extends Command {
 			$this->sites = get_pressable_sites();
 		}
 
-		$this->wp_command = get_string_input( $input, $output, 'wp-cli-command', fn() => $this->prompt_command_input( $input, $output ) );
+		$this->wp_command = get_string_input( $input, 'wp-cli-command', fn() => $this->prompt_command_input( $input, $output ) );
 		$this->wp_command = \trim( \preg_replace( '/^wp/', '', \trim( $this->wp_command ) ) );
 		if ( false === \str_contains( $this->wp_command, 'eval' ) ) {
 			$this->wp_command = \escapeshellcmd( $this->wp_command );

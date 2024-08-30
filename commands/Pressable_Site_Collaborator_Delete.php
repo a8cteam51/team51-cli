@@ -67,13 +67,13 @@ final class Pressable_Site_Collaborator_Delete extends Command {
 		$this->delete_wp_user = (bool) $input->getOption( 'delete-wp-user' );
 
 		// Retrieve the collaborator email.
-		$this->email = get_email_input( $input, $output, fn() => $this->prompt_email_input( $input, $output ) );
+		$this->email = get_email_input( $input, fn() => $this->prompt_email_input( $input, $output ) );
 		$input->setArgument( 'email', $this->email );
 
 		// If processing a given site, retrieve it from the input.
-		$multiple = get_enum_input( $input, $output, 'multiple', array( 'all', 'related' ) );
+		$multiple = get_enum_input( $input, 'multiple', array( 'all', 'related' ) );
 		if ( 'all' !== $multiple ) {
-			$site = get_pressable_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
+			$site = get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
 			$input->setArgument( 'site', $site );
 
 			$sites = match ( $multiple ) {

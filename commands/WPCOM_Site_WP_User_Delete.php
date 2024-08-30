@@ -67,13 +67,13 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
 		// Retrieve the user email.
-		$this->email = get_email_input( $input, $output, fn() => $this->prompt_email_input( $input, $output ) );
+		$this->email = get_email_input( $input, fn() => $this->prompt_email_input( $input, $output ) );
 		$input->setArgument( 'email', $this->email );
 
 		// If processing a given site, retrieve it from the input.
-		$multiple = get_enum_input( $input, $output, 'multiple', array( 'all' ) );
+		$multiple = get_enum_input( $input, 'multiple', array( 'all' ) );
 		if ( 'all' !== $multiple ) {
-			$site = get_wpcom_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
+			$site = get_wpcom_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
 			$input->setArgument( 'site', $site );
 
 			$sites = array( $site->ID => $site );

@@ -59,7 +59,7 @@ final class DeployHQ_Project_Private_Key_Rotate extends Command {
 		if ( $this->all ) {
 			$this->projects = get_deployhq_projects();
 		} else {
-			$this->projects = array( get_deployhq_project_input( $input, $output, fn() => $this->prompt_project_input( $input, $output ) ) );
+			$this->projects = array( get_deployhq_project_input( $input, fn() => $this->prompt_project_input( $input, $output ) ) );
 			$input->setArgument( 'project', $this->projects[0] );
 		}
 	}

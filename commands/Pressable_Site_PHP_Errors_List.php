@@ -94,7 +94,7 @@ final class Pressable_Site_PHP_Errors_List extends Command {
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
 		// Retrieve the site(s) to display the errors for.
-		$this->is_audit = get_bool_input( $input, $output, 'audit' );
+		$this->is_audit = get_bool_input( $input, 'audit' );
 
 		if ( $this->is_audit ) {
 			$sites       = get_pressable_sites();
@@ -103,7 +103,7 @@ final class Pressable_Site_PHP_Errors_List extends Command {
 				$sites
 			);
 		} else {
-			$site = get_pressable_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
+			$site = get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
 			$input->setArgument( 'site', $site );
 
 			$this->sites = array( $site->id => $site );
@@ -111,9 +111,9 @@ final class Pressable_Site_PHP_Errors_List extends Command {
 
 		// Retrieve and validate the modifier options.
 		$this->limit    = max( 1, (int) $input->getOption( 'limit' ) );
-		$this->format   = get_enum_input( $input, $output, 'format', array( 'list', 'table', 'raw' ) );
-		$this->severity = get_enum_input( $input, $output, 'severity', array( 'User', 'Warning', 'Deprecated', 'Fatal error' ) );
-		$this->source   = get_enum_input( $input, $output, 'source', array( 'file', 'api', 'auto' ) );
+		$this->format   = get_enum_input( $input, 'format', array( 'list', 'table', 'raw' ) );
+		$this->severity = get_enum_input( $input, 'severity', array( 'User', 'Warning', 'Deprecated', 'Fatal error' ) );
+		$this->source   = get_enum_input( $input, 'source', array( 'file', 'api', 'auto' ) );
 	}
 
 	/**

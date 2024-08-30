@@ -44,7 +44,10 @@ final class WPCOM_Sites_With_Sticker_List extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->sticker = get_team51_sticker_input( $input, $output, 'sticker', fn () => $this->prompt_sticker_input( $input, $output ) );
+		$this->sticker = get_string_input( $input, 'sticker', fn () => $this->prompt_sticker_input( $input, $output ) );
+		if ( ! \str_starts_with( $this->sticker, 'team-51-' ) ) {
+			$this->sticker = 'team-51-' . $this->sticker;
+		}
 		$input->setArgument( 'sticker', $this->sticker );
 	}
 

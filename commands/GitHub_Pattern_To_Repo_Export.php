@@ -58,18 +58,18 @@ final class GitHub_Pattern_To_Repo_Export extends Command {
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
 
 		// Retrieve the given site.
-		$this->pressable_site = get_pressable_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
+		$this->pressable_site = get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
 		$output->writeln( "<comment>Site {$this->pressable_site->id}: {$this->pressable_site->url}</comment>", Output::VERBOSITY_VERBOSE );
 
 		// Store the ID of the site in the argument field.
 		$input->setArgument( 'site', $this->pressable_site->id );
 
 		// Check if the pattern name was already provided as an argument. If not, prompt the user for it.
-		$this->pattern_name = get_string_input( $input, $output, 'pattern-name', fn() => $this->prompt_pattern_name_input( $input, $output ) );
+		$this->pattern_name = get_string_input( $input, 'pattern-name', fn() => $this->prompt_pattern_name_input( $input, $output ) );
 		$output->writeln( "<comment>Pattern name: {$this->pattern_name}</comment>", Output::VERBOSITY_DEBUG );
 
 		// Check if the category slug was already provided as an argument. If not, prompt the user for it.
-		$this->category_slug = slugify( get_string_input( $input, $output, 'category-slug', fn() => $this->prompt_category_slug_input( $input, $output ) ) );
+		$this->category_slug = slugify( get_string_input( $input, 'category-slug', fn() => $this->prompt_category_slug_input( $input, $output ) ) );
 		$output->writeln( "<comment>Category slug: {$this->category_slug}</comment>", Output::VERBOSITY_VERBOSE );
 	}
 

@@ -138,12 +138,12 @@ final class WPCOM_Sites_List extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->audit_type = maybe_get_string_input( $input, $output, 'audit', fn() => $this->prompt_audit_input( $input, $output ) );
+		$this->audit_type = maybe_get_string_input( $input, 'audit', fn() => $this->prompt_audit_input( $input, $output ) );
 		$input->setOption( 'audit', $this->audit_type );
 
 		// Open the destination file if provided.
-		$this->format      = get_enum_input( $input, $output, 'export-format', array( 'json', 'csv' ) );
-		$this->destination = maybe_get_string_input( $input, $output, 'export', fn() => $this->prompt_destination_input( $input, $output ) );
+		$this->format      = get_enum_input( $input, 'export-format', array( 'json', 'csv' ) );
+		$this->destination = maybe_get_string_input( $input, 'export', fn() => $this->prompt_destination_input( $input, $output ) );
 		if ( ! empty( $this->destination ) ) {
 			$this->export_excluded_columns = $input->getOption( 'export-exclude' ) ?: $this->prompt_export_excluded_columns_input( $input, $output );
 			$input->setOption( 'export-exclude', $this->export_excluded_columns );

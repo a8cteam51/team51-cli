@@ -60,10 +60,10 @@ final class Jetpack_Module_Search extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->module = get_enum_input( $input, $output, 'module', \array_keys( get_jetpack_modules() ?? array() ), fn() => $this->prompt_module_input( $input, $output ) );
+		$this->module = get_enum_input( $input, 'module', \array_keys( get_jetpack_modules() ?? array() ), fn() => $this->prompt_module_input( $input, $output ) );
 		$input->setArgument( 'module', $this->module );
 
-		$this->status = get_enum_input( $input, $output, 'status', array( 'on', 'off' ), fn() => $this->prompt_status_input( $input, $output ), 'on' );
+		$this->status = get_enum_input( $input, 'status', array( 'on', 'off' ), fn() => $this->prompt_status_input( $input, $output ), 'on' );
 		$input->setOption( 'status', $this->status );
 
 		$this->sites = get_wpcom_jetpack_sites();

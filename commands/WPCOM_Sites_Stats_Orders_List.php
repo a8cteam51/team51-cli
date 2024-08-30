@@ -125,14 +125,14 @@ final class WPCOM_Sites_Stats_Orders_List extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->unit = get_enum_input( $input, $output, 'unit', $this->unit_choices, fn() => $this->prompt_unit_input( $input, $output ) );
+		$this->unit = get_enum_input( $input, 'unit', $this->unit_choices, fn() => $this->prompt_unit_input( $input, $output ) );
 		$input->setOption( 'unit', $this->unit );
 
-		$this->date = get_date_input( $input, $output, $this->date_format_choices[ $this->unit ], fn() => $this->prompt_date_input( $input, $output ) );
+		$this->date = get_date_input( $input, $this->date_format_choices[ $this->unit ], fn() => $this->prompt_date_input( $input, $output ) );
 		$input->setOption( 'date', $this->date );
 
 		// Open the destination file if provided.
-		$this->destination = maybe_get_string_input( $input, $output, 'export', fn() => $this->prompt_destination_input( $input, $output ) );
+		$this->destination = maybe_get_string_input( $input, 'export', fn() => $this->prompt_destination_input( $input, $output ) );
 		if ( ! empty( $this->destination ) ) {
 			$this->stream = get_file_handle( $this->destination, 'csv' );
 		}

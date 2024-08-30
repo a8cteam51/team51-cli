@@ -53,10 +53,10 @@ final class DeployHQ_Project_Repository_Connect extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->project = get_deployhq_project_input( $input, $output, fn() => $this->prompt_project_input( $input, $output ) );
+		$this->project = get_deployhq_project_input( $input, fn() => $this->prompt_project_input( $input, $output ) );
 		$input->setArgument( 'project', $this->project );
 
-		$this->gh_repository = get_github_repository_input( $input, $output, fn() => $this->prompt_repository_input( $input, $output ) );
+		$this->gh_repository = get_github_repository_input( $input, fn() => $this->prompt_repository_input( $input, $output ) );
 		$input->setArgument( 'repository', $this->gh_repository );
 	}
 

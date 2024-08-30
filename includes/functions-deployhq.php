@@ -160,20 +160,18 @@ function create_deployhq_project_server( string $project, string $name, array $p
 /**
  * Grabs a value from the console input and validates it as a valid identifier for a DeployHQ project.
  *
- * @param   InputInterface  $input         The console input.
- * @param   OutputInterface $output        The console output.
- * @param   callable|null   $no_input_func The function to call if no input is given.
- * @param   string          $name          The name of the value to grab.
+ * @param   InputInterface $input         The console input.
+ * @param   callable|null  $no_input_func The function to call if no input is given.
+ * @param   string         $name          The name of the value to grab.
  *
  * @return  stdClass
  */
-function get_deployhq_project_input( InputInterface $input, OutputInterface $output, ?callable $no_input_func = null, string $name = 'project' ): stdClass {
-	$permalink = get_string_input( $input, $output, $name, $no_input_func );
+function get_deployhq_project_input( InputInterface $input, ?callable $no_input_func = null, string $name = 'project' ): stdClass {
+	$permalink = get_string_input( $input, $name, $no_input_func );
 
 	$project = get_deployhq_project( $permalink );
 	if ( is_null( $project ) ) {
-		$output->writeln( '<error>Invalid project. Aborting!</error>' );
-		exit( 1 );
+		throw new InvalidArgumentException( 'Invalid DeployHQ project.' );
 	}
 
 	return $project;

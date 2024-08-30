@@ -598,20 +598,18 @@ function run_wpcom_site_wp_cli_command( string $site_id_or_url, string $wp_cli_c
 /**
  * Grabs a value from the console input and validates it as a valid identifier for a WPCOM site.
  *
- * @param   InputInterface  $input         The console input.
- * @param   OutputInterface $output        The console output.
- * @param   callable|null   $no_input_func The function to call if no input is given.
- * @param   string          $name          The name of the value to grab.
+ * @param   InputInterface $input         The console input.
+ * @param   callable|null  $no_input_func The function to call if no input is given.
+ * @param   string         $name          The name of the value to grab.
  *
  * @return  stdClass
  */
-function get_wpcom_site_input( InputInterface $input, OutputInterface $output, ?callable $no_input_func = null, string $name = 'site' ): stdClass {
-	$site_id_or_url = get_site_input( $input, $output, $no_input_func, $name );
+function get_wpcom_site_input( InputInterface $input, ?callable $no_input_func = null, string $name = 'site' ): stdClass {
+	$site_id_or_url = get_site_input( $input, $no_input_func, $name );
 
 	$wpcom_site = get_wpcom_site( $site_id_or_url );
 	if ( is_null( $wpcom_site ) ) {
-		$output->writeln( '<error>Invalid site. Aborting!</error>' );
-		exit( 1 );
+		throw new InvalidArgumentException( 'Invalid WPCOM site.' );
 	}
 
 	return $wpcom_site;
@@ -653,4 +651,5 @@ function maybe_output_wpcom_failed_sites_table( OutputInterface $output, array $
 		$header_title
 	);
 }
+
 // endregion

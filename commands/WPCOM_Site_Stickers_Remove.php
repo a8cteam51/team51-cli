@@ -53,10 +53,10 @@ final class WPCOM_Site_Stickers_Remove extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->site = get_wpcom_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
+		$this->site = get_wpcom_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
 		$input->setArgument( 'site', $this->site );
 
-		$this->sticker = get_string_input( $input, $output, 'sticker', fn() => $this->prompt_sticker_input( $input, $output ) );
+		$this->sticker = get_string_input( $input, 'sticker', fn() => $this->prompt_sticker_input( $input, $output ) );
 		$input->setArgument( 'sticker', $this->sticker );
 	}
 

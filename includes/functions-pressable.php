@@ -515,20 +515,18 @@ function output_pressable_related_sites( OutputInterface $output, array $sites, 
 /**
  * Grabs a value from the console input and validates it as a valid identifier for a Pressable site.
  *
- * @param   InputInterface  $input         The console input.
- * @param   OutputInterface $output        The console output.
- * @param   callable|null   $no_input_func The function to call if no input is given.
- * @param   string          $name          The name of the value to grab.
+ * @param   InputInterface $input         The console input.
+ * @param   callable|null  $no_input_func The function to call if no input is given.
+ * @param   string         $name          The name of the value to grab.
  *
  * @return  stdClass
  */
-function get_pressable_site_input( InputInterface $input, OutputInterface $output, ?callable $no_input_func = null, string $name = 'site' ): stdClass {
-	$id_or_url = get_site_input( $input, $output, $no_input_func, $name );
+function get_pressable_site_input( InputInterface $input, ?callable $no_input_func = null, string $name = 'site' ): stdClass {
+	$id_or_url = get_site_input( $input, $no_input_func, $name );
 
 	$site = get_pressable_site( $id_or_url );
 	if ( is_null( $site ) ) {
-		$output->writeln( '<error>Invalid site. Aborting!</error>' );
-		exit( 1 );
+		throw new InvalidArgumentException( 'Invalid Pressable site.' );
 	}
 
 	return $site;
@@ -537,21 +535,19 @@ function get_pressable_site_input( InputInterface $input, OutputInterface $outpu
 /**
  * Grabs a value from the console input and validates it as a valid identifier for a Pressable site SFTP user.
  *
- * @param   InputInterface  $input         The console input.
- * @param   OutputInterface $output        The console output.
- * @param   string          $site_id       The ID of the site to retrieve the SFTP user from.
- * @param   callable|null   $no_input_func The function to call if no input is given.
- * @param   string          $name          The name of the value to grab.
+ * @param   InputInterface $input         The console input.
+ * @param   string         $site_id       The ID of the site to retrieve the SFTP user from.
+ * @param   callable|null  $no_input_func The function to call if no input is given.
+ * @param   string         $name          The name of the value to grab.
  *
  * @return  stdClass
  */
-function get_pressable_site_sftp_user_input( InputInterface $input, OutputInterface $output, string $site_id, ?callable $no_input_func = null, string $name = 'user' ): stdClass {
-	$uname_or_id_or_email = get_string_input( $input, $output, $name, $no_input_func );
+function get_pressable_site_sftp_user_input( InputInterface $input, string $site_id, ?callable $no_input_func = null, string $name = 'user' ): stdClass {
+	$uname_or_id_or_email = get_string_input( $input, $name, $no_input_func );
 	$sftp_user            = get_pressable_site_sftp_user( $site_id, $uname_or_id_or_email );
 
 	if ( is_null( $sftp_user ) ) {
-		$output->writeln( '<error>Invalid SFTP user. Aborting!</error>' );
-		exit( 1 );
+		throw new InvalidArgumentException( 'Invalid SFTP user.' );
 	}
 
 	return $sftp_user;

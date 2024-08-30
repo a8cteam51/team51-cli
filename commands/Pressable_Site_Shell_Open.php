@@ -59,10 +59,10 @@ final class Pressable_Site_Shell_Open extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->site = get_pressable_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
+		$this->site = get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
 		$input->setArgument( 'site', $this->site );
 
-		$this->shell_type = get_enum_input( $input, $output, 'shell-type', array( 'ssh', 'sftp' ), null, 'ssh' );
+		$this->shell_type = get_enum_input( $input, 'shell-type', array( 'ssh', 'sftp' ), null, 'ssh' );
 		$input->setOption( 'shell-type', $this->shell_type );
 
 		$this->email = OPSOASIS_WP_USERNAME;

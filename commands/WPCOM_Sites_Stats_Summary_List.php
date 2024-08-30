@@ -116,17 +116,17 @@ final class WPCOM_Sites_Stats_Summary_List extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->num = abs( (int) get_string_input( $input, $output, 'num', fn() => $this->prompt_num_input( $input, $output ) ) );
+		$this->num = abs( (int) get_string_input( $input, 'num', fn() => $this->prompt_num_input( $input, $output ) ) );
 		$input->setOption( 'num', $this->num );
 
-		$this->date = get_date_input( $input, $output, 'Y-m-d', fn() => $this->prompt_date_input( $input, $output ) );
+		$this->date = get_date_input( $input, 'Y-m-d', fn() => $this->prompt_date_input( $input, $output ) );
 		$input->setOption( 'date', $this->date );
 
-		$this->period = get_enum_input( $input, $output, 'period', $this->period_choices, fn() => $this->prompt_period_input( $input, $output ), $this->period_choices[0] );
+		$this->period = get_enum_input( $input, 'period', $this->period_choices, fn() => $this->prompt_period_input( $input, $output ), $this->period_choices[0] );
 		$input->setOption( 'period', $this->period );
 
 		// Open the destination file if provided.
-		$this->destination = maybe_get_string_input( $input, $output, 'export', fn() => $this->prompt_destination_input( $input, $output ) );
+		$this->destination = maybe_get_string_input( $input, 'export', fn() => $this->prompt_destination_input( $input, $output ) );
 		if ( ! empty( $this->destination ) ) {
 			$this->stream = get_file_handle( $this->destination, 'csv' );
 		}

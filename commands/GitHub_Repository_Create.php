@@ -79,13 +79,13 @@ final class GitHub_Repository_Create extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->name = slugify( get_string_input( $input, $output, 'name', fn() => $this->prompt_name_input( $input, $output ) ) );
+		$this->name = slugify( get_string_input( $input, 'name', fn() => $this->prompt_name_input( $input, $output ) ) );
 		$input->setArgument( 'name', $this->name );
 
 		$this->homepage    = $input->getOption( 'homepage' );
 		$this->description = $input->getOption( 'description' );
 
-		$this->type = get_enum_input( $input, $output, 'type', array( 'project', 'plugin', 'issues' ), fn() => $this->prompt_type_input( $input, $output ) );
+		$this->type = get_enum_input( $input, 'type', array( 'project', 'plugin', 'issues' ), fn() => $this->prompt_type_input( $input, $output ) );
 		$input->setOption( 'type', $this->type );
 
 		$this->custom_properties = $this->process_custom_properties( $input );
