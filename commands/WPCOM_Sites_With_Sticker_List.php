@@ -69,7 +69,7 @@ final class WPCOM_Sites_With_Sticker_List extends Command {
 				array( 'Blog ID' ),
 			);
 
-			$output->writeln( sprintf( "<fg=magenta;options=bold>Found <fg=yellow>%d</> sites with <fg=yellow>%s</>.</>", count( $sites ), $this->sticker ) );
+			$output->writeln( sprintf( '<fg=magenta;options=bold>Found <fg=yellow>%d</> sites with <fg=yellow>%s</>.</>', count( $sites ), $this->sticker ) );
 		}
 
 		return Command::SUCCESS;
