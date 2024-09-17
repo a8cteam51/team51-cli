@@ -113,8 +113,17 @@ final class Pressable_Site_Clone extends Command {
 
 		$this->site_root_name = get_pressable_site_root_name( $this->site->id );
 		if ( \is_null( $this->site_root_name ) ) {
-			$output->writeln( '<error>Failed to get the root name of the site. Aborting!</error>' );
-			exit( 1 );
+			$output->writeln( '<error>Failed to get the root name of the site.</error>' );
+
+			$site_root_name = \str_replace( '-production', '', $this->site->name );
+
+			$question = new ConfirmationQuestion( "<question>Do you want to continue with the root name `$site_root_name`? [y/N]</question> ", false );
+			if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
+				$output->writeln( '<comment>Command aborted by user.</comment>' );
+				exit( 1 );
+			}
+
+			$this->site_root_name = $site_root_name;
 		}
 
 		$deployhq_config = get_pressable_site_deployhq_config( $this->site->id );
