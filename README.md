@@ -43,7 +43,7 @@ Be well, be kind, make things and set them free.
 1. Make sure [1Password CLI](https://developer.1password.com/docs/cli/get-started/) is installed on your computer.
 	- The easiest way to install 1Password CLI is by running `brew install --cask 1password/tap/1password-cli`.
 	- The terminal will ask you for a password which should be the same one you use to log in into your computer. After typing it in, hit `Enter`.
-	- After installation, [turn on biometric unlocking](https://developer.1password.com/docs/cli/get-started/#turn-on-biometric-unlock) to link your existing accounts with the CLI tool, and for convenient unlocking of your vaults later on.
+	- After installation, [integrate 1Password with the CLI](https://developer.1password.com/docs/cli/sign-in-sso/#step-1-connect-1password-cli-with-the-1password-app) to link your existing accounts with the CLI tool and for convenient unlocking of your vaults later.
 	- Run a simple command, like `op vault ls`, to verify that it works and to select your default account (select the Team51 account if you have more than one).
 1. Now let's install the CLI! `cd` to the `team51-cli` directory and run `./install-osx`.
 	- If you get an error `no such file or directory: ./install-osx`, try running `cd team51-cli` first.
