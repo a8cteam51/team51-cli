@@ -1,6 +1,5 @@
 <?php
 
-use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Exception\ExceptionInterface;
 use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Input\ArrayInput;
@@ -48,7 +47,7 @@ function get_remote_content( string $url, array $headers = array(), string $meth
 
 	return array(
 		'headers' => parse_http_headers( $http_response_header ),
-		'body'    => '' === $result ? null : decode_json_content( $result ),
+		'body'    => $result,
 	);
 }
 
@@ -253,67 +252,59 @@ function console_writeln( string $message, int $verbosity = 0 ): void {
 }
 
 /**
- * Grabs a value from the console input. Allows for a null value if no input is given.
+ * Grabs a value from the provided input. Allows for a null value if no input is given.
  *
- * @param   InputInterface  $input         The input instance.
- * @param   OutputInterface $output        The output instance.
- * @param   string          $name          The name of the value to grab.
- * @param   callable|null   $no_input_func The function to call if no input is given.
+ * @param   InputInterface $input         The input instance. Most likely the console input.
+ * @param   string         $name          The name of the value to grab.
+ * @param   callable|null  $no_input_func The function to call if no input is given.
  *
  * @return  string|null
  */
-function maybe_get_string_input( InputInterface $input, OutputInterface $output, string $name, ?callable $no_input_func = null ): ?string {
+function maybe_get_string_input( InputInterface $input, string $name, ?callable $no_input_func = null ): ?string {
 	$string = $input->hasOption( $name ) ? $input->getOption( $name ) : $input->getArgument( $name );
-
-	// If we don't have a value, prompt for one.
-	if ( empty( $string ) && is_callable( $no_input_func ) ) {
-		$string = $no_input_func( $input, $output );
+	if ( empty( $string ) && is_callable( $no_input_func ) ) { // If we don't have a value, auto-generate or prompt for one.
+		$string = $no_input_func();
 	}
 
 	return empty( $string ) ? null : $string;
 }
 
 /**
- * Grabs a value from the console input. Exits if no input is given.
+ * Grabs a value from the provided input. Throws an exception if no input is given.
  *
- * @param   InputInterface  $input         The input instance.
- * @param   OutputInterface $output        The output instance.
- * @param   string          $name          The name of the value to grab.
- * @param   callable|null   $no_input_func The function to call if no input is given.
+ * @param   InputInterface $input         The input instance.
+ * @param   string         $name          The name of the value to grab.
+ * @param   callable|null  $no_input_func The function to call if no input is given.
  *
  * @return  string
  */
-function get_string_input( InputInterface $input, OutputInterface $output, string $name, ?callable $no_input_func = null ): string {
-	$string = maybe_get_string_input( $input, $output, $name, $no_input_func );
-
+function get_string_input( InputInterface $input, string $name, ?callable $no_input_func = null ): string {
+	$string = maybe_get_string_input( $input, $name, $no_input_func );
 	if ( empty( $string ) ) {
-		$output->writeln( "<error>No value was provided for the '$name' input. Aborting!</error>" );
-		exit( 1 );
+		throw new InvalidArgumentException( "No value was provided for the `$name` input." );
 	}
 
 	return $string;
 }
 
 /**
- * Grabs a value from the console input and validates it against a list of allowed values.
+ * Grabs a value from the provided input and validates it against a list of allowed values.
  *
- * @param   InputInterface  $input         The input instance.
- * @param   OutputInterface $output        The output instance.
- * @param   string          $name          The name of the value to grab.
- * @param   string[]        $valid_values  The valid values for the option.
- * @param   callable|null   $no_input_func The function to call if no input is given.
- * @param   string|null     $default_value The default value for the option.
+ * @param   InputInterface $input         The input instance.
+ * @param   string         $name          The name of the value to grab.
+ * @param   string[]       $valid_values  The valid values for the option.
+ * @param   callable|null  $no_input_func The function to call if no input is given.
+ * @param   string|null    $default_value The default value for the option.
  *
  * @return  string|null
  */
-function get_enum_input( InputInterface $input, OutputInterface $output, string $name, array $valid_values, ?callable $no_input_func = null, ?string $default_value = null ): ?string {
-	$option = maybe_get_string_input( $input, $output, $name, $no_input_func );
+function get_enum_input( InputInterface $input, string $name, array $valid_values, ?callable $no_input_func = null, ?string $default_value = null ): ?string {
+	$option = maybe_get_string_input( $input, $name, $no_input_func );
 
 	if ( $option !== $default_value ) {
 		foreach ( (array) $option as $value ) {
 			if ( ! in_array( $value, $valid_values, false ) ) { // phpcs:ignore WordPress.PHP.StrictInArray.FoundNonStrictFalse
-				$output->writeln( "<error>Invalid value for input '$name': $value</error>" );
-				exit( 1 );
+				throw new InvalidArgumentException( "Invalid value for input `$name`: $value" );
 			}
 		}
 	}
@@ -324,13 +315,12 @@ function get_enum_input( InputInterface $input, OutputInterface $output, string 
 /**
  * Grabs a value from the console input and validates it as a boolean.
  *
- * @param   InputInterface  $input  The console input.
- * @param   OutputInterface $output The console output.
- * @param   string          $name   The name of the value to grab.
+ * @param   InputInterface $input The console input.
+ * @param   string         $name  The name of the value to grab.
  *
  * @return  boolean
  */
-function get_bool_input( InputInterface $input, OutputInterface $output, string $name ): bool {
+function get_bool_input( InputInterface $input, string $name ): bool {
 	$option = $input->hasOption( $name ) ? $input->getOption( $name ) : $input->getArgument( $name );
 	return filter_var( $option, FILTER_VALIDATE_BOOLEAN );
 }
@@ -338,19 +328,16 @@ function get_bool_input( InputInterface $input, OutputInterface $output, string 
 /**
  * Grabs a value from the console input and validates it as an email.
  *
- * @param   InputInterface  $input         The console input.
- * @param   OutputInterface $output        The console output.
- * @param   callable|null   $no_input_func The function to call if no input is given.
- * @param   string          $name          The name of the value to grab.
+ * @param   InputInterface $input         The console input.
+ * @param   callable|null  $no_input_func The function to call if no input is given.
+ * @param   string         $name          The name of the value to grab.
  *
  * @return  string
  */
-function get_email_input( InputInterface $input, OutputInterface $output, ?callable $no_input_func = null, string $name = 'email' ): string {
-	$email = get_string_input( $input, $output, $name, $no_input_func );
-
+function get_email_input( InputInterface $input, ?callable $no_input_func = null, string $name = 'email' ): string {
+	$email = get_string_input( $input, $name, $no_input_func );
 	if ( false === filter_var( $email, FILTER_VALIDATE_EMAIL ) ) {
-		$output->writeln( '<error>The provided email is invalid. Aborting!</error>' );
-		exit( 1 );
+		throw new InvalidArgumentException( "The provided email is invalid: $email" );
 	}
 
 	return $email;
@@ -359,39 +346,29 @@ function get_email_input( InputInterface $input, OutputInterface $output, ?calla
 /**
  * Grabs a value from the console input and validates it as a date.
  *
- * @param   InputInterface  $input         The console input.
- * @param   OutputInterface $output        The console output.
- * @param   string          $format        The expected date format.
- * @param   callable|null   $no_input_func The function to call if no input is given.
- * @param   string          $name          The name of the value to grab.
+ * @param   InputInterface $input         The console input.
+ * @param   string         $format        The expected date format.
+ * @param   callable|null  $no_input_func The function to call if no input is given.
+ * @param   string         $name          The name of the value to grab.
  *
  * @return  string
  */
-function get_date_input( InputInterface $input, OutputInterface $output, string $format, ?callable $no_input_func = null, string $name = 'date' ): string {
-	$date = get_string_input( $input, $output, $name, $no_input_func );
-
-	try {
-		$date = validate_date_format( $date, $format );
-	} catch ( RuntimeException $exception ) {
-		$output->writeln( "<error>{$exception->getMessage()}. Aborting!</error>" );
-		exit( 1 );
-	}
-
-	return $date;
+function get_date_input( InputInterface $input, string $format, ?callable $no_input_func = null, string $name = 'date' ): string {
+	$date = get_string_input( $input, $name, $no_input_func );
+	return validate_date_format( $date, $format );
 }
 
 /**
  * Grabs a value from the console input and validates it as a domain.
  *
- * @param   InputInterface  $input         The console input.
- * @param   OutputInterface $output        The console output.
- * @param   callable|null   $no_input_func The function to call if no input is given.
- * @param   string          $name          The name of the value to grab.
+ * @param   InputInterface $input         The console input.
+ * @param   callable|null  $no_input_func The function to call if no input is given.
+ * @param   string         $name          The name of the value to grab.
  *
  * @return  string
  */
-function get_domain_input( InputInterface $input, OutputInterface $output, ?callable $no_input_func = null, string $name = 'domain' ): string {
-	$domain = get_string_input( $input, $output, $name, $no_input_func );
+function get_domain_input( InputInterface $input, ?callable $no_input_func = null, string $name = 'domain' ): string {
+	$domain = get_string_input( $input, $name, $no_input_func );
 
 	if ( \str_contains( $domain, 'http' ) ) {
 		$domain = \parse_url( $domain, PHP_URL_HOST );
@@ -400,8 +377,7 @@ function get_domain_input( InputInterface $input, OutputInterface $output, ?call
 	}
 
 	if ( empty( $domain ) ) {
-		$output->writeln( '<error>No domain was provided or domain is invalid. Aborting!</error>' );
-		exit( 1 );
+		throw new InvalidArgumentException( 'No domain was provided or domain is invalid.' );
 	}
 
 	return \strtolower( $domain );
@@ -410,46 +386,23 @@ function get_domain_input( InputInterface $input, OutputInterface $output, ?call
 /**
  * Grabs a value from the console input and validates it as a URL or a numeric string.
  *
- * @param   InputInterface  $input         The console input.
- * @param   OutputInterface $output        The console output.
- * @param   callable|null   $no_input_func The function to call if no input is given.
- * @param   string          $name          The name of the value to grab.
+ * @param   InputInterface $input         The console input.
+ * @param   callable|null  $no_input_func The function to call if no input is given.
+ * @param   string         $name          The name of the value to grab.
  *
  * @return  string
  */
-function get_site_input( InputInterface $input, OutputInterface $output, ?callable $no_input_func = null, string $name = 'site' ): string {
-	$site_id_or_url = get_string_input( $input, $output, $name, $no_input_func );
+function get_site_input( InputInterface $input, ?callable $no_input_func = null, string $name = 'site' ): string {
+	$site_id_or_url = get_string_input( $input, $name, $no_input_func );
 
 	if ( str_contains( $site_id_or_url, 'http' ) ) {
 		$site_id_or_url = parse_url( $site_id_or_url, PHP_URL_HOST );
 		if ( false === $site_id_or_url ) {
-			$output->writeln( '<error>Invalid URL provided. Aborting!</error>' );
-			exit( 1 );
+			throw new InvalidArgumentException( 'Invalid URL provided.' );
 		}
 	}
 
 	return $site_id_or_url;
-}
-
-/**
- * Grabs a value from the console input and validates it as a numeric string or an email.
- *
- * @param   InputInterface  $input         The console input.
- * @param   OutputInterface $output        The console output.
- * @param   callable|null   $no_input_func The function to call if no input is given.
- * @param   string          $name          The name of the value to grab.
- *
- * @return  string
- */
-function get_user_input( InputInterface $input, OutputInterface $output, ?callable $no_input_func = null, string $name = 'user' ): string {
-	$user = get_string_input( $input, $output, $name, $no_input_func );
-
-	if ( ! is_numeric( $user ) && false === filter_var( $user, FILTER_VALIDATE_EMAIL ) ) {
-		$output->writeln( '<error>The provided user is invalid. Aborting!</error>' );
-		exit( 1 );
-	}
-
-	return $user;
 }
 
 /**
@@ -475,7 +428,7 @@ function validate_user_choice( mixed $value, array $choices ): mixed {
  * @param string $date_string The date string input by the user.
  * @param string $format      The expected date format.
  *
- * @throws  \RuntimeException If the date does not match the format.
+ * @throws  \InvalidArgumentException If the date does not match the format.
  * @return  string
  */
 function validate_date_format( string $date_string, string $format ): string {
@@ -492,7 +445,7 @@ function validate_date_format( string $date_string, string $format ): string {
 	}
 
 	if ( ! $date || $date->format( $format ) !== $date_string ) {
-		throw new \RuntimeException( "The provided date is invalid. Expected format: $format" );
+		throw new \InvalidArgumentException( "The provided date is invalid. Expected format: $format" );
 	}
 
 	return $date_string;

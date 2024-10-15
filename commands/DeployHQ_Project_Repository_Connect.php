@@ -53,10 +53,10 @@ final class DeployHQ_Project_Repository_Connect extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->project = get_deployhq_project_input( $input, $output, fn() => $this->prompt_project_input( $input, $output ) );
+		$this->project = get_deployhq_project_input( $input, fn() => $this->prompt_project_input( $input, $output ) );
 		$input->setArgument( 'project', $this->project );
 
-		$this->gh_repository = get_github_repository_input( $input, $output, fn() => $this->prompt_repository_input( $input, $output ) );
+		$this->gh_repository = get_github_repository_input( $input, fn() => $this->prompt_repository_input( $input, $output ) );
 		$input->setArgument( 'repository', $this->gh_repository );
 	}
 
@@ -114,7 +114,9 @@ final class DeployHQ_Project_Repository_Connect extends Command {
 	 */
 	private function prompt_project_input( InputInterface $input, OutputInterface $output ): string {
 		$question = new Question( '<question>Enter the slug of the project to connect:</question> ' );
-		$question->setAutocompleterValues( array_column( get_deployhq_projects() ?? array(), 'permalink' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array_column( get_deployhq_projects() ?? array(), 'permalink' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
@@ -129,7 +131,9 @@ final class DeployHQ_Project_Repository_Connect extends Command {
 	 */
 	private function prompt_repository_input( InputInterface $input, OutputInterface $output ): string {
 		$question = new Question( '<question>Enter the slug of the repository to connect:</question> ' );
-		$question->setAutocompleterValues( array_column( get_github_repositories() ?? array(), 'name' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array_column( get_github_repositories() ?? array(), 'name' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

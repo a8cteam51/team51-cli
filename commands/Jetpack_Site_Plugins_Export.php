@@ -70,13 +70,13 @@ final class Jetpack_Site_Plugins_Export extends Command {
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
 		// Open the destination file for writing.
-		$this->destination = get_string_input( $input, $output, 'destination', fn() => $this->prompt_destination_input( $input, $output ) );
+		$this->destination = get_string_input( $input, 'destination', fn() => $this->prompt_destination_input( $input, $output ) );
 		$this->stream      = get_file_handle( $this->destination, 'csv' );
 
 		// If processing a given site, retrieve it from the input.
-		$multiple = get_enum_input( $input, $output, 'multiple', array( 'all' ) );
+		$multiple = get_enum_input( $input, 'multiple', array( 'all' ) );
 		if ( 'all' !== $multiple ) {
-			$site = get_wpcom_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
+			$site = get_wpcom_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
 			$input->setArgument( 'site', $site );
 
 			$this->sites = array(
@@ -177,7 +177,9 @@ final class Jetpack_Site_Plugins_Export extends Command {
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the domain or WPCOM site ID to export the plugins for:</question> ' );
-		$question->setAutocompleterValues( \array_column( get_wpcom_jetpack_sites() ?? array(), 'domain' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array_column( get_wpcom_jetpack_sites() ?? array(), 'domain' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

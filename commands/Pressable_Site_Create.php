@@ -63,13 +63,13 @@ final class Pressable_Site_Create extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->name = slugify( get_string_input( $input, $output, 'name', fn() => $this->prompt_name_input( $input, $output ) ) );
+		$this->name = slugify( get_string_input( $input, 'name', fn() => $this->prompt_name_input( $input, $output ) ) );
 		$input->setArgument( 'name', $this->name );
 
-		$this->datacenter = get_enum_input( $input, $output, 'datacenter', array_keys( get_pressable_datacenters() ), fn() => $this->prompt_datacenter_input( $input, $output ), 'DFW' );
+		$this->datacenter = get_enum_input( $input, 'datacenter', array_keys( get_pressable_datacenters() ), fn() => $this->prompt_datacenter_input( $input, $output ), 'DFW' );
 		$input->setOption( 'datacenter', $this->datacenter );
 
-		$repository          = maybe_get_string_input( $input, $output, 'repository', fn() => $this->prompt_repository_input( $input, $output ) );
+		$repository          = maybe_get_string_input( $input, 'repository', fn() => $this->prompt_repository_input( $input, $output ) );
 		$this->gh_repository = $repository ? $this->create_or_get_repository( $input, $output, $repository ) : null;
 		$input->setOption( 'repository', $this->gh_repository->name ?? null );
 	}
@@ -180,7 +180,9 @@ final class Pressable_Site_Create extends Command {
 		$question = new ConfirmationQuestion( '<question>Would you like to deploy to the site from a GitHub repository? [Y/n]</question> ', true );
 		if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 			$question = new Question( "<question>Please enter the slug of the GitHub repository to deploy from [$this->name]:</question> ", $this->name );
-			$question->setAutocompleterValues( array_column( get_github_repositories() ?? array(), 'name' ) );
+			if ( ! $input->getOption( 'no-autocomplete' ) ) {
+				$question->setAutocompleterValues( array_column( get_github_repositories() ?? array(), 'name' ) );
+			}
 
 			return $this->getHelper( 'question' )->ask( $input, $output, $question );
 		}

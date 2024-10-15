@@ -73,18 +73,18 @@ final class Pressable_Site_WP_User_Password_Rotate extends Command {
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
 		// Retrieve and validate the modifier options.
-		$this->dry_run  = get_bool_input( $input, $output, 'dry-run' );
-		$this->multiple = get_enum_input( $input, $output, 'multiple', array( 'all', 'related' ) );
+		$this->dry_run  = get_bool_input( $input, 'dry-run' );
+		$this->multiple = get_enum_input( $input, 'multiple', array( 'all', 'related' ) );
 
 		// If processing a given site, retrieve it from the input.
 		$site = match ( $this->multiple ) {
 			'all' => null,
-			default => get_pressable_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) ),
+			default => get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) ),
 		};
 		$input->setArgument( 'site', $site );
 
 		// Retrieve the WP user email.
-		$this->wp_user_email = get_email_input( $input, $output, fn() => $this->prompt_user_input( $input, $output ), 'user' );
+		$this->wp_user_email = get_email_input( $input, fn() => $this->prompt_user_input( $input, $output ), 'user' );
 		$input->setOption( 'user', $this->wp_user_email );
 
 		// Compile the lists of sites to process.
@@ -172,7 +172,9 @@ final class Pressable_Site_WP_User_Password_Rotate extends Command {
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the site ID or URL to rotate the WP user password on:</question> ' );
-		$question->setAutocompleterValues( \array_column( get_pressable_sites() ?? array(), 'url' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( \array_column( get_pressable_sites() ?? array(), 'url' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
@@ -187,8 +189,8 @@ final class Pressable_Site_WP_User_Password_Rotate extends Command {
 	 */
 	private function prompt_user_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the email of the WP user to rotate the password for [concierge@wordpress.com]:</question> ', 'concierge@wordpress.com' );
-		if ( 'all' !== $this->multiple ) {
-			$site = get_pressable_site( $input->getArgument( 'site' ) );
+		if ( 'all' !== $this->multiple && ! $input->getOption( 'no-autocomplete' ) ) {
+			$site = get_pressable_site( $input->getArgument( 'site' )->id );
 			if ( ! \is_null( $site ) ) {
 				$question->setAutocompleterValues( \array_map( static fn( object $wp_user ) => $wp_user->email, get_wpcom_site_users( $site->url ) ?? array() ) );
 			}

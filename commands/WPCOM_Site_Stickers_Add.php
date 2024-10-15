@@ -46,17 +46,17 @@ final class WPCOM_Site_Stickers_Add extends Command {
 			->setHelp( 'Use this command to associate a new sticker with a WPCOM site.' );
 
 		$this->addArgument( 'site', InputArgument::REQUIRED, 'Domain or WPCOM ID of the site to add the sticker to.' )
-			->addArgument( 'sticker', InputArgument::REQUIRED, 'Sticker to add to the site.' );
+			->addArgument( 'sticker', InputArgument::REQUIRED, 'Sticker to add to the site. Any sticker with the <fg=green;options=bold>team-51-</> prefix and the <fg=green;options=bold>blocked-from-atomic-transfer</> sticker.' );
 	}
 
 	/**
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->site = get_wpcom_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
+		$this->site = get_wpcom_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
 		$input->setArgument( 'site', $this->site );
 
-		$this->sticker = get_string_input( $input, $output, 'sticker', fn() => $this->prompt_sticker_input( $input, $output ) );
+		$this->sticker = get_string_input( $input, 'sticker', fn() => $this->prompt_sticker_input( $input, $output ) );
 		$input->setArgument( 'sticker', $this->sticker );
 	}
 
@@ -101,12 +101,14 @@ final class WPCOM_Site_Stickers_Add extends Command {
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the domain or WPCOM site ID to add the sticker to:</question> ' );
-		$question->setAutocompleterValues(
-			\array_map(
-				static fn( string $url ) => \parse_url( $url, PHP_URL_HOST ),
-				\array_column( get_wpcom_sites( array( 'fields' => 'ID,URL' ) ) ?? array(), 'URL' )
-			)
-		);
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues(
+				\array_map(
+					static fn( string $url ) => \parse_url( $url, PHP_URL_HOST ),
+					\array_column( get_wpcom_sites( array( 'fields' => 'ID,URL' ) ) ?? array(), 'URL' )
+				)
+			);
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

@@ -54,10 +54,10 @@ final class WPCOM_Site_Create extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->name = slugify( get_string_input( $input, $output, 'name', fn() => $this->prompt_name_input( $input, $output ) ) );
+		$this->name = str_replace( '-', '', slugify( get_string_input( $input, 'name', fn() => $this->prompt_name_input( $input, $output ) ) ) ); // No dashes allowed in site names.
 		$input->setArgument( 'name', $this->name );
 
-		$repository          = maybe_get_string_input( $input, $output, 'repository', fn() => $this->prompt_repository_input( $input, $output ) );
+		$repository          = maybe_get_string_input( $input, 'repository', fn() => $this->prompt_repository_input( $input, $output ) );
 		$this->gh_repository = $repository ? $this->create_or_get_repository( $input, $output, $repository ) : null;
 		$input->setOption( 'repository', $this->gh_repository->name ?? null );
 	}
@@ -76,13 +76,15 @@ final class WPCOM_Site_Create extends Command {
 
 	/**
 	 * {@inheritDoc}
+	 *
+	 * @noinspection PhpUnhandledExceptionInspection
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		$repo_text = $this->gh_repository ? "and connecting it to the `{$this->gh_repository->full_name}` repository via WPCOM GitHub Deployments" : 'without connecting it to a GitHub repository';
 		$output->writeln( "<fg=magenta;options=bold>Creating new WordPress.com site named `$this->name` $repo_text.</>" );
 
 		// Create the site and wait for it to be provisioned.
-		$agency_site = create_wpcom_site( "$this->name-production" );
+		$agency_site = create_wpcom_site( $this->name );
 		if ( \is_null( $agency_site ) ) {
 			$output->writeln( '<error>Failed to create the site.</error>' );
 			return Command::FAILURE;
@@ -104,14 +106,12 @@ final class WPCOM_Site_Create extends Command {
 
 		wait_on_wpcom_site_ssh( $transfer->blog_id, $output )?->disconnect();
 
-		$output->writeln( "<fg=magenta;options=bold>Updating Agency site $agency_site->id name to $this->name-production.</>" );
-
+		// The site is ready but the API doesn't support setting the name during creation so we have to update it.
 		$update = update_wpcom_site( $transfer->blog_id, array( 'blogname' => "$this->name-production" ) );
-
-		if ( $update && isset( $update->updated->blogname ) && "$this->name-production" === $update->updated->blogname ) {
-			$output->writeln( "<fg=green;options=bold>Agency site $agency_site->id name successfully updated to $this->name-production.</>" );
+		if ( $update && isset( $update->blogname ) && "$this->name-production" === $update->blogname ) {
+			$output->writeln( "<fg=green;options=bold>WPCOM site $transfer->blog_id name successfully updated to `$this->name-production`. Site URL: $agency_site->url</>" );
 		} else {
-			$output->writeln( '<error>Failed to set site name.</error>' );
+			$output->writeln( "<error>Failed to set site name. Site URL: $agency_site->url</error>" );
 		}
 
 		// Run a few commands to set up the site.
@@ -122,28 +122,23 @@ final class WPCOM_Site_Create extends Command {
 				'--user' => 'concierge@wordpress.com',
 			)
 		);
-
 		run_wpcom_site_wp_cli_command(
 			$transfer->blog_id,
 			'plugin install https://github.com/a8cteam51/plugin-autoupdate-filter/releases/latest/download/plugin-autoupdate-filter.zip --activate',
 		);
 
+		// Create a GitHub Deployment project for the site.
 		if ( ! \is_null( $this->gh_repository ) ) {
-			/* @noinspection PhpUnhandledExceptionInspection */
-			$status = run_app_command(
-				WPCOM_GitHubDeployments_Project_Create::getDefaultName(),
+			run_app_command(
+				WPCOM_Site_Repository_Connect::getDefaultName(),
 				array(
-					'--blog_id'    => $transfer->blog_id,
-					'--repository' => $this->gh_repository->name,
+					'site'         => $transfer->blog_id,
+					'repository'   => $this->gh_repository->name,
 					'--branch'     => 'trunk',
 					'--target_dir' => '/wp-content/',
-					'--deploy'     => 'y',
-				),
+					'--deploy'     => true,
+				)
 			);
-			if ( Command::SUCCESS !== $status ) {
-				$output->writeln( '<error>Failed to create the repository.</error>' );
-				exit( 1 );
-			}
 		}
 
 		$output->writeln( "<fg=green;options=bold>Site $this->name created successfully.</>" );
@@ -179,7 +174,9 @@ final class WPCOM_Site_Create extends Command {
 		$question = new ConfirmationQuestion( '<question>Would you like to deploy to the site from a GitHub repository? [Y/n]</question> ', true );
 		if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 			$question = new Question( "<question>Please enter the slug of the GitHub repository to deploy from [$this->name]:</question> ", $this->name );
-			$question->setAutocompleterValues( array_column( get_github_repositories() ?? array(), 'name' ) );
+			if ( ! $input->getOption( 'no-autocomplete' ) ) {
+				$question->setAutocompleterValues( array_column( get_github_repositories() ?? array(), 'name' ) );
+			}
 
 			return $this->getHelper( 'question' )->ask( $input, $output, $question );
 		}
@@ -218,7 +215,7 @@ final class WPCOM_Site_Create extends Command {
 					GitHub_Repository_Create::getDefaultName(),
 					array(
 						'name'                => $name,
-						'--homepage'          => "https://$name-production.wpcomstaging.com",
+						'--homepage'          => "https://$name.wpcomstaging.com",
 						'--type'              => 'project',
 						'--custom-properties' => array(
 							"php-globals-long-prefix=$php_globals_long_prefix",

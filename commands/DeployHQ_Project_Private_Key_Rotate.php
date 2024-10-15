@@ -59,7 +59,7 @@ final class DeployHQ_Project_Private_Key_Rotate extends Command {
 		if ( $this->all ) {
 			$this->projects = get_deployhq_projects();
 		} else {
-			$this->projects = array( get_deployhq_project_input( $input, $output, fn() => $this->prompt_project_input( $input, $output ) ) );
+			$this->projects = array( get_deployhq_project_input( $input, fn() => $this->prompt_project_input( $input, $output ) ) );
 			$input->setArgument( 'project', $this->projects[0] );
 		}
 	}
@@ -111,7 +111,9 @@ final class DeployHQ_Project_Private_Key_Rotate extends Command {
 	 */
 	private function prompt_project_input( InputInterface $input, OutputInterface $output ): string {
 		$question = new Question( '<question>Enter the slug of the project to rotate the private key on:</question> ' );
-		$question->setAutocompleterValues( array_column( get_deployhq_projects() ?? array(), 'permalink' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array_column( get_deployhq_projects() ?? array(), 'permalink' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

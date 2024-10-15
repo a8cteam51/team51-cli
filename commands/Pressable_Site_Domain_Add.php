@@ -62,13 +62,13 @@ final class Pressable_Site_Domain_Add extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->site = get_pressable_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
+		$this->site = get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
 		$input->setArgument( 'site', $this->site );
 
-		$this->domain = get_domain_input( $input, $output, fn() => $this->prompt_domain_input( $input, $output ) );
+		$this->domain = get_domain_input( $input, fn() => $this->prompt_domain_input( $input, $output ) );
 		$input->setArgument( 'domain', $this->domain );
 
-		$this->primary = get_enum_input( $input, $output, 'primary', array( true, false ), fn() => $this->prompt_primary_input( $input, $output ), false );
+		$this->primary = get_enum_input( $input, 'primary', array( true, false ), fn() => $this->prompt_primary_input( $input, $output ), false );
 		$this->primary || $this->maybe_force_primary_option();
 		$input->setOption( 'primary', $this->primary );
 	}
@@ -198,7 +198,9 @@ final class Pressable_Site_Domain_Add extends Command {
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the domain or Pressable site ID to add the domain to:</question> ' );
-		$question->setAutocompleterValues( \array_column( get_pressable_sites() ?? array(), 'url' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( \array_column( get_pressable_sites() ?? array(), 'url' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

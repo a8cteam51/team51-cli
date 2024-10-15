@@ -44,7 +44,7 @@ final class WPCOM_Site_Stickers_List extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->site = get_wpcom_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
+		$this->site = get_wpcom_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
 		$input->setArgument( 'site', $this->site );
 	}
 
@@ -83,12 +83,14 @@ final class WPCOM_Site_Stickers_List extends Command {
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the domain or WPCOM site ID to fetch the stickers for:</question> ' );
-		$question->setAutocompleterValues(
-			\array_map(
-				static fn( string $url ) => \parse_url( $url, PHP_URL_HOST ),
-				\array_column( get_wpcom_sites( array( 'fields' => 'ID,URL' ) ) ?? array(), 'URL' )
-			)
-		);
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues(
+				\array_map(
+					static fn( string $url ) => \parse_url( $url, PHP_URL_HOST ),
+					\array_column( get_wpcom_sites( array( 'fields' => 'ID,URL' ) ) ?? array(), 'URL' )
+				)
+			);
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

@@ -67,13 +67,13 @@ final class Pressable_Site_Collaborator_Delete extends Command {
 		$this->delete_wp_user = (bool) $input->getOption( 'delete-wp-user' );
 
 		// Retrieve the collaborator email.
-		$this->email = get_email_input( $input, $output, fn() => $this->prompt_email_input( $input, $output ) );
+		$this->email = get_email_input( $input, fn() => $this->prompt_email_input( $input, $output ) );
 		$input->setArgument( 'email', $this->email );
 
 		// If processing a given site, retrieve it from the input.
-		$multiple = get_enum_input( $input, $output, 'multiple', array( 'all', 'related' ) );
+		$multiple = get_enum_input( $input, 'multiple', array( 'all', 'related' ) );
 		if ( 'all' !== $multiple ) {
-			$site = get_pressable_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
+			$site = get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
 			$input->setArgument( 'site', $site );
 
 			$sites = match ( $multiple ) {
@@ -162,8 +162,10 @@ final class Pressable_Site_Collaborator_Delete extends Command {
 	 */
 	private function prompt_email_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the email address of the collaborator to delete:</question> ' );
-		$question->setAutocompleterValues( array_column( get_pressable_collaborators() ?? array(), 'email' ) );
 		$question->setValidator( fn( $value ) => filter_var( $value, FILTER_VALIDATE_EMAIL ) ? $value : throw new \RuntimeException( 'Invalid email address.' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array_column( get_pressable_collaborators() ?? array(), 'email' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
@@ -178,7 +180,9 @@ final class Pressable_Site_Collaborator_Delete extends Command {
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the site ID or URL to delete the collaborator from:</question> ' );
-		$question->setAutocompleterValues( \array_column( get_pressable_sites() ?? array(), 'url' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array_column( get_pressable_sites() ?? array(), 'url' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

@@ -108,13 +108,22 @@ final class Pressable_Site_Clone extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->site = get_pressable_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
+		$this->site = get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
 		$input->setArgument( 'site', $this->site );
 
 		$this->site_root_name = get_pressable_site_root_name( $this->site->id );
 		if ( \is_null( $this->site_root_name ) ) {
-			$output->writeln( '<error>Failed to get the root name of the site. Aborting!</error>' );
-			exit( 1 );
+			$output->writeln( '<error>Failed to get the root name of the site.</error>' );
+
+			$site_root_name = \str_replace( '-production', '', $this->site->name );
+
+			$question = new ConfirmationQuestion( "<question>Do you want to continue with the root name `$site_root_name`? [y/N]</question> ", false );
+			if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
+				$output->writeln( '<comment>Command aborted by user.</comment>' );
+				exit( 1 );
+			}
+
+			$this->site_root_name = $site_root_name;
 		}
 
 		$deployhq_config = get_pressable_site_deployhq_config( $this->site->id );
@@ -142,17 +151,17 @@ final class Pressable_Site_Clone extends Command {
 				exit( 1 );
 			}
 
-			$this->gh_repo_branch = get_string_input( $input, $output, 'branch', fn() => $this->prompt_branch_input( $input, $output ) );
+			$this->gh_repo_branch = get_string_input( $input, 'branch', fn() => $this->prompt_branch_input( $input, $output ) );
 			$input->setOption( 'branch', $this->gh_repo_branch );
 		}
 
-		$this->label = slugify( get_string_input( $input, $output, 'label', fn() => $this->prompt_label_input( $input, $output ) ) );
+		$this->label = slugify( get_string_input( $input, 'label', fn() => $this->prompt_label_input( $input, $output ) ) );
 		$input->setArgument( 'label', $this->label );
 
-		$this->datacenter = get_enum_input( $input, $output, 'datacenter', array_keys( get_pressable_datacenters() ), fn() => $this->prompt_datacenter_input( $input, $output ), $this->site->datacenterCode );
+		$this->datacenter = get_enum_input( $input, 'datacenter', array_keys( get_pressable_datacenters() ), fn() => $this->prompt_datacenter_input( $input, $output ), $this->site->datacenterCode );
 		$input->setOption( 'datacenter', $this->datacenter );
 
-		$this->skip_safety_net = get_bool_input( $input, $output, 'skip-safety-net' );
+		$this->skip_safety_net = get_bool_input( $input, 'skip-safety-net' );
 		$input->setOption( 'skip-safety-net', $this->skip_safety_net );
 	}
 
@@ -216,7 +225,6 @@ final class Pressable_Site_Clone extends Command {
 		);
 		run_pressable_site_wp_cli_command( $site_clone->id, 'config set WP_ENVIRONMENT_TYPE development --type=constant' );
 		run_pressable_site_wp_cli_command( $site_clone->id, "search-replace {$this->site->url} $site_clone->url" );
-		run_pressable_site_wp_cli_command( $site_clone->id, 'cache flush' );
 
 		if ( $this->skip_safety_net ) {
 			$output->writeln( '<comment>Skipping the installation of SafetyNet as a mu-plugin.</comment>' );
@@ -245,15 +253,16 @@ final class Pressable_Site_Clone extends Command {
 							$output->writeln( '<error>Failed to install SafetyNet!</error>' );
 						}
 						if ( ! str_contains( $stream, 'load-safety-net.php' ) ) {
-							$sftp = \Pressable_Connection_Helper::get_sftp_connection( $site_clone->id );
-							if ( \is_null( $sftp ) ) {
+							$sftp_connection = \Pressable_Connection_Helper::get_sftp_connection( $site_clone->id );
+							if ( \is_null( $sftp_connection ) ) {
 								$output->writeln( '<error>Failed to connect to the site via SFTP. Cannot copy SafetyNet loader!</error>' );
 							} else {
-								$result = $sftp->put( '/htdocs/wp-content/mu-plugins/load-safety-net.php', file_get_contents( __DIR__ . '/../scaffold/load-safety-net.php' ) );
+								$result = $sftp_connection->put( '/htdocs/wp-content/mu-plugins/load-safety-net.php', file_get_contents( __DIR__ . '/../scaffold/load-safety-net.php' ) );
 								if ( ! $result ) {
 									$output->writeln( '<error>Failed to copy the SafetyNet loader!</error>' );
 								}
 							}
+							$sftp_connection?->disconnect();
 						}
 					}
 				);
@@ -272,6 +281,7 @@ final class Pressable_Site_Clone extends Command {
 			);
 		}
 
+		run_pressable_site_wp_cli_command( $site_clone->id, 'cache flush' ); // Done last because it seems to cause issues sometimes.
 		return Command::SUCCESS;
 	}
 
@@ -289,7 +299,9 @@ final class Pressable_Site_Clone extends Command {
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the domain or Pressable site ID to clone:</question> ' );
-		$question->setAutocompleterValues( \array_column( get_pressable_sites() ?? array(), 'url' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( \array_column( get_pressable_sites() ?? array(), 'url' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
@@ -304,7 +316,9 @@ final class Pressable_Site_Clone extends Command {
 	 */
 	private function prompt_branch_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the branch to deploy from [develop]:</question> ', 'develop' );
-		$question->setAutocompleterValues( array_column( get_github_repository_branches( $this->gh_repository->name ) ?? array(), 'name' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array_column( get_github_repository_branches( $this->gh_repository->name ) ?? array(), 'name' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

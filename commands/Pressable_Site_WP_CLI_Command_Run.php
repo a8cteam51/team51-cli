@@ -6,6 +6,7 @@ use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
@@ -21,11 +22,19 @@ final class Pressable_Site_WP_CLI_Command_Run extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**
+	 * Whether processing multiple sites or just a single given one.
+	 * Can be one of 'all' or 'related', if set.
+	 *
+	 * @var string|null
+	 */
+	private ?string $multiple = null;
+
+	/**
 	 * Pressable site definition to run the WP CLI command on.
 	 *
-	 * @var \stdClass|null
+	 * @var \stdClass[]|null
 	 */
-	private ?\stdClass $site = null;
+	private ?array $sites = null;
 
 	/**
 	 * The WP-CLI command to run.
@@ -33,6 +42,13 @@ final class Pressable_Site_WP_CLI_Command_Run extends Command {
 	 * @var string|null
 	 */
 	private ?string $wp_command = null;
+
+	/**
+	 * Whether to skip outputting the response to the console.
+	 *
+	 * @var bool|null
+	 */
+	private ?bool $skip_output = null;
 
 	// endregion
 
@@ -47,17 +63,32 @@ final class Pressable_Site_WP_CLI_Command_Run extends Command {
 
 		$this->addArgument( 'site', InputArgument::REQUIRED, 'The domain or numeric Pressable ID of the site to open the shell to.' )
 			->addArgument( 'wp-cli-command', InputArgument::REQUIRED, 'The WP-CLI command to run.' );
+
+		$this->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Determines whether the `site` argument is optional or not. Accepted value is `all`.' )
+			->addOption( 'skip-output', null, InputOption::VALUE_NONE, 'Skip outputting the response to the console.' );
 	}
 
 	/**
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->site = get_pressable_site_input( $input, $output, fn() => $this->prompt_site_input( $input, $output ) );
-		$input->setArgument( 'site', $this->site );
+		$this->skip_output = get_bool_input( $input, 'skip-output' );
+		$this->multiple    = get_enum_input( $input, 'multiple', array( 'all' ) );
 
-		$this->wp_command = get_string_input( $input, $output, 'wp-cli-command', fn() => $this->prompt_command_input( $input, $output ) );
-		$this->wp_command = \escapeshellcmd( \trim( \preg_replace( '/^wp/', '', \trim( $this->wp_command ) ) ) );
+		if ( 'all' !== $this->multiple ) {
+			$site = get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
+			$input->setArgument( 'site', $site );
+
+			$this->sites = array( $site );
+		} else {
+			$this->sites = get_pressable_sites();
+		}
+
+		$this->wp_command = get_string_input( $input, 'wp-cli-command', fn() => $this->prompt_command_input( $input, $output ) );
+		$this->wp_command = \trim( \preg_replace( '/^wp/', '', \trim( $this->wp_command ) ) );
+		if ( false === \str_contains( $this->wp_command, 'eval' ) ) {
+			$this->wp_command = \escapeshellcmd( $this->wp_command );
+		}
 		$input->setArgument( 'wp-cli-command', $this->wp_command );
 	}
 
@@ -65,7 +96,11 @@ final class Pressable_Site_WP_CLI_Command_Run extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function interact( InputInterface $input, OutputInterface $output ): void {
-		$question = new ConfirmationQuestion( "<question>Are you sure you want to run the command `wp $this->wp_command` on {$this->site->displayName} (ID {$this->site->id}, URL {$this->site->url})? [y/N]</question> ", false );
+		$question = match ( $this->multiple ) {
+			'all' => new ConfirmationQuestion( "<question>Are you sure you want to run the command `wp $this->wp_command` on <fg=red;options=bold>ALL</> Pressable sites? [y/N]</question> ", false ),
+			default => new ConfirmationQuestion( "<question>Are you sure you want to run the command `wp $this->wp_command` on {$this->sites[0]->displayName} (ID {$this->sites[0]->id}, URL {$this->sites[0]->url})? [y/N]</question> ", false ),
+		};
+
 		if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 			$output->writeln( '<comment>Command aborted by user.</comment>' );
 			exit( 2 );
@@ -76,23 +111,36 @@ final class Pressable_Site_WP_CLI_Command_Run extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
-		$output->writeln( "<fg=magenta;options=bold>Running the command `wp $this->wp_command` on {$this->site->displayName} (ID {$this->site->id}, URL {$this->site->url}).</>" );
+		foreach ( $this->sites as $site ) {
+			$output->writeln( "<fg=magenta;options=bold>Running the command `wp $this->wp_command` on $site->displayName (ID $site->id, URL $site->url).</>" );
 
-		$ssh = \Pressable_Connection_Helper::get_ssh_connection( $this->site->id );
-		if ( \is_null( $ssh ) ) {
-			$output->writeln( '<error>Could not connect to the SSH server.</error>' );
-			return Command::FAILURE;
-		}
-
-		$output->writeln( '<fg=green;options=bold>SSH connection established.</>', OutputInterface::VERBOSITY_VERBOSE );
-
-		$ssh->setTimeout( 0 ); // Disable timeout in case the command takes a long time.
-		$ssh->exec(
-			"wp $this->wp_command",
-			static function ( string $str ): void {
-				echo $str;
+			$ssh = \Pressable_Connection_Helper::get_ssh_connection( $site->id );
+			if ( \is_null( $ssh ) ) {
+				$output->writeln( '<error>Could not connect to the SSH server.</error>' );
+				continue;
 			}
-		);
+
+			/* @noinspection DisconnectedForeachInstructionInspection */
+			$output->writeln( '<fg=green;options=bold>SSH connection established.</>', OutputInterface::VERBOSITY_VERBOSE );
+
+			try {
+				$ssh->setTimeout( 0 ); // Disable timeout in case the command takes a long time.
+				$ssh->exec(
+					"wp $this->wp_command",
+					function ( string $str ): void {
+						$GLOBALS['wp_cli_output'] = $str;
+						if ( ! $this->skip_output ) {
+							echo "$str\n";
+						}
+					}
+				);
+			} catch ( \RuntimeException $exception ) {
+				$output->writeln( "<error>Something went wrong. Please double-check if things worked out. This is what we know: {$exception->getMessage()}</error>" );
+				continue;
+			} finally {
+				$ssh->disconnect();
+			}
+		}
 
 		return Command::SUCCESS;
 	}
@@ -111,7 +159,9 @@ final class Pressable_Site_WP_CLI_Command_Run extends Command {
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the domain or Pressable site ID to run the WP-CLI command on:</question> ' );
-		$question->setAutocompleterValues( \array_column( get_pressable_sites() ?? array(), 'url' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( \array_column( get_pressable_sites() ?? array(), 'url' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

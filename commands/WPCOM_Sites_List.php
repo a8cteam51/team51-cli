@@ -138,12 +138,12 @@ final class WPCOM_Sites_List extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->audit_type = maybe_get_string_input( $input, $output, 'audit', fn() => $this->prompt_audit_input( $input, $output ) );
+		$this->audit_type = maybe_get_string_input( $input, 'audit', fn() => $this->prompt_audit_input( $input, $output ) );
 		$input->setOption( 'audit', $this->audit_type );
 
 		// Open the destination file if provided.
-		$this->format      = get_enum_input( $input, $output, 'export-format', array( 'json', 'csv' ) );
-		$this->destination = maybe_get_string_input( $input, $output, 'export', fn() => $this->prompt_destination_input( $input, $output ) );
+		$this->format      = get_enum_input( $input, 'export-format', array( 'json', 'csv' ) );
+		$this->destination = maybe_get_string_input( $input, 'export', fn() => $this->prompt_destination_input( $input, $output ) );
 		if ( ! empty( $this->destination ) ) {
 			$this->export_excluded_columns = $input->getOption( 'export-exclude' ) ?: $this->prompt_export_excluded_columns_input( $input, $output );
 			$input->setOption( 'export-exclude', $this->export_excluded_columns );
@@ -353,7 +353,16 @@ final class WPCOM_Sites_List extends Command {
 			if ( in_array( parse_url( $site->URL, PHP_URL_HOST ), $pressable_urls, true ) ) { // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 				$server = 'Pressable';
 			} else {
-				$server = 'Other';
+				// TODO: Handle the wpvip.com sites (that's the actual value of the following variable).
+				$known_host = get_remote_content( $site->URL . '/.well-known/hosting-provider' ); // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+				if ( $known_host && 200 === $known_host['headers']['http_code'] ) {
+					$server = \str_replace( "\n", '', $known_host['body'] );
+					if ( 'Pressable' !== $server ) {
+						$server = 'Other';
+					}
+				} else {
+					$server = 'Other';
+				}
 			}
 		} else {
 			$server = 'Simple'; // Need a better way to determine if site is simple. For example, 410'd Jurassic Ninja sites will show as Simple.

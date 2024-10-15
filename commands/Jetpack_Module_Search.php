@@ -60,10 +60,10 @@ final class Jetpack_Module_Search extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->module = get_enum_input( $input, $output, 'module', \array_keys( get_jetpack_modules() ?? array() ), fn() => $this->prompt_module_input( $input, $output ) );
+		$this->module = get_enum_input( $input, 'module', \array_keys( get_jetpack_modules() ?? array() ), fn() => $this->prompt_module_input( $input, $output ) );
 		$input->setArgument( 'module', $this->module );
 
-		$this->status = get_enum_input( $input, $output, 'status', array( 'on', 'off' ), fn() => $this->prompt_status_input( $input, $output ), 'on' );
+		$this->status = get_enum_input( $input, 'status', array( 'on', 'off' ), fn() => $this->prompt_status_input( $input, $output ), 'on' );
 		$input->setOption( 'status', $this->status );
 
 		$this->sites = get_wpcom_jetpack_sites();
@@ -128,7 +128,9 @@ final class Jetpack_Module_Search extends Command {
 	 */
 	private function prompt_module_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the module to check the status of:</question> ' );
-		$question->setAutocompleterValues( array_keys( get_jetpack_modules() ?? array() ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array_keys( get_jetpack_modules() ?? array() ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
@@ -142,8 +144,10 @@ final class Jetpack_Module_Search extends Command {
 	 * @return  string|null
 	 */
 	private function prompt_status_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new Question( '<question>Enter the status to check the module for [on]:</question> ' );
-		$question->setAutocompleterValues( array( 'on', 'off' ) );
+		$question = new Question( '<question>Enter the status to check the module for [on]:</question> ', 'on' );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array( 'on', 'off' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

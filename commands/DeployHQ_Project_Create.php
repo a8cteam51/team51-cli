@@ -71,16 +71,16 @@ final class DeployHQ_Project_Create extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->name = slugify( get_string_input( $input, $output, 'name', fn() => $this->prompt_name_input( $input, $output ) ) );
+		$this->name = slugify( get_string_input( $input, 'name', fn() => $this->prompt_name_input( $input, $output ) ) );
 		$input->setArgument( 'name', $this->name );
 
-		$this->zone_id = get_enum_input( $input, $output, 'zone-id', array( 3, 6, 9 ), fn() => $this->prompt_zone_input( $input, $output ), 6 );
+		$this->zone_id = get_enum_input( $input, 'zone-id', array( 3, 6, 9 ), fn() => $this->prompt_zone_input( $input, $output ), 6 );
 		$input->setOption( 'zone-id', $this->zone_id );
 
-		$this->template_id = get_string_input( $input, $output, 'template-id' );
+		$this->template_id = get_string_input( $input, 'template-id' );
 		$input->setOption( 'template-id', $this->template_id );
 
-		$this->gh_repository = maybe_get_github_repository_input( $input, $output, fn() => $this->prompt_repository_input( $input, $output ) );
+		$this->gh_repository = maybe_get_github_repository_input( $input, fn() => $this->prompt_repository_input( $input, $output ) );
 		$input->setOption( 'repository', $this->gh_repository );
 	}
 
@@ -174,7 +174,9 @@ final class DeployHQ_Project_Create extends Command {
 		$question = new ConfirmationQuestion( '<question>Would you like to connect the project to a GitHub repository? [y/N]</question> ', false );
 		if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 			$question = new Question( '<question>Please enter the slug of the GitHub repository to connect the project to:</question> ' );
-			$question->setAutocompleterValues( array_column( get_github_repositories() ?? array(), 'name' ) );
+			if ( ! $input->getOption( 'no-autocomplete' ) ) {
+				$question->setAutocompleterValues( array_column( get_github_repositories() ?? array(), 'name' ) );
+			}
 
 			return $this->getHelper( 'question' )->ask( $input, $output, $question );
 		}

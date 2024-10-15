@@ -27,10 +27,12 @@ It's the nickname for our Special Projects team at Automattic.
 Be well, be kind, make things and set them free.
 
 ## Installation
+1. Ensure you have OpsOasis access. Details: p4Kr4c-dgn-p2#setting-up-opsoasis-1password (Not familiar with the link? Check the Field Guide for "Public GitHub Repository Shorthand".)
 1. Open the Terminal on your Mac and install [Homebrew](https://brew.sh/) (if you haven't already).
 	- `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"`
+1. Ensure that you are running PHP8.2+ in your terminal by running `php -v` and cross-checking the outputted version; We actually recommend running the latest version of PHP. If you’re not, then run `brew install php@8.3 brew-php-switcher` followed by `brew link php@8.3`
 1. Keep your Terminal open and clone this repository by running:
-	- `git clone git@github.com:Automattic/team51-cli.git`
+	- `git clone git@github.com:a8cteam51/team51-cli.git`
 	- The Terminal will ask you for a so-called SSH Passphrase which you must type and hit `Enter` (if you're unsure what the passphrase is, try entering the same you'd use for the AutoProxxy).
 1. Make sure [Composer](https://getcomposer.org/) is installed on your computer.
 	- The easiest way to install composer is by running `brew install composer`.
@@ -41,11 +43,11 @@ Be well, be kind, make things and set them free.
 1. Make sure [1Password CLI](https://developer.1password.com/docs/cli/get-started/) is installed on your computer.
 	- The easiest way to install 1Password CLI is by running `brew install --cask 1password/tap/1password-cli`.
 	- The terminal will ask you for a password which should be the same one you use to log in into your computer. After typing it in, hit `Enter`.
-	- After installation, [turn on biometric unlocking](https://developer.1password.com/docs/cli/get-started/#turn-on-biometric-unlock) to link your existing accounts with the CLI tool, and for convenient unlocking of your vaults later on.
+	- After installation, [integrate 1Password with the CLI](https://developer.1password.com/docs/cli/sign-in-sso/#step-1-connect-1password-cli-with-the-1password-app) to link your existing accounts with the CLI tool and for convenient unlocking of your vaults later.
 	- Run a simple command, like `op vault ls`, to verify that it works and to select your default account (select the Team51 account if you have more than one).
-1. Now let's install the CLI! From the `team51-cli` directory, run `./install-osx`.
+1. Now let's install the CLI! `cd` to the `team51-cli` directory and run `./install-osx`.
 	- If you get an error `no such file or directory: ./install-osx`, try running `cd team51-cli` first.
-1. To verify the tool was installed successfully, you can run `team51` from your Terminal.
+1. To verify the tool was installed successfully, you can run `team51 list` from your Terminal to see a list of all current commands.
 
 ### For developers
 The CLI tool automatically updates itself. It does a hard reset to the latest version of the `trunk` branch and it will also try to switch to the `trunk` branch if it's not already on it. To bypass this behavior you can run the tool with the `--dev` flag or add an empty `.dev` file to the root folder.

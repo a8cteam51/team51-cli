@@ -87,7 +87,7 @@ final class DeployHQ_Project_Server_Create extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->project = get_deployhq_project_input( $input, $output, fn() => $this->prompt_project_input( $input, $output ) );
+		$this->project = get_deployhq_project_input( $input, fn() => $this->prompt_project_input( $input, $output ) );
 		$input->setArgument( 'project', $this->project );
 
 		if ( \is_null( $this->project->repository ) ) {
@@ -101,10 +101,10 @@ final class DeployHQ_Project_Server_Create extends Command {
 			exit( 1 );
 		}
 
-		$this->gh_repo_branch = get_string_input( $input, $output, 'branch', fn() => $this->prompt_branch_input( $input, $output ) );
+		$this->gh_repo_branch = get_string_input( $input, 'branch', fn() => $this->prompt_branch_input( $input, $output ) );
 		$input->setOption( 'branch', $this->gh_repo_branch );
 
-		$this->pressable_site = get_pressable_site_input( $input, $output, fn() => $this->prompt_pressable_site_input( $input, $output ) );
+		$this->pressable_site = get_pressable_site_input( $input, fn() => $this->prompt_pressable_site_input( $input, $output ) );
 		$input->setArgument( 'site', $this->pressable_site );
 
 		$this->pressable_site_sftp_owner = get_pressable_site_sftp_owner( $this->pressable_site->id );
@@ -113,7 +113,7 @@ final class DeployHQ_Project_Server_Create extends Command {
 			exit( 1 );
 		}
 
-		$this->name = dashify( get_string_input( $input, $output, 'name', fn() => $this->prompt_name_input( $input, $output ) ) );
+		$this->name = dashify( get_string_input( $input, 'name', fn() => $this->prompt_name_input( $input, $output ) ) );
 		$input->setArgument( 'name', $this->name );
 	}
 
@@ -140,7 +140,6 @@ final class DeployHQ_Project_Server_Create extends Command {
 
 			$branch_source = get_enum_input(
 				$input,
-				$output,
 				'branch-source',
 				array_column( get_github_repository_branches( $this->gh_repository->name ) ?? array(), 'name' ),
 				fn() => $this->prompt_branch_source_input( $input, $output ),
@@ -209,7 +208,9 @@ final class DeployHQ_Project_Server_Create extends Command {
 	 */
 	private function prompt_project_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the slug of the project to create the server for:</question> ' );
-		$question->setAutocompleterValues( array_column( get_deployhq_projects() ?? array(), 'permalink' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array_column( get_deployhq_projects() ?? array(), 'permalink' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
@@ -224,7 +225,9 @@ final class DeployHQ_Project_Server_Create extends Command {
 	 */
 	private function prompt_branch_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the branch to deploy from:</question> ' );
-		$question->setAutocompleterValues( array_column( get_github_repository_branches( $this->gh_repository->name ) ?? array(), 'name' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array_column( get_github_repository_branches( $this->gh_repository->name ) ?? array(), 'name' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
@@ -241,7 +244,9 @@ final class DeployHQ_Project_Server_Create extends Command {
 		$existing_branches = array_column( get_github_repository_branches( $this->gh_repository->name ) ?? array(), 'name' );
 
 		$question = new Question( '<question>Enter the branch to create the new one off of [trunk]:</question> ', 'trunk' );
-		$question->setAutocompleterValues( array_column( $existing_branches, 'name' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array_column( $existing_branches, 'name' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
@@ -256,7 +261,9 @@ final class DeployHQ_Project_Server_Create extends Command {
 	 */
 	private function prompt_pressable_site_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the domain or numeric Pressable ID of the site to connect the server to:</question> ' );
-		$question->setAutocompleterValues( array_column( get_pressable_sites() ?? array(), 'url' ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array_column( get_pressable_sites() ?? array(), 'url' ) );
+		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}

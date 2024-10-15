@@ -298,6 +298,17 @@ function add_wpcom_site_sticker( string $site_id_or_domain, string $sticker ): ?
 }
 
 /**
+ * Lists sites with a given sticker.
+ *
+ * @param   string $sticker The sticker to search for.
+ *
+ * @return string[]|null
+ */
+function get_wpcom_sites_with_sticker( string $sticker ): ?array {
+	return API_Helper::make_wpcom_request( "sites-with-sticker/$sticker" )?->records;
+}
+
+/**
  * Removes a given sticker from a given WPCOM site.
  *
  * @param   string $site_id_or_domain The site URL or WordPress.com site ID.
@@ -346,6 +357,28 @@ function rotate_wpcom_site_sftp_user_password( string $site_id_or_url, string $u
 }
 
 /**
+ * Rotates the password of the specified WP user on the specified WPCOM site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the WPCOM site to reset the WP user password on.
+ * @param   string $user           The email, username, or numeric ID of the WP user to reset the password for.
+ *
+ * @return  stdClass|null
+ */
+function rotate_wpcom_site_wp_user_password( string $site_id_or_url, string $user ): ?stdClass {
+	$credentials = null;
+
+	$exit_code = run_wpcom_site_wp_cli_command( $site_id_or_url, "user reset-password $user --skip-email --porcelain", true );
+	if ( Command::SUCCESS === $exit_code ) {
+		$credentials = (object) array(
+			'username' => $user,
+			'password' => $GLOBALS['wp_cli_output'],
+		);
+	}
+
+	return $credentials;
+}
+
+/**
  * Rotates the password of the specified SFTP user on the specified WordPress.com staging site.
  *
  * @param   string $site_id_or_url The ID or URL of the WordPress.com staging site to reset the SFTP user password on.
@@ -355,39 +388,6 @@ function rotate_wpcom_site_sftp_user_password( string $site_id_or_url, string $u
  */
 function rotate_wpcom_staging_site_sftp_user_password( string $site_id_or_url, string $username ): ?stdClass {
 	return API_Helper::make_wpcom_request( "site-ssh-users/$site_id_or_url/$username/rotate-password/staging", 'POST' );
-}
-
-/**
- * Rotates the password of the specified WP user on the specified WPCOM site.
- *
- * @param   string $site_id_or_url The ID or URL of the WPCOM site to reset the WP user password on.
- * @param   string $user           The email, username, or numeric ID of the WP user to reset the password for.
- *
- * @return stdClass|null
- */
-function rotate_wpcom_site_wp_user_password( string $site_id_or_url, string $user ): ?stdClass {
-	$ssh = \WPCOM_Connection_Helper::get_ssh_connection( $site_id_or_url );
-	if ( \is_null( $ssh ) ) {
-		return null;
-	}
-
-	$password = null;
-
-	$ssh->setTimeout( 0 ); // Disable timeout in case the command takes a long time.
-	$ssh->exec(
-		"wp user reset-password $user --skip-email --porcelain",
-		function ( $pw_reset_output ) use ( &$password ) {
-			$password = $pw_reset_output; // Append the received string to the output.
-		}
-	);
-
-	$ssh->disconnect();
-
-	$result           = new stdClass();
-	$result->password = $password;
-	$result->username = $user;
-
-	return $result;
 }
 
 /**
@@ -402,25 +402,6 @@ function create_wpcom_site( string $name ): ?stdClass {
 }
 
 /**
- * Updates settings of a WordPress.com site.
- *
- * @param string $name     The name of the site to update.
- * @param array  $settings The settings to update.
- *
- * @return stdClass|null
- */
-function update_wpcom_site( string $name, array $settings ): ?stdClass {
-	return API_Helper::make_wpcom_request(
-		'sites',
-		'PUT',
-		array(
-			'name'     => $name,
-			'settings' => $settings,
-		)
-	);
-}
-
-/**
  * Creates a new WordPress.com staging site.
  *
  * @param string $site_id_or_url The ID or URL of the WordPress.com site to create the staging site for.
@@ -429,6 +410,18 @@ function update_wpcom_site( string $name, array $settings ): ?stdClass {
  */
 function create_wpcom_staging_site( string $site_id_or_url ): ?stdClass {
 	return API_Helper::make_wpcom_request( "sites/$site_id_or_url/staging-site", method: 'POST' );
+}
+
+/**
+ * Updates settings of a WordPress.com site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the WordPress.com site to update.
+ * @param   array  $settings       The settings to update.
+ *
+ * @return  stdClass|null
+ */
+function update_wpcom_site( string $site_id_or_url, array $settings ): ?stdClass {
+	return API_Helper::make_wpcom_request( "sites/$site_id_or_url", 'PUT', array( 'settings' => $settings ) );
 }
 
 /**
@@ -498,11 +491,10 @@ function wait_until_wpcom_site_transfer_state( string $site_id_or_url, string $s
  *
  * @param   string          $site_id_or_url The ID or URL of the WordPress.com site to check the state of.
  * @param   OutputInterface $output         The output instance.
- * @param boolean         $staging        If the WordPress.com site to open a connection to is a staging site.
  *
  * @return  SSH2|null
  */
-function wait_on_wpcom_site_ssh( string $site_id_or_url, OutputInterface $output, bool $staging = false ): ?SSH2 {
+function wait_on_wpcom_site_ssh( string $site_id_or_url, OutputInterface $output ): ?SSH2 {
 	$output->writeln( "<comment>Waiting for WordPress.com site $site_id_or_url to accept SSH connections.</comment>" );
 
 	$progress_bar = new ProgressBar( $output );
@@ -514,7 +506,7 @@ function wait_on_wpcom_site_ssh( string $site_id_or_url, OutputInterface $output
 	$progress_bar->advance();
 
 	for ( $try = 0, $delay = 5; true; $try++ ) { // Infinite loop until SSH connection is established.
-		$ssh_connection = WPCOM_Connection_Helper::get_ssh_connection( $site_id_or_url, $staging );
+		$ssh_connection = WPCOM_Connection_Helper::get_ssh_connection( $site_id_or_url );
 		if ( ! is_null( $ssh_connection ) ) {
 			break;
 		}
@@ -530,22 +522,105 @@ function wait_on_wpcom_site_ssh( string $site_id_or_url, OutputInterface $output
 }
 
 /**
+ * Connects a WordPress.com site to a GitHub repository for code deployments.
+ *
+ * @param   string     $site_id_or_url         The ID or URL of the WordPress.com site to connect to the GitHub repository.
+ * @param   string     $external_repository_id The ID of the external repository.
+ * @param   string     $branch_name            The branch to deploy.
+ * @param   string     $target_dir             The target directory to deploy to.
+ * @param   array|null $params                 Optional. Additional parameters to pass to the request.
+ *
+ * @return  stdClass|null
+ */
+function create_wpcom_site_code_deployment( string $site_id_or_url, string $external_repository_id, string $branch_name, string $target_dir, ?array $params = null ): ?stdClass {
+	return API_Helper::make_wpcom_request(
+		"sites/$site_id_or_url/code-deployments",
+		'POST',
+		array(
+			'external_repository_id' => $external_repository_id,
+			'branch_name'            => $branch_name,
+			'target_dir'             => $target_dir,
+			'is_automated'           => true,
+		) + (array) $params
+	);
+}
+
+/**
+ * Triggers a code deployment run for a given code deployment.
+ *
+ * @param   string $site_id_or_url     The ID or URL of the WordPress.com site to create the run for.
+ * @param   string $code_deployment_id The ID of the code deployment to create the run for.
+ *
+ * @return  stdClass|null
+ */
+function create_wpcom_site_code_deployment_run( string $site_id_or_url, string $code_deployment_id ): ?stdClass {
+	return API_Helper::make_wpcom_request( "sites/$site_id_or_url/code-deployments/$code_deployment_id/runs", 'POST' );
+}
+
+/**
+ * Returns the list of code deployments for a given WordPress.com site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the WordPress.com site to get the repositories for.
+ *
+ * @return  stdClass[]|null
+ */
+function get_wpcom_site_code_deployments( string $site_id_or_url ): ?array {
+	return API_Helper::make_wpcom_request( "sites/$site_id_or_url/code-deployments" )?->records;
+}
+
+/**
+ * Periodically checks the status of a WordPress.com site until it accepts SSH connections.
+ *
+ * @param   stdClass        $code_deployment The code deployment object.
+ * @param   string          $state           The state to wait for the site to reach.
+ * @param   OutputInterface $output          The output instance.
+ *
+ * @return  stdClass|null
+ */
+function wait_until_wpcom_code_deployment_run_state( stdClass $code_deployment, string $state, OutputInterface $output ): ?stdClass {
+	$output->writeln( "<comment>Waiting for Deployment $code_deployment->id to reach the `$state` state.</comment>" );
+
+	$progress_bar = new ProgressBar( $output );
+	$progress_bar->start();
+
+	for ( $try = 0, $delay = 5; true; $try++ ) { // Infinite loop until the deployment is completed.
+		$code_deployments = get_wpcom_site_code_deployments( $code_deployment->blog_id );
+
+		// Currently we only check the first deployment
+		$deployment = reset( $code_deployments );
+		if ( $deployment->current_deployment_run->code_deployment_id === $code_deployment->id && $deployment->current_deployment_run->status === $state ) {
+			break;
+		}
+
+		$progress_bar->advance();
+		sleep( $delay );
+	}
+
+	$progress_bar->finish();
+	$output->writeln( '' ); // Empty line for UX purposes.
+
+	return $deployment;
+}
+
+/**
  * Runs a WP-CLI command on the specified WordPress.com site.
  *
  * @param   string  $site_id_or_url The ID or URL of the site to run the WP-CLI command on.
  * @param   string  $wp_cli_command The WP-CLI command to run.
+ * @param   boolean $skip_output    Whether to skip outputting the response to the console.
  * @param   boolean $interactive    Whether to run the command interactively.
  *
  * @return  integer
  * @noinspection PhpDocMissingThrowsInspection
  */
-function run_wpcom_site_wp_cli_command( string $site_id_or_url, string $wp_cli_command, bool $interactive = false ): int {
+function run_wpcom_site_wp_cli_command( string $site_id_or_url, string $wp_cli_command, bool $skip_output = false, bool $interactive = false ): int {
 	/* @noinspection PhpUnhandledExceptionInspection */
 	return run_app_command(
 		WPCOM_Site_WP_CLI_Command_Run::getDefaultName(),
 		array(
 			'site'           => $site_id_or_url,
 			'wp-cli-command' => $wp_cli_command,
+			'--skip-output'  => $skip_output,
 		),
 		$interactive
 	);
@@ -558,20 +633,18 @@ function run_wpcom_site_wp_cli_command( string $site_id_or_url, string $wp_cli_c
 /**
  * Grabs a value from the console input and validates it as a valid identifier for a WPCOM site.
  *
- * @param   InputInterface  $input         The console input.
- * @param   OutputInterface $output        The console output.
- * @param   callable|null   $no_input_func The function to call if no input is given.
- * @param   string          $name          The name of the value to grab.
+ * @param   InputInterface $input         The console input.
+ * @param   callable|null  $no_input_func The function to call if no input is given.
+ * @param   string         $name          The name of the value to grab.
  *
  * @return  stdClass
  */
-function get_wpcom_site_input( InputInterface $input, OutputInterface $output, ?callable $no_input_func = null, string $name = 'site' ): stdClass {
-	$site_id_or_url = get_site_input( $input, $output, $no_input_func, $name );
+function get_wpcom_site_input( InputInterface $input, ?callable $no_input_func = null, string $name = 'site' ): stdClass {
+	$site_id_or_url = get_site_input( $input, $no_input_func, $name );
 
 	$wpcom_site = get_wpcom_site( $site_id_or_url );
 	if ( is_null( $wpcom_site ) ) {
-		$output->writeln( '<error>Invalid site. Aborting!</error>' );
-		exit( 1 );
+		throw new InvalidArgumentException( 'Invalid WPCOM site.' );
 	}
 
 	return $wpcom_site;

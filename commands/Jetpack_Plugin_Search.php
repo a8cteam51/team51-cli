@@ -85,16 +85,15 @@ final class Jetpack_Plugin_Search extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->plugin = get_string_input( $input, $output, 'plugin', fn() => $this->prompt_plugin_input( $input, $output ) );
+		$this->plugin = get_string_input( $input, 'plugin', fn() => $this->prompt_plugin_input( $input, $output ) );
 		$input->setArgument( 'plugin', $this->plugin );
 
 		// Set the search parameters.
-		$this->partial = get_bool_input( $input, $output, 'partial' );
-		$this->version = maybe_get_string_input( $input, $output, 'version-search' );
+		$this->partial = get_bool_input( $input, 'partial' );
+		$this->version = maybe_get_string_input( $input, 'version-search' );
 		if ( ! empty( $this->version ) ) {
 			$this->version_operator = get_enum_input(
 				$input,
-				$output,
 				'version-operator',
 				array( '<', '<=', '>', '>=', '==', '=', '!=', '<>' ),
 				fn() => $this->prompt_version_operator_input( $input, $output )
