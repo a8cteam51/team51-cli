@@ -333,18 +333,6 @@ function get_wpcom_site_ssh_username( string $site_id_or_url ): ?string {
 }
 
 /**
- * Gets the SSH user for a given WordPress.com staging site.
- *
- * @param   string $site_id_or_url The ID or URL of the WordPress.com staging site to get the SSH user from.
- *
- * @return  string|null
- */
-function get_wpcom_staging_site_ssh_username( string $site_id_or_url ): ?string {
-	$ssh_users = API_Helper::make_wpcom_request( "site-ssh-users/$site_id_or_url/staging" );
-	return $ssh_users->records[0] ?? null;
-}
-
-/**
  * Rotates the password of the specified SFTP user on the specified WordPress.com site.
  *
  * @param   string $site_id_or_url The ID or URL of the WordPress.com site to reset the SFTP user password on.
@@ -376,18 +364,6 @@ function rotate_wpcom_site_wp_user_password( string $site_id_or_url, string $use
 	}
 
 	return $credentials;
-}
-
-/**
- * Rotates the password of the specified SFTP user on the specified WordPress.com staging site.
- *
- * @param   string $site_id_or_url The ID or URL of the WordPress.com staging site to reset the SFTP user password on.
- * @param   string $username       The username of the SFTP user to reset the password for.
- *
- * @return  stdClass|null
- */
-function rotate_wpcom_staging_site_sftp_user_password( string $site_id_or_url, string $username ): ?stdClass {
-	return API_Helper::make_wpcom_request( "site-ssh-users/$site_id_or_url/$username/rotate-password/staging", 'POST' );
 }
 
 /**
