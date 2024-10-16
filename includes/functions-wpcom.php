@@ -378,6 +378,17 @@ function create_wpcom_site( string $name ): ?stdClass {
 }
 
 /**
+ * Creates a new WordPress.com staging site.
+ *
+ * @param string $site_id_or_url The ID or URL of the WordPress.com site to create the staging site for.
+ *
+ * @return  stdClass|null
+ */
+function create_wpcom_staging_site( string $site_id_or_url ): ?stdClass {
+	return API_Helper::make_wpcom_request( "sites/$site_id_or_url/staging-site", method: 'POST' );
+}
+
+/**
  * Updates settings of a WordPress.com site.
  *
  * @param   string $site_id_or_url The ID or URL of the WordPress.com site to update.
@@ -484,6 +495,40 @@ function wait_on_wpcom_site_ssh( string $site_id_or_url, OutputInterface $output
 	$output->writeln( '' ); // Empty line for UX purposes.
 
 	return $ssh_connection;
+}
+
+/**
+ * Periodically checks the status of a WordPress.com site until the Jetpack user token is regenerated.
+ *
+ * @param   string          $site_id_or_url The ID or URL of the WordPress.com site to check the state of.
+ * @param   OutputInterface $output         The output instance.
+ *
+ * @return  boolean
+ */
+function wait_until_jetpack_token_regenerated( string $site_id_or_url, OutputInterface $output ): bool {
+	$output->writeln( '<fg=magenta;options=bold>Pinging site to regenerate Jetpack user token. This will cause an error and the token will be regenerated.</>' );
+	$output->writeln( "<comment>Waiting for WordPress.com site $site_id_or_url to regenerate the Jetpack user token.</comment>" );
+
+	$regenerated = false;
+	$progress_bar = new ProgressBar( $output );
+	$progress_bar->start();
+	$progress_bar->advance();
+
+	for ( $try = 0, $delay = 5; true; $try++ ) { // Infinite loop until SSH connection is established.
+		$wpcom_site = get_wpcom_site( $site_id_or_url );
+		if ( ! is_null( $wpcom_site ) ) {
+			$regenerated = true;
+			break;
+		}
+
+		$progress_bar->advance();
+		sleep( $delay );
+	}
+
+	$progress_bar->finish();
+	$output->writeln( '' ); // Empty line for UX purposes.
+
+	return $regenerated;
 }
 
 /**
@@ -651,5 +696,4 @@ function maybe_output_wpcom_failed_sites_table( OutputInterface $output, array $
 		$header_title
 	);
 }
-
 // endregion
