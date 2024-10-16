@@ -16,8 +16,8 @@ use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 /**
  * Creates a new staging site for a WPCOM site.
  */
-#[AsCommand( name: 'wpcom:create-staging-site', aliases: array( 'wpcom:create-development-site' ) )]
-final class WPCOM_Site_Staging_Create extends Command {
+#[AsCommand( name: 'wpcom:clone-site' )]
+final class WPCOM_Site_Clone extends Command {
 	use AutocompleteTrait;
 
 	// region FIELDS AND CONSTANTS
