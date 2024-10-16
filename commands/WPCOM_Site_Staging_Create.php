@@ -71,10 +71,10 @@ final class WPCOM_Site_Staging_Create extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->site = get_wpcom_site_input( $input, $output, fn() => $this->prompt_name_input( $input, $output ) );
+		$this->site = get_wpcom_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
 		$input->setArgument( 'site', $this->site );
 
-		$wpcom_gh_repositories = get_code_deployments( $this->site->ID );
+		$wpcom_gh_repositories = get_wpcom_site_code_deployments( $this->site->ID );
 
 		if ( empty( $wpcom_gh_repositories ) ) {
 			$output->writeln( '<error>Unable to find a WPCOM GitHub Deployments for the site.</error>' );
@@ -86,7 +86,7 @@ final class WPCOM_Site_Staging_Create extends Command {
 			}
 		}
 
-		if ( 1 < count( $wpcom_gh_repositories ) ) {
+		if ( $wpcom_gh_repositories && 1 < count( $wpcom_gh_repositories ) ) {
 			$output->writeln( '<comment>Found multiple WPCOM GitHub Deployments for the site.</comment>' );
 
 			$question = new ChoiceQuestion(
@@ -97,16 +97,16 @@ final class WPCOM_Site_Staging_Create extends Command {
 			$question->setErrorMessage( 'Repository %s is invalid.' );
 
 			$this->gh_repository_name = $this->get_repository_slug_from_repository_name( $this->getHelper( 'question' )->ask( $input, $output, $question ) );
-		} elseif ( 1 === count( $wpcom_gh_repositories ) ) {
+		} elseif ( $wpcom_gh_repositories && 1 === count( $wpcom_gh_repositories ) ) {
 			$this->gh_repository_name = $this->get_repository_slug_from_repository_name( $wpcom_gh_repositories[0]->repository_name );
 		}
 
 		if ( $this->gh_repository_name ) {
-			$this->gh_repo_branch = get_string_input( $input, $output, 'branch', fn() => $this->prompt_branch_input( $input, $output ) );
+			$this->gh_repo_branch = get_string_input( $input, 'branch', fn() => $this->prompt_branch_input( $input, $output ) );
 			$input->setOption( 'branch', $this->gh_repo_branch );
 		}
 
-		$this->skip_safety_net = get_bool_input( $input, $output, 'skip-safety-net' );
+		$this->skip_safety_net = get_bool_input( $input, 'skip-safety-net' );
 		$input->setOption( 'skip-safety-net', $this->skip_safety_net );
 	}
 
@@ -146,6 +146,9 @@ final class WPCOM_Site_Staging_Create extends Command {
 			return Command::FAILURE;
 		}
 
+		// Replace http with https in staging site URL
+		$staging_site_https_url = str_replace( 'http://', 'https://', $staging_site->url );
+
 		if ( isset( $staging_site->error ) ) {
 			$output->writeln( "<error>$staging_site->error</error>" );
 			return Command::FAILURE;
@@ -157,12 +160,12 @@ final class WPCOM_Site_Staging_Create extends Command {
 			return Command::FAILURE;
 		}
 
-		$ssh_connection = wait_on_wpcom_site_ssh( $transfer->blog_id, $output, true );
+		$ssh_connection = wait_on_wpcom_site_ssh( $staging_site->id, $output );
 
-		$update = update_wpcom_site( $transfer->blog_id, array( 'blogname' => "{$this->site->name}-staging" ) );
-
-		if ( $update && isset( $update->updated->blogname ) && "{$this->site->name}-staging" === $update->updated->blogname ) {
-			$output->writeln( "<fg=green;options=bold>Staging site $transfer->blog_id name successfully updated to {$this->site->name}-staging.</>" );
+		$output->writeln( "<fg=magenta;options=bold>Updating site name to {$this->site->name}-staging.</>" );
+		$update = update_wpcom_site( $staging_site->id, array( 'blogname' => "{$this->site->name}-staging" ) );
+		if ( $update && isset( $update->blogname ) && "{$this->site->name}-staging" === $update->blogname ) {
+			$output->writeln( "<fg=green;options=bold>Staging site $staging_site->id name successfully updated to {$this->site->name}-staging.</>" );
 		} else {
 			$output->writeln( '<error>Failed to set site name.</error>' );
 		}
@@ -171,13 +174,13 @@ final class WPCOM_Site_Staging_Create extends Command {
 		run_app_command(
 			WPCOM_Site_WP_User_Password_Rotate::getDefaultName(),
 			array(
-				'site'   => $transfer->blog_id,
+				'site'   => $staging_site->id,
 				'--user' => 'concierge@wordpress.com',
 			)
 		);
 
 		run_wpcom_site_wp_cli_command( $staging_site->id, 'config set WP_ENVIRONMENT_TYPE development --type=constant' );
-		run_wpcom_site_wp_cli_command( $staging_site->id, "search-replace {$this->site->URL} $staging_site->url" );
+		run_wpcom_site_wp_cli_command( $staging_site->id, "search-replace {$this->site->URL} $staging_site_https_url" );
 		run_wpcom_site_wp_cli_command( $staging_site->id, 'cache flush' );
 
 		if ( $this->skip_safety_net ) {
@@ -198,7 +201,7 @@ final class WPCOM_Site_Staging_Create extends Command {
 			);
 
 			if ( ! $safety_net_installed ) {
-				run_wpcom_site_wp_cli_command( $staging_site->id, 'plugin install https://github.com/a8cteam51/safety-net/releases/latest/download/safety-net.zip' );
+				run_wpcom_site_wp_cli_command( $transfer->blog_id, 'plugin install https://github.com/a8cteam51/safety-net/releases/latest/download/safety-net.zip' );
 				$ssh_connection->exec( 'mv -f htdocs/wp-content/plugins/safety-net htdocs/wp-content/mu-plugins/safety-net' );
 				$ssh_connection->exec(
 					'ls htdocs/wp-content/mu-plugins',
@@ -207,7 +210,7 @@ final class WPCOM_Site_Staging_Create extends Command {
 							$output->writeln( '<error>Failed to install SafetyNet!</error>' );
 						}
 						if ( ! str_contains( $stream, 'load-safety-net.php' ) ) {
-							$sftp = \WPCOM_Connection_Helper::get_sftp_connection( $staging_site->id, true );
+							$sftp = \WPCOM_Connection_Helper::get_sftp_connection( $staging_site->id );
 							if ( \is_null( $sftp ) ) {
 								$output->writeln( '<error>Failed to connect to the site via SFTP. Cannot copy SafetyNet loader!</error>' );
 							} else {
@@ -224,25 +227,36 @@ final class WPCOM_Site_Staging_Create extends Command {
 
 		$ssh_connection?->disconnect();
 
+		// Ping site to regenerate Jetpack user token. This will cause an error and the token will be regenerated.
+		$regenerated = wait_until_jetpack_token_regenerated( $staging_site->id, $output );
+
+		if ( $regenerated ) {
+			$output->writeln( '<fg=green;options=bold>Jetpack user token regenerated.</>' );
+		}
+
 		if ( ! \is_null( $this->gh_repository_name ) ) {
-			/* @noinspection PhpUnhandledExceptionInspection */
-			$status = run_app_command(
-				WPCOM_GitHubDeployments_Project_Create::getDefaultName(),
-				array(
-					'--blog_id'    => $transfer->blog_id,
-					'--repository' => $this->gh_repository_name,
-					'--branch'     => $this->gh_repo_branch,
-					'--target_dir' => '/wp-content/',
-					'--deploy'     => 'y',
-				),
-			);
-			if ( Command::SUCCESS !== $status ) {
-				$output->writeln( '<error>Failed to create the repository.</error>' );
-				exit( 1 );
+			if ( $regenerated ) {
+				/* @noinspection PhpUnhandledExceptionInspection */
+				$status = run_app_command(
+					WPCOM_Site_Repository_Connect::getDefaultName(),
+					array(
+						'site'         => $staging_site->id,
+						'repository'   => $this->gh_repository_name,
+						'--branch'     => $this->gh_repo_branch,
+						'--target_dir' => '/wp-content/',
+						'--deploy'     => true,
+					)
+				);
+				if ( Command::SUCCESS !== $status ) {
+					$output->writeln( '<error>Failed to create the repository.</error>' );
+					return Command::FAILURE;
+				}
+			} else {
+				$output->writeln( '<comment>Jetpack user token not regenerated. Skipping deployment of GitHub repository. Manual deployment will be needed.</comment>' );
 			}
 		}
 
-		$output->writeln( "<fg=green;options=bold>Staging site {$update->updated->blogname} created successfully $staging_site->url.</>" );
+		$output->writeln( "<fg=green;options=bold>Staging site created successfully at $staging_site_https_url.</>" );
 		return Command::SUCCESS;
 	}
 
@@ -258,8 +272,8 @@ final class WPCOM_Site_Staging_Create extends Command {
 	 *
 	 * @return  string|null
 	 */
-	private function prompt_name_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new Question( '<question>Please enter the name of the site for which to create the staging site:</question> ' );
+	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
+		$question = new Question( '<question>Please enter the domain or id of the site for which to create the staging site:</question> ' );
 		$question->setAutocompleterValues( \array_column( get_wpcom_agency_sites() ?? array(), 'url' ) );
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
