@@ -22,11 +22,12 @@ final class DeployHQ_Project_Private_Key_Rotate extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**
-	 * Whether to process all projects or just a single given one.
+	 * Whether processing multiple projects or just a single given one.
+	 * Can be one of 'all' or a comma-separated list of project permalinks.
 	 *
-	 * @var bool|null
+	 * @var string|null
 	 */
-	private ?bool $all = null;
+	private ?string $multiple = null;
 
 	/**
 	 * The project(s) to rotate the private key for.
@@ -44,23 +45,27 @@ final class DeployHQ_Project_Private_Key_Rotate extends Command {
 	 */
 	protected function configure(): void {
 		$this->setDescription( 'Rotates the private key in a DeployHQ project.' )
-			->setHelp( 'Use this command to rotate the private key in a DeployHQ project.' );
+			->setHelp( 'Use this command to rotate the private key in one or more DeployHQ projects.' );
 
-		$this->addArgument( 'project', InputArgument::OPTIONAL, 'The name of the project to rotate the private key for.' )
-			->addOption( 'all', null, InputOption::VALUE_NONE, 'Whether to process all projects or just a single given one.' );
+		$this->addArgument( 'project', InputArgument::OPTIONAL, 'The permalink of the project to rotate the private key for.' )
+			->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Determines whether to process multiple projects. Accepted values are `all` or a comma-separated list of project permalinks.' );
 	}
 
 	/**
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->all = (bool) $input->getOption( 'all' );
+		$this->multiple = $input->getOption( 'multiple' );
 
-		if ( $this->all ) {
+		if ( null === $this->multiple ) {
+			// If multiple is not set, treat it as a single project operation
+			$project = get_deployhq_project_input( $input, fn() => $this->prompt_project_input( $input, $output ) );
+			$input->setArgument( 'project', $project->permalink );
+			$this->projects = array( $project );
+		} elseif ( 'all' === $this->multiple ) {
 			$this->projects = get_deployhq_projects();
 		} else {
-			$this->projects = array( get_deployhq_project_input( $input, fn() => $this->prompt_project_input( $input, $output ) ) );
-			$input->setArgument( 'project', $this->projects[0] );
+			$this->projects = $this->get_projects_from_multiple_input();
 		}
 	}
 
@@ -68,10 +73,12 @@ final class DeployHQ_Project_Private_Key_Rotate extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function interact( InputInterface $input, OutputInterface $output ): void {
-		$question = match ( $this->all ) {
-			true => new ConfirmationQuestion( '<question>Are you sure you want to rotate the private key for <fg=red;options=bold>ALL</> projects? [y/N]</question> ', false ),
-			false => new ConfirmationQuestion( "<question>Are you sure you want to rotate the private key for the project `{$this->projects[0]->name}` (permalink {$this->projects[0]->permalink})? [y/N]</question> ", false )
+		$question = match ( true ) {
+			'all' === $this->multiple => new ConfirmationQuestion( '<question>Are you sure you want to rotate the private key for <fg=red;options=bold>ALL</> DeployHQ projects? [y/N]</question> ', false ),
+			null !== $this->multiple => new ConfirmationQuestion( '<question>Are you sure you want to rotate the private key for <fg=red;options=bold>' . count( $this->projects ) . ' selected</> DeployHQ projects? [y/N]</question> ', false ),
+			default => new ConfirmationQuestion( "<question>Are you sure you want to rotate the private key for the project `{$this->projects[0]->name}` (permalink {$this->projects[0]->permalink})? [y/N]</question> ", false ),
 		};
+
 		if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 			$output->writeln( '<comment>Command aborted by user.</comment>' );
 			exit( 2 );
@@ -116,6 +123,16 @@ final class DeployHQ_Project_Private_Key_Rotate extends Command {
 		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+	}
+
+	/**
+	 * Get projects from the multiple input option.
+	 *
+	 * @return array
+	 */
+	private function get_projects_from_multiple_input(): array {
+		$project_permalinks = array_map( 'trim', explode( ',', $this->multiple ) );
+		return array_filter( array_map( fn( $permalink ) => get_deployhq_project( $permalink ), $project_permalinks ) );
 	}
 
 	// endregion
