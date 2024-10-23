@@ -64,7 +64,7 @@ final class WPCOM_Site_WP_User_Password_Rotate extends Command {
 		$this->addArgument( 'site', InputArgument::OPTIONAL, 'The domain or numeric WPCOM ID of the site on which to rotate the WP user password.' )
 			->addOption( 'user', 'u', InputOption::VALUE_REQUIRED, 'The email of the site WP user for which to rotate the password. The default is concierge@wordpress.com.' );
 
-		$this->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Determines whether the `site` argument is optional or not. Accepted value is `all`.' )
+		$this->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Determines whether the `site` argument is optional or not. Accepted values are `all` or a comma-separated list of site IDs or URLs.' )
 			->addOption( 'dry-run', null, InputOption::VALUE_NONE, 'Execute a dry run. It will output all the steps, but will keep the current WP user password. Useful for checking whether a given input is valid.' );
 	}
 
@@ -74,11 +74,12 @@ final class WPCOM_Site_WP_User_Password_Rotate extends Command {
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
 		// Retrieve and validate the modifier options.
 		$this->dry_run  = get_bool_input( $input, 'dry-run' );
-		$this->multiple = get_enum_input( $input, 'multiple', array( 'all' ) );
+		$this->multiple = $input->getOption( 'multiple' );
 
-		// If processing a given site, retrieve it from the input.
-		$site = match ( $this->multiple ) {
-			'all' => null,
+		// If processing a given site or list of sites, retrieve it from the input.
+		$site = match ( true ) {
+			'all' === $this->multiple => null,
+			null !== $this->multiple => null,
 			default => get_wpcom_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) ),
 		};
 		$input->setArgument( 'site', $site );
@@ -88,11 +89,12 @@ final class WPCOM_Site_WP_User_Password_Rotate extends Command {
 		$input->setOption( 'user', $this->wp_user_email );
 
 		// Compile the lists of sites to process.
-		$this->sites = match ( $this->multiple ) {
-			'all' => get_wpcom_sites( array( 'fields' => 'ID,URL,name,is_wpcom_atomic,jetpack' ) ),
+		$this->sites = match ( true ) {
+			'all' === $this->multiple => get_wpcom_sites( array( 'fields' => 'ID,URL,name,is_wpcom_atomic,jetpack' ) ),
+			null !== $this->multiple => array_map( fn( $s ) => get_wpcom_site( $s ), explode( ',', $this->multiple ) ),
 			default => array( $site ),
 		};
-		$this->sites = \array_filter( $this->sites, static fn( $site ) => $site->is_wpcom_atomic );
+		$this->sites = array_filter( $this->sites, static fn( $site ) => $site && $site->is_wpcom_atomic );
 
 		if ( empty( $this->sites ) ) {
 			$output->writeln( '<error>No valid WordPress.com Atomic sites found.</error>' );
@@ -104,24 +106,23 @@ final class WPCOM_Site_WP_User_Password_Rotate extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function interact( InputInterface $input, OutputInterface $output ): void {
-		switch ( $this->multiple ) {
-			case 'all':
-				$question = new ConfirmationQuestion( "<question>Are you sure you want to rotate the WP user password of {$input->getOption( 'user' )} on <fg=red;options=bold>ALL</> sites? [y/N]</question> ", false );
-				break;
-			default:
-				$question = new ConfirmationQuestion( "<question>Are you sure you want to rotate the WP user password of {$input->getOption( 'user' )} on {$this->sites[0]->name} (ID {$this->sites[0]->ID}, URL {$this->sites[0]->URL})? [y/N]</question> ", false );
-		}
+		$site_count = count( $this->sites );
+		$question   = match ( true ) {
+			'all' === $this->multiple => new ConfirmationQuestion( "<question>Are you sure you want to rotate the WP user password of {$input->getOption( 'user' )} on <fg=red;options=bold>ALL</> sites? [y/N]</question> ", false ),
+			$site_count > 1 => new ConfirmationQuestion( "<question>Are you sure you want to rotate the WP user password of {$input->getOption( 'user' )} on <fg=red;options=bold>{$site_count}</> sites? [y/N]</question> ", false ),
+			default => new ConfirmationQuestion( "<question>Are you sure you want to rotate the WP user password of {$input->getOption( 'user' )} on {$this->sites[0]->name} (ID {$this->sites[0]->ID}, URL {$this->sites[0]->URL})? [y/N]</question> ", false ),
+		};
 
 		if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 			$output->writeln( '<comment>Command aborted by user.</comment>' );
 			exit( 2 );
 		}
 
-		if ( 'all' === $this->multiple && false === $this->dry_run ) {
-			$question = new ConfirmationQuestion( '<question>This is <fg=red;options=bold>NOT</> a dry run. Are you sure you want to continue rotating the password of the WP user on all sites? [y/N]</question> ', false );
+		if ( ( 'all' === $this->multiple || $site_count > 1 ) && false === $this->dry_run ) {
+			$question = new ConfirmationQuestion( "<question>This is <fg=red;options=bold>NOT</> a dry run. Are you sure you want to continue rotating the password of the WP user on {$site_count} sites? [y/N]</question> ", false );
 			if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 				$output->writeln( '<comment>Command aborted by user.</comment>' );
-				exit( 2 );
+					exit( 2 );
 			}
 		}
 	}

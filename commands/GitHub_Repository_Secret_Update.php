@@ -22,8 +22,8 @@ final class GitHub_Repository_Secret_Update extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**
-	 * Whether processing multiple sites or just a single given one.
-	 * Currently, can only be set to `all`, if at all.
+	 * Whether processing multiple repositories or just a single given one.
+	 * Can be one of 'all' or a comma-separated list of repository slugs.
 	 *
 	 * @var string|null
 	 */
@@ -64,27 +64,25 @@ final class GitHub_Repository_Secret_Update extends Command {
 		$this->addArgument( 'secret-name', InputArgument::REQUIRED, 'The name of the secret to update.' )
 			->addArgument( 'repository', InputArgument::OPTIONAL, 'The slug of the GitHub repository to operate on.' );
 
-		$this->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Determines whether the \'repository\' argument is optional or not. Accepts only \'all\' currently.' );
+		$this->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Determines whether the \'repository\' argument is optional or not. Accepts \'all\' or a comma-separated list of repository slugs.' );
 	}
 
 	/**
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->multiple = get_enum_input( $input, 'multiple', array( 'all' ) );
-		$input->setOption( 'multiple', $this->multiple );
+		$this->multiple = $input->getOption( 'multiple' );
 
-		// If processing a given repository, retrieve it from the input.
-		$repository = match ( $this->multiple ) {
-			'all' => null,
-			default => get_github_repository_input( $input, fn() => $this->prompt_repository_input( $input, $output ) ),
-		};
-		$input->setArgument( 'repository', $repository );
-
-		$this->repositories = match ( $this->multiple ) {
-			'all' => get_github_repositories(),
-			default => array( $repository ),
-		};
+		if ( null === $this->multiple ) {
+			// If multiple is not set, treat it as a single repository operation
+			$repository = get_github_repository_input( $input, fn() => $this->prompt_repository_input( $input, $output ) );
+			$input->setArgument( 'repository', $repository );
+			$this->repositories = array( $repository );
+		} elseif ( 'all' === $this->multiple ) {
+			$this->repositories = get_github_repositories();
+		} else {
+			$this->repositories = $this->get_repositories_from_multiple_input( $input );
+		}
 
 		$this->secret_name = strtoupper( get_string_input( $input, 'secret-name', fn() => $this->prompt_secret_name_input( $input, $output ) ) );
 		$input->setArgument( 'secret-name', $this->secret_name );
@@ -96,8 +94,9 @@ final class GitHub_Repository_Secret_Update extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function interact( InputInterface $input, OutputInterface $output ): void {
-		$question = match ( $this->multiple ) {
-			'all' => new ConfirmationQuestion( "<question>Are you sure you want to set the $this->secret_name secret on <fg=red;options=bold>ALL</> repositories? [y/N]</question> ", false ),
+		$question = match ( true ) {
+			'all' === $this->multiple => new ConfirmationQuestion( "<question>Are you sure you want to set the $this->secret_name secret on <fg=red;options=bold>ALL</> repositories? [y/N]</question> ", false ),
+			null !== $this->multiple => new ConfirmationQuestion( "<question>Are you sure you want to set the $this->secret_name secret on <fg=red;options=bold>" . count( $this->repositories ) . ' selected</> repositories? [y/N]</question> ', false ),
 			default => new ConfirmationQuestion( "<question>Are you sure you want to set the $this->secret_name secret on `{$this->repositories[0]->name}`? [y/N]</question> ", false ),
 		};
 
@@ -169,6 +168,18 @@ final class GitHub_Repository_Secret_Update extends Command {
 		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+	}
+
+	/**
+	 * Get repositories from the multiple input option.
+	 *
+	 * @param   InputInterface $input The input object.
+	 *
+	 * @return  array
+	 */
+	private function get_repositories_from_multiple_input( InputInterface $input ): array {
+		$repo_slugs = array_map( 'trim', explode( ',', $this->multiple ) );
+		return array_map( fn( $slug ) => get_github_repository_input( $input, fn() => $slug ), $repo_slugs );
 	}
 
 	// endregion

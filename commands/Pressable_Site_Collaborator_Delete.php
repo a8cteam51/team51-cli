@@ -56,7 +56,7 @@ final class Pressable_Site_Collaborator_Delete extends Command {
 		$this->addArgument( 'email', InputArgument::REQUIRED, 'The email address of the collaborator to delete.' )
 			->addArgument( 'site', InputArgument::OPTIONAL, 'The site ID or domain to delete the collaborator from.' );
 
-		$this->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Determines whether the `site` argument is optional or not. Accepted values are `related` and `all`.' )
+		$this->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Process multiple sites. Use `all` for all sites, `related` for related sites, or a comma-separated list of site IDs or domains.' )
 			->addOption( 'delete-wp-user', null, InputOption::VALUE_NONE, 'Also delete the WordPress user associated with the collaborator.' );
 	}
 
@@ -70,18 +70,19 @@ final class Pressable_Site_Collaborator_Delete extends Command {
 		$this->email = get_email_input( $input, fn() => $this->prompt_email_input( $input, $output ) );
 		$input->setArgument( 'email', $this->email );
 
-		// If processing a given site, retrieve it from the input.
-		$multiple = get_enum_input( $input, 'multiple', array( 'all', 'related' ) );
-		if ( 'all' !== $multiple ) {
+		// Process the multiple option
+		$multiple = $input->getOption( 'multiple' );
+		if ( null === $multiple ) {
 			$site = get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
 			$input->setArgument( 'site', $site );
-
-			$sites = match ( $multiple ) {
-				'related' => \array_merge( ...get_pressable_related_sites( $site->id ) ),
-				default => array( $site ),
-			};
+			$sites = array( $site );
+		} elseif ( 'all' === $multiple ) {
+			$sites = get_pressable_sites();
+		} elseif ( 'related' === $multiple ) {
+			$site  = get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
+			$sites = array_merge( ...get_pressable_related_sites( $site->id ) );
 		} else {
-			$sites = null;
+			$sites = $this->get_sites_from_multiple_input( $multiple );
 		}
 
 		// Compile the list of collaborators to process.
@@ -185,6 +186,18 @@ final class Pressable_Site_Collaborator_Delete extends Command {
 		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+	}
+
+	/**
+	 * Get sites from the multiple input option.
+	 *
+	 * @param   string $multiple The multiple input option.
+	 *
+	 * @return array
+	 */
+	private function get_sites_from_multiple_input( string $multiple ): array {
+		$site_identifiers = array_map( 'trim', explode( ',', $multiple ) );
+		return array_filter( array_map( fn( $identifier ) => get_pressable_site( $identifier ), $site_identifiers ) );
 	}
 
 	// endregion

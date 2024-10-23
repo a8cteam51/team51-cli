@@ -23,7 +23,7 @@ final class Pressable_Site_WP_User_Password_Rotate extends Command {
 
 	/**
 	 * Whether processing multiple sites or just a single given one.
-	 * Can be one of 'all' or 'related', if set.
+	 * Can be one of 'all', 'related', or a comma-separated list of site IDs or domains.
 	 *
 	 * @var string|null
 	 */
@@ -64,7 +64,7 @@ final class Pressable_Site_WP_User_Password_Rotate extends Command {
 		$this->addArgument( 'site', InputArgument::OPTIONAL, 'The domain or numeric Pressable ID of the site on which to rotate the WP user password.' )
 			->addOption( 'user', 'u', InputOption::VALUE_REQUIRED, 'The email of the site WP user for which to rotate the password. The default is concierge@wordpress.com.' );
 
-		$this->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Determines whether the `site` argument is optional or not. Accepted values are `related` and `all`.' )
+		$this->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Determines whether the `site` argument is optional or not. Accepted values are `related`, `all`, or a comma-separated list of site IDs or domains.' )
 			->addOption( 'dry-run', null, InputOption::VALUE_NONE, 'Execute a dry run. It will output all the steps, but will keep the current WP user password. Useful for checking whether a given input is valid.' );
 	}
 
@@ -74,12 +74,14 @@ final class Pressable_Site_WP_User_Password_Rotate extends Command {
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
 		// Retrieve and validate the modifier options.
 		$this->dry_run  = get_bool_input( $input, 'dry-run' );
-		$this->multiple = get_enum_input( $input, 'multiple', array( 'all', 'related' ) );
+		$this->multiple = $input->getOption( 'multiple' );
 
 		// If processing a given site, retrieve it from the input.
-		$site = match ( $this->multiple ) {
-			'all' => null,
-			default => get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) ),
+		$site = match ( true ) {
+			'all' === $this->multiple => null,
+			'related' === $this->multiple => get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) ),
+			null === $this->multiple => get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) ),
+			default => null,
 		};
 		$input->setArgument( 'site', $site );
 
@@ -88,10 +90,11 @@ final class Pressable_Site_WP_User_Password_Rotate extends Command {
 		$input->setOption( 'user', $this->wp_user_email );
 
 		// Compile the lists of sites to process.
-		$this->sites = match ( $this->multiple ) {
-			'all' => get_pressable_sites(),
-			'related' => \array_merge( ...get_pressable_related_sites( $site->id ) ),
-			default => array( $site ),
+		$this->sites = match ( true ) {
+			'all' === $this->multiple => get_pressable_sites(),
+			'related' === $this->multiple => \array_merge( ...get_pressable_related_sites( $site->id ) ),
+			null === $this->multiple => array( $site ),
+			default => $this->get_sites_from_multiple_input(),
 		};
 	}
 
@@ -99,13 +102,16 @@ final class Pressable_Site_WP_User_Password_Rotate extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function interact( InputInterface $input, OutputInterface $output ): void {
-		switch ( $this->multiple ) {
-			case 'all':
+		switch ( true ) {
+			case 'all' === $this->multiple:
 				$question = new ConfirmationQuestion( "<question>Are you sure you want to rotate the WP user password of {$input->getOption( 'user' )} on <fg=red;options=bold>ALL</> sites? [y/N]</question> ", false );
 				break;
-			case 'related':
+			case 'related' === $this->multiple:
 				output_pressable_related_sites( $output, get_pressable_related_sites( $this->sites[0]->id ) );
 				$question = new ConfirmationQuestion( "<question>Are you sure you want to rotate the WP user password of {$input->getOption( 'user' )} on all the sites listed above? [y/N]</question> ", false );
+				break;
+			case null !== $this->multiple:
+				$question = new ConfirmationQuestion( "<question>Are you sure you want to rotate the WP user password of {$input->getOption( 'user' )} on <fg=red;options=bold>" . count( $this->sites ) . ' selected</> sites? [y/N]</question> ', false );
 				break;
 			default:
 				$question = new ConfirmationQuestion( "<question>Are you sure you want to rotate the WP user password of {$input->getOption( 'user' )} on {$this->sites[0]->displayName} (ID {$this->sites[0]->id}, URL {$this->sites[0]->url})? [y/N]</question> ", false );
@@ -189,11 +195,14 @@ final class Pressable_Site_WP_User_Password_Rotate extends Command {
 	 */
 	private function prompt_user_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the email of the WP user to rotate the password for [concierge@wordpress.com]:</question> ', 'concierge@wordpress.com' );
-		if ( 'all' !== $this->multiple && ! $input->getOption( 'no-autocomplete' ) ) {
-			$site = get_pressable_site( $input->getArgument( 'site' )->id );
-			if ( ! \is_null( $site ) ) {
-				$question->setAutocompleterValues( \array_map( static fn( object $wp_user ) => $wp_user->email, get_wpcom_site_users( $site->url ) ?? array() ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			if ( is_null( $this->multiple ) || 'related' === $this->multiple ) {
+				$site = get_pressable_site( $input->getArgument( 'site' )->id );
+				if ( ! \is_null( $site ) ) {
+					$question->setAutocompleterValues( \array_map( static fn( object $wp_user ) => $wp_user->email, get_wpcom_site_users( $site->url ) ?? array() ) );
+				}
 			}
+			// For 'all' or custom list of sites, we don't provide autocomplete suggestions
 		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
@@ -325,6 +334,16 @@ final class Pressable_Site_WP_User_Password_Rotate extends Command {
 		}
 
 		return $result;
+	}
+
+	/**
+	 * Get sites from the multiple input option.
+	 *
+	 * @return array
+	 */
+	private function get_sites_from_multiple_input(): array {
+		$site_identifiers = array_map( 'trim', explode( ',', $this->multiple ) );
+		return array_filter( array_map( fn( $identifier ) => get_pressable_site( $identifier ), $site_identifiers ) );
 	}
 
 	// endregion
