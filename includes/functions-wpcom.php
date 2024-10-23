@@ -509,7 +509,7 @@ function wait_until_jetpack_token_regenerated( string $site_id_or_url, OutputInt
 	$output->writeln( '<fg=magenta;options=bold>Pinging site to regenerate Jetpack user token. This will cause an error and the token will be regenerated.</>' );
 	$output->writeln( "<comment>Waiting for WordPress.com site $site_id_or_url to regenerate the Jetpack user token.</comment>" );
 
-	$regenerated = false;
+	$regenerated  = false;
 	$progress_bar = new ProgressBar( $output );
 	$progress_bar->start();
 	$progress_bar->advance();

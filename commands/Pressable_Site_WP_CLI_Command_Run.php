@@ -23,7 +23,7 @@ final class Pressable_Site_WP_CLI_Command_Run extends Command {
 
 	/**
 	 * Whether processing multiple sites or just a single given one.
-	 * Can be one of 'all' or 'related', if set.
+	 * Can be one of 'all' or a comma-separated list of site IDs or domains.
 	 *
 	 * @var string|null
 	 */
@@ -61,10 +61,10 @@ final class Pressable_Site_WP_CLI_Command_Run extends Command {
 		$this->setDescription( 'Runs a given WP-CLI command on a given Pressable site.' )
 			->setHelp( 'This command allows you to run an arbitrary WP-CLI command on a Pressable site.' );
 
-		$this->addArgument( 'site', InputArgument::REQUIRED, 'The domain or numeric Pressable ID of the site to open the shell to.' )
-			->addArgument( 'wp-cli-command', InputArgument::REQUIRED, 'The WP-CLI command to run.' );
+		$this->addArgument( 'wp-cli-command', InputArgument::REQUIRED, 'The WP-CLI command to run.' )
+			->addArgument( 'site', InputArgument::OPTIONAL, 'The domain or numeric Pressable ID of the site to open the shell to.' );
 
-		$this->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Determines whether the `site` argument is optional or not. Accepted value is `all`.' )
+		$this->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Determines whether the `site` argument is optional or not. Accepted values are `all` or a comma-separated list of site IDs or domains.' )
 			->addOption( 'skip-output', null, InputOption::VALUE_NONE, 'Skip outputting the response to the console.' );
 	}
 
@@ -73,15 +73,17 @@ final class Pressable_Site_WP_CLI_Command_Run extends Command {
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
 		$this->skip_output = get_bool_input( $input, 'skip-output' );
-		$this->multiple    = get_enum_input( $input, 'multiple', array( 'all' ) );
+		$this->multiple    = $input->getOption( 'multiple' );
 
-		if ( 'all' !== $this->multiple ) {
+		if ( null === $this->multiple ) {
+			// If multiple is not set, treat it as a single site operation
 			$site = get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
 			$input->setArgument( 'site', $site );
-
 			$this->sites = array( $site );
-		} else {
+		} elseif ( 'all' === $this->multiple ) {
 			$this->sites = get_pressable_sites();
+		} else {
+			$this->sites = $this->get_sites_from_multiple_input();
 		}
 
 		$this->wp_command = get_string_input( $input, 'wp-cli-command', fn() => $this->prompt_command_input( $input, $output ) );
@@ -96,8 +98,9 @@ final class Pressable_Site_WP_CLI_Command_Run extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function interact( InputInterface $input, OutputInterface $output ): void {
-		$question = match ( $this->multiple ) {
-			'all' => new ConfirmationQuestion( "<question>Are you sure you want to run the command `wp $this->wp_command` on <fg=red;options=bold>ALL</> Pressable sites? [y/N]</question> ", false ),
+		$question = match ( true ) {
+			'all' === $this->multiple => new ConfirmationQuestion( "<question>Are you sure you want to run the command `wp $this->wp_command` on <fg=red;options=bold>ALL</> Pressable sites? [y/N]</question> ", false ),
+			null !== $this->multiple => new ConfirmationQuestion( "<question>Are you sure you want to run the command `wp $this->wp_command` on <fg=red;options=bold>" . count( $this->sites ) . ' selected</> Pressable sites? [y/N]</question> ', false ),
 			default => new ConfirmationQuestion( "<question>Are you sure you want to run the command `wp $this->wp_command` on {$this->sites[0]->displayName} (ID {$this->sites[0]->id}, URL {$this->sites[0]->url})? [y/N]</question> ", false ),
 		};
 
@@ -177,6 +180,16 @@ final class Pressable_Site_WP_CLI_Command_Run extends Command {
 	private function prompt_command_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the WP-CLI command to run:</question> ' );
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+	}
+
+	/**
+	 * Get sites from the multiple input option.
+	 *
+	 * @return array
+	 */
+	private function get_sites_from_multiple_input(): array {
+		$site_identifiers = array_map( 'trim', explode( ',', $this->multiple ) );
+		return array_filter( array_map( fn( $identifier ) => get_pressable_site( $identifier ), $site_identifiers ) );
 	}
 
 	// endregion

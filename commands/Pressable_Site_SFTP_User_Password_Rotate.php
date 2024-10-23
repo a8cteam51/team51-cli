@@ -24,7 +24,7 @@ final class Pressable_Site_SFTP_User_Password_Rotate extends Command {
 
 	/**
 	 * Whether processing multiple sites or just a single given one.
-	 * Can be one of 'all' or 'related', if set.
+	 * Can be one of 'all', 'related', or a comma-separated list of site IDs or domains.
 	 *
 	 * @var string|null
 	 */
@@ -65,7 +65,7 @@ final class Pressable_Site_SFTP_User_Password_Rotate extends Command {
 		$this->addArgument( 'site', InputArgument::OPTIONAL, 'The domain or numeric Pressable ID of the site on which to rotate the SFTP user password.' )
 			->addOption( 'user', 'u', InputOption::VALUE_REQUIRED, 'The ID, email, or username of the site SFTP user for which to rotate the password. The default is concierge@wordpress.com.' );
 
-		$this->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Determines whether the \'site\' argument is optional or not. Accepted values are \'related\' and \'all\'.' )
+		$this->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Determines whether the \'site\' argument is optional or not. Accepted values are \'related\', \'all\', or a comma-separated list of site IDs or domains.' )
 			->addOption( 'dry-run', null, InputOption::VALUE_NONE, 'Execute a dry run. It will output all the steps, but will keep the current SFTP user password. Useful for checking whether a given input is valid.' );
 	}
 
@@ -75,18 +75,22 @@ final class Pressable_Site_SFTP_User_Password_Rotate extends Command {
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
 		// Retrieve and validate the modifier options.
 		$this->dry_run  = (bool) $input->getOption( 'dry-run' );
-		$this->multiple = get_enum_input( $input, 'multiple', array( 'all', 'related' ) );
+		$this->multiple = $input->getOption( 'multiple' );
 
 		// If processing a given site, retrieve it from the input.
-		$site = match ( $this->multiple ) {
-			'all' => null,
+		$site = match ( true ) {
+			'all' === $this->multiple => null,
+			'related' === $this->multiple => get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) ),
+			null !== $this->multiple => null,
 			default => get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) ),
 		};
 		$input->setArgument( 'site', $site );
 
 		// If processing a given user, retrieve it from the input.
-		$user = match ( $this->multiple ) {
-			'all' => get_email_input( $input, fn() => $this->prompt_user_input( $input, $output ), 'user' ),
+		$user = match ( true ) {
+			'all' === $this->multiple => get_email_input( $input, fn() => $this->prompt_user_input( $input, $output ), 'user' ),
+			'related' === $this->multiple => get_pressable_site_sftp_user_input( $input, $input->getArgument( 'site' )->id, fn() => $this->prompt_user_input( $input, $output ) ),
+			null !== $this->multiple => get_email_input( $input, fn() => $this->prompt_user_input( $input, $output ), 'user' ),
 			default => get_pressable_site_sftp_user_input( $input, $input->getArgument( 'site' )->id, fn() => $this->prompt_user_input( $input, $output ) ),
 		};
 		$input->setOption( 'user', $user->email ?? $user );
@@ -99,8 +103,10 @@ final class Pressable_Site_SFTP_User_Password_Rotate extends Command {
 			if ( 'related' === $this->multiple ) {
 				$this->sites = get_pressable_related_sites( $site->id );
 				$this->sites = \array_merge( ...$this->sites ); // Flatten out the related websites tree.
-			} else { // 'all' === $this->multiple.
+			} elseif ( 'all' === $this->multiple ) {
 				$this->sites = get_pressable_sites();
+			} else {
+				$this->sites = $this->get_sites_from_multiple_input();
 			}
 
 			$output->writeln( '<info>Compiling list of Pressable SFTP users...</info>' );
@@ -124,13 +130,16 @@ final class Pressable_Site_SFTP_User_Password_Rotate extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function interact( InputInterface $input, OutputInterface $output ): void {
-		switch ( $this->multiple ) {
-			case 'all':
+		switch ( true ) {
+			case 'all' === $this->multiple:
 				$question = new ConfirmationQuestion( "<question>Are you sure you want to rotate the SFTP user password of {$input->getOption( 'user' )} on <fg=red;options=bold>ALL</> sites? [y/N]</question> ", false );
 				break;
-			case 'related':
+			case 'related' === $this->multiple:
 				output_pressable_related_sites( $output, get_pressable_related_sites( $this->sites[0]->id ) );
 				$question = new ConfirmationQuestion( "<question>Are you sure you want to rotate the SFTP user password of {$input->getOption( 'user' )} on all the sites listed above? [y/N]</question> ", false );
+				break;
+			case null !== $this->multiple:
+				$question = new ConfirmationQuestion( "<question>Are you sure you want to rotate the SFTP user password of {$input->getOption( 'user' )} on <fg=red;options=bold>" . count( $this->sites ) . ' selected</> sites? [y/N]</question> ', false );
 				break;
 			default:
 				$question = new ConfirmationQuestion( "<question>Are you sure you want to rotate the SFTP user password of {$this->sftp_users[0]->username} (ID {$this->sftp_users[0]->id}, email {$this->sftp_users[0]->email}) on {$this->sites[0]->displayName} (ID {$this->sites[0]->id}, URL {$this->sites[0]->url})? [y/N]</question> ", false );
@@ -209,8 +218,11 @@ final class Pressable_Site_SFTP_User_Password_Rotate extends Command {
 	 */
 	private function prompt_user_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the email of the SFTP user to rotate the password for [concierge@wordpress.com]:</question> ', 'concierge@wordpress.com' );
-		if ( 'all' !== $this->multiple && ! $input->getOption( 'no-autocomplete' ) ) {
-			$question->setAutocompleterValues( \array_map( static fn( object $user ) => $user->email, get_pressable_site_sftp_users( $input->getArgument( 'site' )->id ) ?? array() ) );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			if ( is_null( $this->multiple ) || 'related' === $this->multiple ) {
+				$question->setAutocompleterValues( \array_map( static fn( object $user ) => $user->email, get_pressable_site_sftp_users( $input->getArgument( 'site' )->id ) ?? array() ) );
+			}
+			// For 'all' or custom list of sites, we don't provide autocomplete suggestions
 		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
@@ -237,6 +249,16 @@ final class Pressable_Site_SFTP_User_Password_Rotate extends Command {
 		}
 
 		return $credentials;
+	}
+
+	/**
+	 * Get sites from the multiple input option.
+	 *
+	 * @return array
+	 */
+	private function get_sites_from_multiple_input(): array {
+		$site_identifiers = array_map( 'trim', explode( ',', $this->multiple ) );
+		return array_filter( array_map( fn( $identifier ) => get_pressable_site( $identifier ), $site_identifiers ) );
 	}
 
 	// endregion
