@@ -10,6 +10,7 @@ use Symfony\Component\Console\Output\ConsoleOutput;
 use Symfony\Component\EventDispatcher\EventDispatcher;
 
 const TEAM51_CLI_ROOT_DIR = __DIR__;
+const TEAM51_CLI_FILE     = __FILE__;
 require_once TEAM51_CLI_ROOT_DIR . '/self-update.php';
 require_once TEAM51_CLI_ROOT_DIR . '/vendor/autoload.php';
 
