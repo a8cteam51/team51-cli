@@ -181,6 +181,7 @@ final class GitHub_Repository_Create extends Command {
 	 */
 	private function prompt_type_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Please enter the type of repository to create or press enter for an empty repo:</question> ' );
+		// TODO: Show choices in a list.
 		if ( ! $input->getOption( 'no-autocomplete' ) ) {
 			$question->setAutocompleterValues( array( 'project', 'no-code-project', 'plugin', 'issues' ) );
 		}
@@ -267,7 +268,7 @@ final class GitHub_Repository_Create extends Command {
 	private function add_no_code_theme_files( OutputInterface $output, stdClass $repository ): bool {
 		$output->writeln( "<comment>Adding theme files from {$this->no_code_theme}...</comment>" );
 
-		// Create a temporary directory
+		// Create a temporary directory for the main repository
 		$temp_dir = sys_get_temp_dir() . '/' . uniqid( 'github-repo-' );
 		mkdir( $temp_dir );
 		if ( ! is_dir( $temp_dir ) ) {
@@ -288,21 +289,75 @@ final class GitHub_Repository_Create extends Command {
 			return false;
 		}
 
-		// Create themes directory and copy theme files
-		$copy_command = sprintf(
-			'cd %s && mkdir -p themes/%s && cp -r %s/%s/* themes/%s',
-			$temp_dir,
-			$this->no_code_theme,
-			dirname( TEAM51_CLI_ROOT_DIR ) . '/a8c-themes',
-			$this->no_code_theme,
-			$this->no_code_theme
-		);
+		// Check for "Template:" entry in the chosen theme's style.css
+		$a8c_themes_dir    = dirname( TEAM51_CLI_ROOT_DIR ) . '/a8c-themes';
+		$theme_path        = $a8c_themes_dir . '/' . $this->no_code_theme;
+		$parent_theme_slug = get_theme_template_entry( $theme_path );
 
-		exec( $copy_command, $exec_output, $return_code );
-		if ( 0 !== $return_code ) {
-			$output->writeln( '<error>Failed to copy theme files.</error>' );
-			$output->writeln( '<error>Command output: ' . implode( "\n", $exec_output ) . '</error>' );
-			return false;
+		if ( $parent_theme_slug ) {
+			$output->writeln( "<comment>The theme {$this->no_code_theme} is a child theme. Using {$parent_theme_slug} as the parent theme.</comment>" );
+
+			// Rename the theme folder
+			$custom_theme_name = $this->no_code_theme . '-custom';
+			$custom_theme_path = $temp_dir . '/themes/' . $custom_theme_name;
+			mkdir( $custom_theme_path, 0777, true );
+
+			// Copy theme files to the new custom folder
+			$copy_command = sprintf(
+				'cp -r %s/* %s',
+				$theme_path,
+				$custom_theme_path
+			);
+			exec( $copy_command, $exec_output, $return_code );
+			if ( 0 !== $return_code ) {
+				$output->writeln( '<error>Failed to copy theme files.</error>' );
+				$output->writeln( '<error>Command output: ' . implode( "\n", $exec_output ) . '</error>' );
+				return false;
+			}
+
+			// Modify the theme name in style.css after copying
+			$style_css_path = $custom_theme_path . '/style.css';
+			$style_contents = file_get_contents( $style_css_path );
+			$style_contents = preg_replace( '/Theme Name:\s*(.+)/', 'Theme Name: $1 Custom', $style_contents );
+			file_put_contents( $style_css_path, $style_contents );
+
+			// Check if the parent theme exists
+			$available_themes = get_a8c_theme_choices( $output );
+			if ( in_array( $parent_theme_slug, $available_themes, true ) ) {
+				// Copy the parent theme files to the main repository
+				$parent_theme_path         = $a8c_themes_dir . '/' . $parent_theme_slug;
+				$parent_theme_copy_command = sprintf(
+					'cp -r %s %s/themes/',
+					$parent_theme_path,
+					$temp_dir
+				);
+				exec( $parent_theme_copy_command, $exec_output, $return_code );
+				if ( 0 !== $return_code ) {
+					$output->writeln( '<error>Failed to copy parent theme files.</error>' );
+					$output->writeln( '<error>Command output: ' . implode( "\n", $exec_output ) . '</error>' );
+					return false;
+				}
+			} else {
+				$output->writeln( "<error>Parent theme {$parent_theme_slug} not found.</error>" );
+			}
+		} else {
+			$output->writeln( "<comment>The theme {$this->no_code_theme} is not a child theme. Proceeding with default setup.</comment>" );
+
+			// Create themes directory and copy theme files
+			$copy_command = sprintf(
+				'cd %s && mkdir -p themes/%s && cp -r %s/%s/* themes/%s',
+				$temp_dir,
+				$this->no_code_theme,
+				$a8c_themes_dir,
+				$this->no_code_theme,
+				$this->no_code_theme
+			);
+			exec( $copy_command, $exec_output, $return_code );
+			if ( 0 !== $return_code ) {
+				$output->writeln( '<error>Failed to copy theme files.</error>' );
+				$output->writeln( '<error>Command output: ' . implode( "\n", $exec_output ) . '</error>' );
+				return false;
+			}
 		}
 
 		// Commit and push the theme files
@@ -320,7 +375,7 @@ final class GitHub_Repository_Create extends Command {
 			return false;
 		}
 
-		// Clean up temporary directory
+		// Clean up main repository temporary directory
 		exec( sprintf( 'rm -rf %s', $temp_dir ), $exec_output, $return_code );
 		if ( 0 !== $return_code ) {
 			$output->writeln( '<error>Failed to clean up temporary directory.</error>' );

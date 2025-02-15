@@ -452,6 +452,27 @@ function get_a8c_theme_choices( OutputInterface $output ): array {
 }
 
 /**
+ * Fetches the template entry from a theme's style.css file.
+ *
+ * @param   string $theme_path The path to the theme.
+ *
+ * @return  string|null
+ */
+function get_theme_template_entry( string $theme_path ): ?string {
+	$style_css_path = $theme_path . '/style.css';
+	if ( ! file_exists( $style_css_path ) ) {
+		return null;
+	}
+
+	$style_contents = file_get_contents( $style_css_path );
+	if ( preg_match( '/Template:\s*(\S+)/', $style_contents, $matches ) ) {
+		return $matches[1];
+	}
+
+	return null;
+}
+
+/**
  * Validates a given user's choice against a list of choices, and returns the key of the valid choice.
  * Tries to handle the case where the user input was either the key or the value, and always returns the key.
  *
