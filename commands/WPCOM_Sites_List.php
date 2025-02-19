@@ -344,13 +344,15 @@ final class WPCOM_Sites_List extends Command {
 
 	/**
 	 * Tries to determine the host of the site.
-	 * TODO - Reorganize the checks from least expensive to most expensive:
-	 * 1. Check results of /me/sites API call.
-	 * 2. Check against Pressable sites.
-	 * 3. Check against well-known/hosting-provider.
-	 * 3a. Check against x-powered-by header.
+	 * Checks are ordered from least expensive to most expensive:
+	 * 1. Check data returned by the wpcom /me/sites API.
+	 * 2. Check site against the known list of Pressable sites.
+	 * 3. Check the site's well-known/hosting-provider.
+	 * 3a. Check the x-powered-by header.
+	 * 4. Check against wpcom site-profiler API.
 	 *
 	 * @param   \stdClass $site The site object.
+	 * @param   OutputInterface $output The output object.
 	 *
 	 * @return  string
 	 */
@@ -409,6 +411,7 @@ final class WPCOM_Sites_List extends Command {
 	 * Check WordPress.com/site-profiles API for the site.
 	 * 
 	 * @param   string $site_url The site URL.
+	 * @param   OutputInterface $output The output object.
 	 * 
 	 * @return  string
 	 */
@@ -505,7 +508,8 @@ final class WPCOM_Sites_List extends Command {
 	 * Evaluates if a site is single or multisite.
 	 *
 	 * @param   \stdClass $site Site object to be evaluated.
-	 *
+	 * @param   OutputInterface $output The output object.
+	 * 
 	 * @return  string
 	 */
 	protected function eval_is_multisite( \stdClass $site, $output ): string {
