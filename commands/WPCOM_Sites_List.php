@@ -421,10 +421,31 @@ final class WPCOM_Sites_List extends Command {
 		if ( isset( $parts['host'] ) ) {
 			$site_url = $parts['host'];
 		}
-		$site_profiles = get_remote_content( 'https://public-api.wordpress.com/wpcom/v2/site-profiler/hosting-provider/' . $site_url );
+		
+		$maxAttempts = 5;
+		$attempt    = 0;
+		$delay      = 10; // initial delay in seconds
+	
+		do {
+			$site_profiles = get_remote_content( 'https://public-api.wordpress.com/wpcom/v2/site-profiler/hosting-provider/' . $site_url );
+			$httpCode      = $site_profiles['headers']['http_code'] ?? 0;
+			if ( 429 !== $httpCode ) {
+				break;
+			}
+			$output->writeln( "<error>Rate limited by WP.com site-profiler. Retrying in {$delay} seconds...</error>" );
+			sleep( $delay );
+			$delay   *= 2;
+			$attempt++;
+		} while ( $attempt < $maxAttempts );
+	
+		if ( 429 === ( $site_profiles['headers']['http_code'] ?? 0 ) ) {
+			$output->writeln( "<error>Exceeded maximum retry attempts for WP.com site-profiler. Skipping {$site_url}.</error>" );
+			return $server;
+		}
+	
 		if ( $site_profiles && 200 === $site_profiles['headers']['http_code'] ) {
 			$site_profiles = json_decode( $site_profiles['body'], true );
-			if ( isset( $site_profiles['hosting_provider']['is_cdn'] ) && true == $site_profiles['hosting_provider']['is_cdn'] ) {
+			if ( isset( $site_profiles['hosting_provider']['is_cdn'] ) && $site_profiles['hosting_provider']['is_cdn'] ) {
 				$server = 'Other';
 			} else {
 				if ( isset( $site_profiles['hosting_provider']['name'] ) ) {
@@ -433,15 +454,10 @@ final class WPCOM_Sites_List extends Command {
 					$server = 'Other';
 				}
 			}
-		} elseif ( 429 === $site_profiles['headers']['http_code'] ) {
-			# TODO - This is hacky and should be replaced with a proper back off mechanism.
-			$output->writeln( "<error>Rate limited by WP.com site-profiler. Retrying in 10 seconds...</error>" );
-			sleep( 10 );
-			$server = $this->check_wpcom_site_profiles( $site_url, $output );
-		}
-		else {
+		} else {
 			$server = 'Other';
 		}
+	
 		return $server;
 	}
 
