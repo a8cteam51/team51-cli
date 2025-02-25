@@ -340,7 +340,7 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 			->configure(
 				array(
 					'max_parallel' => $this->max_parallel,
-					'ssh_timeout'   => $this->ssh_timeout,
+					'ssh_timeout'  => $this->ssh_timeout,
 				)
 			)
 			->add_callback(
@@ -373,10 +373,10 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 					if ( isset( $result['details'] ) && str_contains( $result['details'], 'Error: Invalid user' ) ) {
 						return array(
 							'code'              => 'user_not_found',
-							'site_id'           => $result['site_id'],
-							'details'           => sprintf( 'User not found on %s', $site_url ),
-							'type'              => $result['type'],
-							'pressable_site_id' => $result['pressable_site_id'],
+							'site_id'           => $result['site_id'] ?? 0,
+							'details'           => isset( $result['type'] ) ? sprintf( 'User not found on %s', $site_url ) : $result['details'],
+							'type'              => $result['type'] ?? 'unknown_type',
+							'pressable_site_id' => $result['pressable_site_id'] ?? 0,
 						);
 					}
 					// Test for valid users.
@@ -483,13 +483,18 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 
 	/**
 	 * Initialize progress bar for SSH operations.
+	 *
+	 * @param   OutputInterface $output The output interface.
+	 * @param   int             $total_items The total number of items to process.
+	 *
+	 * @return  ProgressBar
 	 */
 	private function initialize_progress_bar( OutputInterface $output, int $total_items ): ProgressBar {
 		$progress_bar = new ProgressBar( $output, $total_items );
 		$progress_bar->setFormat( '(%current%/%max%) [%bar%] %percent:3s%% • %message%' );
 		$progress_bar->setMessage( 'Initializing...' );
 		$progress_bar->start();
-		
+
 		return $progress_bar;
 	}
 
