@@ -8,6 +8,7 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
@@ -20,6 +21,18 @@ final class GitHub_Repository_Create extends Command {
 	use AutocompleteTrait;
 
 	// region FIELDS AND CONSTANTS
+
+	/**
+	 * The types of repositories that can be created.
+	 *
+	 * @var array
+	 */
+	const REPOSITORY_TYPES = array(
+		'empty'   => 'Empty',
+		'project' => 'Project',
+		'plugin'  => 'Plugin',
+		'issues'  => 'Issues',
+	);
 
 	/**
 	 * The name of the repository to create.
@@ -85,7 +98,7 @@ final class GitHub_Repository_Create extends Command {
 		$this->homepage    = $input->getOption( 'homepage' );
 		$this->description = $input->getOption( 'description' );
 
-		$this->type = get_enum_input( $input, 'type', array( 'project', 'plugin', 'issues' ), fn() => $this->prompt_type_input( $input, $output ) );
+		$this->type = get_enum_input( $input, 'type', array_keys( self::REPOSITORY_TYPES ), fn() => $this->prompt_type_input( $input, $output ) );
 		$input->setOption( 'type', $this->type );
 
 		$this->custom_properties = $this->process_custom_properties( $input );
@@ -155,11 +168,11 @@ final class GitHub_Repository_Create extends Command {
 	 * @return  string|null
 	 */
 	private function prompt_type_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new Question( '<question>Please enter the type of repository to create or press enter for an empty repo:</question> ' );
-		if ( ! $input->getOption( 'no-autocomplete' ) ) {
-			$question->setAutocompleterValues( array( 'project', 'plugin', 'issues' ) );
-		}
-
+		$question = new ChoiceQuestion(
+			'<question>Please select the type of repository to create [empty]:</question> ',
+			self::REPOSITORY_TYPES,
+			array_key_first( self::REPOSITORY_TYPES )
+		);
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
 
