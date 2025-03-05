@@ -8,6 +8,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\EventDispatcher\GenericEvent;
 use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Process\Process;
+use Symfony\Component\Console\Helper\ProgressBar;
 
 // region HTTP
 
@@ -403,52 +404,6 @@ function get_site_input( InputInterface $input, ?callable $no_input_func = null,
 	}
 
 	return $site_id_or_url;
-}
-
-/**
- * Fetches the list of a8c themes in the parent directory of the Team51 CLI.
- *
- * @param   OutputInterface $output The console output.
- *
- * @return  array
- */
-function get_a8c_theme_choices( OutputInterface $output ): array {
-	$output->writeln( '<comment>Fetching a8c themes in the parent directory of the Team51 CLI...</comment>' );
-	$a8c_themes_dir = dirname( TEAM51_CLI_ROOT_DIR ) . '/a8c-themes';
-
-	if ( ! is_dir( $a8c_themes_dir ) ) {
-		$command     = sprintf(
-			'cd %s && git clone git@github.com:Automattic/themes.git a8c-themes',
-			dirname( getcwd() )
-		);
-		$exec_output = array();
-		exec( $command, $exec_output, $return_code );
-		if ( 0 !== $return_code ) {
-			$output->writeln( '<error>Failed to clone a8c-themes repository.</error>' );
-			return array();
-		}
-	} else {
-		$command     = sprintf(
-			'cd %s && git pull',
-			$a8c_themes_dir
-		);
-		$exec_output = array();
-		exec( $command, $exec_output, $return_code );
-		if ( 0 !== $return_code ) {
-			$output->writeln( '<error>Failed to pull latest changes from a8c-themes repository.</error>' );
-			return array();
-		}
-	}
-
-	// Get list of main folders in the repo and set as keys and values
-	$folders = array_filter(
-		scandir( $a8c_themes_dir ),
-		function ( $item ) use ( $a8c_themes_dir ) {
-			return is_dir( $a8c_themes_dir . '/' . $item ) && ! in_array( $item, array( '.', '..', '.git' ), true );
-		}
-	);
-
-	return array_combine( $folders, $folders );
 }
 
 /**

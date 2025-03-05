@@ -71,6 +71,19 @@ final class API_Helper {
 		return self::make_request( self::get_request_base_url() . "wpcom/v1/$endpoint", $method, $body );
 	}
 
+	/**
+	 * Calls a given WordPress.org endpoint and returns the response.
+	 *
+	 * @param   string $endpoint The endpoint to call.
+	 * @param   string $method   The HTTP method to use. One of 'GET', 'POST', 'PUT', 'DELETE'.
+	 * @param   mixed  $body     The body to send with the request.
+	 *
+	 * @return  stdClass|stdClass[]|true|null
+	 */
+	public static function make_wporg_request( string $endpoint, string $method = 'GET', mixed $body = null ): stdClass|array|true|null {
+		return self::make_request( self::get_request_base_url() . "wporg/v1/$endpoint", $method, $body );
+	}
+
 	// endregion
 
 	// region HELPERS

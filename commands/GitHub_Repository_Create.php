@@ -98,9 +98,6 @@ final class GitHub_Repository_Create extends Command {
 
 		$this->type = get_enum_input( $input, 'type', array( 'project', 'no-code-project', 'plugin', 'issues' ), fn() => $this->prompt_type_input( $input, $output ) );
 		$input->setOption( 'type', $this->type );
-
-		$this->custom_properties = $this->process_custom_properties( $input );
-		$input->setOption( 'custom-properties', $this->custom_properties );
 	}
 
 	/**
@@ -116,6 +113,14 @@ final class GitHub_Repository_Create extends Command {
 
 		if ( 'no-code-project' === $this->type ) {
 			$this->setup_no_code_theme( $input, $output );
+
+			if ( ! empty( $this->no_code_theme ) ) {
+				$question = new ConfirmationQuestion( "<question>Are you sure you want to use the theme $this->no_code_theme as the parent theme for the $type repository $this->name? [y/N]</question> ", false );
+				if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
+					$output->writeln( '<comment>Command aborted by user.</comment>' );
+					exit( 2 );
+				}
+			}
 		}
 	}
 
@@ -125,6 +130,9 @@ final class GitHub_Repository_Create extends Command {
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		$type = $this->type ?? 'empty';
 		$output->writeln( "<fg=magenta;options=bold>Creating the $type repository $this->name.</>" );
+
+		$this->custom_properties = $this->process_custom_properties( $input );
+		$input->setOption( 'custom-properties', $this->custom_properties );
 
 		// Create the repository.
 		$repository = create_github_repository( $this->name, $this->type, $this->homepage, $this->description, $this->custom_properties );
@@ -142,13 +150,13 @@ final class GitHub_Repository_Create extends Command {
 		}
 
 		// Add theme files for no-code-project repositories
-		if ( 'no-code-project' === $this->type && ! empty( $this->no_code_theme ) ) {
-			$result = $this->add_no_code_theme_files( $output, $repository );
-			if ( false === $result ) {
-				$output->writeln( '<error>Failed to add theme files.</error>' );
-				return Command::FAILURE;
-			}
-		}
+		// if ( 'no-code-project' === $this->type && ! empty( $this->no_code_theme ) ) {
+		//  $result = $this->add_no_code_theme_files( $output, $repository );
+		//  if ( false === $result ) {
+		//      $output->writeln( '<error>Failed to add theme files.</error>' );
+		//      return Command::FAILURE;
+		//  }
+		// }
 
 		$output->writeln( "<fg=green;options=bold>Repository $this->name created successfully.</>" );
 		return Command::SUCCESS;
@@ -233,14 +241,15 @@ final class GitHub_Repository_Create extends Command {
 	 * @return void
 	 */
 	private function setup_no_code_theme( InputInterface $input, OutputInterface $output ): void {
-		$folders = get_a8c_theme_choices( $output );
-		if ( empty( $folders ) ) {
-			$output->writeln( '<error>Failed to fetch a8c themes.</error>' );
+		$themes = get_wporg_theme_choices( $output );
+
+		if ( empty( $themes ) ) {
+			$output->writeln( '<error>Failed to fetch .org themes.</error>' );
 			return;
 		}
 
 		if ( ! empty( $this->no_code_theme ) ) {
-			if ( ! in_array( $this->no_code_theme, $folders, true ) ) {
+			if ( ! in_array( $this->no_code_theme, $themes, true ) ) {
 				$output->writeln( '<error>The selected no-code theme is not available.</error>' );
 				$output->writeln( '<error>Please select a different theme or press enter to skip.</error>' );
 				$this->no_code_theme = null;
@@ -251,7 +260,7 @@ final class GitHub_Repository_Create extends Command {
 
 		$question            = new ChoiceQuestion(
 			'<question>Please select the no-code theme to use:</question> ',
-			$folders,
+			$themes,
 			0
 		);
 		$this->no_code_theme = $this->getHelper( 'question' )->ask( $input, $output, $question );
