@@ -166,23 +166,6 @@ final class GitHub_Repository_Create extends Command {
 	}
 
 	/**
-	 * Prompts the user for a repository type.
-	 *
-	 * @param   InputInterface  $input  The input object.
-	 * @param   OutputInterface $output The output object.
-	 *
-	 * @return  string|null
-	 */
-	private function prompt_type_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new ChoiceQuestion(
-			'<question>Please select the type of repository to create [empty]:</question> ',
-			self::REPOSITORY_TYPES,
-			array_key_first( self::REPOSITORY_TYPES )
-		);
-		return $this->getHelper( 'question' )->ask( $input, $output, $question );
-	}
-
-	/**
 	 * Gets the custom properties from the input.
 	 *
 	 * @param   InputInterface $input The input object.
