@@ -293,6 +293,8 @@ function maybe_get_string_input( InputInterface $input, string $name, ?callable 
  * @param   string         $name          The name of the value to grab.
  * @param   callable|null  $no_input_func The function to call if no input is given.
  *
+ * @throws  \InvalidArgumentException     If no value is provided for the input.
+ *
  * @return  string
  */
 function get_string_input( InputInterface $input, string $name, ?callable $no_input_func = null ): string {
@@ -312,6 +314,8 @@ function get_string_input( InputInterface $input, string $name, ?callable $no_in
  * @param   string[]       $valid_values  The valid values for the option.
  * @param   callable|null  $no_input_func The function to call if no input is given.
  * @param   string|null    $default_value The default value for the option.
+ *
+ * @throws  \InvalidArgumentException     If the value is not in the list of valid values.
  *
  * @return  string|null
  */
@@ -349,6 +353,8 @@ function get_bool_input( InputInterface $input, string $name ): bool {
  * @param   callable|null  $no_input_func The function to call if no input is given.
  * @param   string         $name          The name of the value to grab.
  *
+ * @throws  \InvalidArgumentException     If the email is invalid.
+ *
  * @return  string
  */
 function get_email_input( InputInterface $input, ?callable $no_input_func = null, string $name = 'email' ): string {
@@ -382,6 +388,8 @@ function get_date_input( InputInterface $input, string $format, ?callable $no_in
  * @param   callable|null  $no_input_func The function to call if no input is given.
  * @param   string         $name          The name of the value to grab.
  *
+ * @throws  \InvalidArgumentException     If no domain is provided or the domain is invalid.
+ *
  * @return  string
  */
 function get_domain_input( InputInterface $input, ?callable $no_input_func = null, string $name = 'domain' ): string {
@@ -406,6 +414,8 @@ function get_domain_input( InputInterface $input, ?callable $no_input_func = nul
  * @param   InputInterface $input         The console input.
  * @param   callable|null  $no_input_func The function to call if no input is given.
  * @param   string         $name          The name of the value to grab.
+ *
+ * @throws  \InvalidArgumentException     If no URL or numeric string is provided or the URL is invalid.
  *
  * @return  string
  */
@@ -515,7 +525,7 @@ function get_choice_input( InputInterface $input, OutputInterface $output, strin
 	);
 	$question->setValidator( fn( $key ) => validate_user_choice( $key, $choices_values ) );
 	$answer = $choices_values[ $question_callback( $input, $output, $question ) ];
-	
+
 	$chosen_key   = array_search( $answer, $choices, true );
 	$chosen_value = $choices[ $chosen_key ];
 
