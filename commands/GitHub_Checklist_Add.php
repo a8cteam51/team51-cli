@@ -7,11 +7,9 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
-use Symfony\Component\Console\Output\Output;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
-use Symfony\Component\Console\Question\ChoiceQuestion;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 
 /**
@@ -266,8 +264,13 @@ final class GitHub_Checklist_Add extends Command {
 	 * @return  string
 	 */
 	private function prompt_checklist_input( InputInterface $input, OutputInterface $output ): string {
-		$question = new ChoiceQuestion( '<question>Please select the checklist to add [launch]:</question> ', self::CHECKLISTS, 'launch' );
-		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+		return get_choice_input( 
+			$input, 
+			$output,
+			'<question>Please select the checklist to add [launch]:</question> ',
+			self::CHECKLISTS,
+			fn($input, $output, $q) => $this->getHelper( 'question' )->ask( $input, $output, $q ),
+		)[0];
 	}
 
 	/**
@@ -301,9 +304,13 @@ final class GitHub_Checklist_Add extends Command {
 	 * @return  string|null
 	 */
 	private function prompt_host_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new ChoiceQuestion( '<question>Where is the site hosted? [pressable]:</question> ', self::HOSTS, 'pressable' );
-		$question->setValidator( fn( $value ) => validate_user_choice( $value, self::HOSTS ) );
-		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+		return get_choice_input( 
+			$input, 
+			$output,
+			'<question>Where is the site hosted? [pressable]:</question> ',
+			self::HOSTS,
+			fn($input, $output, $q) => $this->getHelper( 'question' )->ask( $input, $output, $q ),
+		)[0];
 	}
 
 	/**
