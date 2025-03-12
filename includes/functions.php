@@ -5,6 +5,7 @@ use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\EventDispatcher\GenericEvent;
 use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Process\Process;
@@ -488,6 +489,30 @@ function output_table( OutputInterface $output, array $rows, array $headers, ?st
 
 	$output->writeln( '' ); // Empty line for UX purposes.
 	$table->render();
+}
+
+/**
+ * Gets a value from the console input and validates it against a list of choices.
+ *
+ * @param   InputInterface  $input             The console input.
+ * @param   OutputInterface $output            The console output.
+ * @param   array           $choices           The list of valid choices.
+ * @param   callable        $question_callback The function to call to prompt the user for input.
+ *
+ * @return  array
+ */
+function get_choice_input( InputInterface $input, OutputInterface $output, array $choices, callable $question_callback ): array {	
+	$question = new ChoiceQuestion(
+		'<question>Please select the type of repository to create [empty]:</question> ',
+		array_values( $choices ),
+		array_key_first( array_keys( $choices ) )
+	);
+	$answer = $question_callback( $input, $output, $question );
+	
+	$chosen_key = array_search( $answer, $choices );
+	$chosen_value = $choices[ $chosen_key ];
+
+	return [$chosen_key, $chosen_value];
 }
 
 // endregion

@@ -98,7 +98,13 @@ final class GitHub_Repository_Create extends Command {
 		$this->homepage    = $input->getOption( 'homepage' );
 		$this->description = $input->getOption( 'description' );
 
-		$this->type = get_enum_input( $input, 'type', array_keys( self::REPOSITORY_TYPES ), fn() => $this->prompt_type_input( $input, $output ) );
+		[$this->type] = get_choice_input( 
+			$input, 
+			$output,
+			self::REPOSITORY_TYPES,
+			fn($input, $output, $q) => $this->getHelper( 'question' )->ask( $input, $output, $q ) 
+		);
+
 		$input->setOption( 'type', $this->type );
 
 		$this->custom_properties = $this->process_custom_properties( $input );
@@ -109,8 +115,7 @@ final class GitHub_Repository_Create extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function interact( InputInterface $input, OutputInterface $output ): void {
-		$type     = $this->type ?? 'empty';
-		$question = new ConfirmationQuestion( "<question>Are you sure you want to create the $type repository $this->name? [y/N]</question> ", false );
+		$question = new ConfirmationQuestion( "<question>Are you sure you want to create a $this->type repository $this->name? [y/N]</question> ", false );
 		if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 			$output->writeln( '<comment>Command aborted by user.</comment>' );
 			exit( 2 );
