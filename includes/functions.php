@@ -496,23 +496,30 @@ function output_table( OutputInterface $output, array $rows, array $headers, ?st
  *
  * @param   InputInterface  $input             The console input.
  * @param   OutputInterface $output            The console output.
+ * @param   string          $question_text     The question to ask the user.
  * @param   array           $choices           The list of valid choices.
  * @param   callable        $question_callback The function to call to prompt the user for input.
+ * @param   string|null     $default_value     The default value to use if no input is provided.This will default to the first choice if no value is provided.
  *
  * @return  array
  */
-function get_choice_input( InputInterface $input, OutputInterface $output, array $choices, callable $question_callback ): array {	
+function get_choice_input( InputInterface $input, OutputInterface $output, string $question_text, array $choices, callable $question_callback, ?string $default_value = null ): array {
+
+	$is_int_keys    = count( array_filter( array_keys( $choices ), 'is_int' ) ) === count( $choices );
+	$choices_values = ! $is_int_keys ? array_values( $choices ) : $choices;
+
 	$question = new ChoiceQuestion(
-		'<question>Please select the type of repository to create [empty]:</question> ',
-		array_values( $choices ),
-		array_key_first( array_keys( $choices ) )
+		$question_text,
+		$choices_values,
+		$default_value ?? array_key_first( array_keys( $choices ) )
 	);
-	$answer = $question_callback( $input, $output, $question );
+	$question->setValidator( fn( $key ) => validate_user_choice( $key, $choices_values ) );
+	$answer = $choices_values[ $question_callback( $input, $output, $question ) ];
 	
-	$chosen_key = array_search( $answer, $choices );
+	$chosen_key   = array_search( $answer, $choices, true );
 	$chosen_value = $choices[ $chosen_key ];
 
-	return [$chosen_key, $chosen_value];
+	return array( $chosen_key, $chosen_value );
 }
 
 // endregion
