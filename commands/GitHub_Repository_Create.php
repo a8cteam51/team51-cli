@@ -101,8 +101,9 @@ final class GitHub_Repository_Create extends Command {
 		[$this->type] = get_choice_input( 
 			$input, 
 			$output,
+			'<question>Please select the type of repository to create [empty]:</question> ',
 			self::REPOSITORY_TYPES,
-			fn($input, $output, $q) => $this->getHelper( 'question' )->ask( $input, $output, $q ) 
+			fn($input, $output, $q) => $this->getHelper( 'question' )->ask( $input, $output, $q )
 		);
 
 		$input->setOption( 'type', $this->type );
