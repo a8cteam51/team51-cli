@@ -74,7 +74,7 @@ final class DeployHQ_Project_Create extends Command {
 		$this->name = slugify( get_string_input( $input, 'name', fn() => $this->prompt_name_input( $input, $output ) ) );
 		$input->setArgument( 'name', $this->name );
 
-		$this->zone_id = get_enum_input( $input, 'zone-id', array( 3, 6, 9 ), fn() => $this->prompt_zone_input( $input, $output ), 6 );
+		$this->zone_id = $this->prompt_zone_input( $input, $output );
 		$input->setOption( 'zone-id', $this->zone_id );
 
 		$this->template_id = get_string_input( $input, 'template-id' );
@@ -156,10 +156,16 @@ final class DeployHQ_Project_Create extends Command {
 		$choices = get_deployhq_zones();
 		$default = 6;
 
-		$question = new ChoiceQuestion( '<question>Please select the zone to create the project in [' . $choices[ $default ] . ']:</question> ', $choices, $default );
-		$question->setValidator( fn( $value ) => validate_user_choice( $value, $choices ) );
+		[$selection] = get_choice_input( 
+			$input, 
+			$output,
+			'<question>Please select the zone to create the project in [' . $choices[ $default ] . ']:</question> ',
+			$choices,
+			fn($input, $output, $q) => $this->getHelper( 'question' )->ask( $input, $output, $q ),
+			$default
+		);
 
-		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+		return $selection;
 	}
 
 	/**
