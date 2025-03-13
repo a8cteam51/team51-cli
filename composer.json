@@ -41,7 +41,8 @@
       "includes/functions-pressable.php",
       "includes/functions-wpcom.php",
       "includes/parallel-process.php",
-      "includes/enum-site-type.php"
+      "includes/enum-site-type.php",
+      "includes/trait-choice-question.php"
     ]
   },
 
