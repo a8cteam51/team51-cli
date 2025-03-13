@@ -8,17 +8,23 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
+use WPCOMSpecialProjects\CLI\Helper\ChoiceQuestionTrait;
 
 /**
  * Creates a development clone of an existing Pressable site.
  */
 #[AsCommand( name: 'pressable:clone-site', aliases: array( 'pressable:create-development-site' ) )]
 final class Pressable_Site_Clone extends Command {
+	
+	// region TRAITS
+
 	use AutocompleteTrait;
+	use ChoiceQuestionTrait;
+
+	// endregion
 
 	// region FIELDS AND CONSTANTS
 
@@ -158,11 +164,11 @@ final class Pressable_Site_Clone extends Command {
 		$this->label = slugify( get_string_input( $input, 'label', fn() => $this->prompt_label_input( $input, $output ) ) );
 		$input->setArgument( 'label', $this->label );
 
-		$this->datacenter = get_enum_input( $input, 'datacenter', array_keys( get_pressable_datacenters() ), fn() => $this->prompt_datacenter_input( $input, $output ), $this->site->datacenterCode );
+		$this->datacenter = $this->prompt_datacenter_input( $input, $output );
 		$input->setOption( 'datacenter', $this->datacenter );
 
 		$this->skip_safety_net = get_bool_input( $input, 'skip-safety-net' );
-		$input->setOption( 'skip-safety-net', $this->skip_safety_net );
+		$input->setOption( 'skip-safety-net', $this->skip_safety_net );		
 	}
 
 	/**
@@ -347,9 +353,13 @@ final class Pressable_Site_Clone extends Command {
 	private function prompt_datacenter_input( InputInterface $input, OutputInterface $output ): ?string {
 		$choices = get_pressable_datacenters();
 
-		$question = new ChoiceQuestion( '<question>Please select the datacenter to create the site in [' . $choices[ $this->site->datacenterCode ] . ']:</question> ', get_pressable_datacenters(), $this->site->datacenterCode );
-		$question->setValidator( fn( $value ) => validate_user_choice( $value, $choices ) );
-		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+		return $this->choice_question_prompt(
+			$input,
+			$output,
+			'<question>Please select the datacenter to create the site in [' . $choices[ $this->site->datacenterCode ] . ']:</question> ',
+			$choices,
+			$this->site->datacenterCode
+		)->choice_question_get_answer_key();
 	}
 
 	// endregion

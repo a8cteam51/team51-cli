@@ -10,13 +10,20 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\Question;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
+use WPCOMSpecialProjects\CLI\Helper\ChoiceQuestionTrait;
 
 /**
  * Lists the connected Jetpack sites with a given plugin.
  */
 #[AsCommand( name: 'jetpack:plugin-search' )]
 final class Jetpack_Plugin_Search extends Command {
+
+	// region TRAITS
+
 	use AutocompleteTrait;
+	use ChoiceQuestionTrait;
+
+	// endregion
 
 	// region FIELDS AND CONSTANTS
 	const VERSION_OPERATORS = array( '<', '<=', '>', '>=', '==', '=', '!=', '<>' );
@@ -92,17 +99,17 @@ final class Jetpack_Plugin_Search extends Command {
 		$this->partial = get_bool_input( $input, 'partial' );
 		$this->version = maybe_get_string_input( $input, 'version-search' );
 		if ( ! empty( $this->version ) ) {
-			[$this->version_operator] = get_choice_input(
+			$this->version_operator = $this->choice_question_prompt(
 				$input,
 				$output,
 				'<question>Select the version comparison operator to use [=]:</question> ',
 				static::VERSION_OPERATORS,
-				fn($input, $output, $q) => $this->getHelper('question')->ask($input, $output, $q),
-			);
+			)->choice_question_get_answer_key();
 		}
 
 		echo json_encode([
 			'version_operator' => $this->version_operator,
+			'version' => $this->version,
 		], JSON_PRETTY_PRINT);
 		exit();
 

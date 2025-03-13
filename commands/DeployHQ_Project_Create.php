@@ -11,13 +11,20 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
+use WPCOMSpecialProjects\CLI\Helper\ChoiceQuestionTrait;
 
 /**
  * Creates a new project on DeployHQ.
  */
 #[AsCommand( name: 'deployhq:create-project' )]
 final class DeployHQ_Project_Create extends Command {
+	
+	// region TRAITS
+
 	use AutocompleteTrait;
+	use ChoiceQuestionTrait;
+
+	// endregion
 
 	// region FIELDS AND CONSTANTS
 
@@ -155,16 +162,13 @@ final class DeployHQ_Project_Create extends Command {
 		$choices = get_deployhq_zones();
 		$default = 6;
 
-		[$selection] = get_choice_input( 
-			$input, 
+		return $this->choice_question_prompt(
+			$input,
 			$output,
 			'<question>Please select the zone to create the project in [' . $choices[ $default ] . ']:</question> ',
 			$choices,
-			fn($input, $output, $q) => $this->getHelper( 'question' )->ask( $input, $output, $q ),
 			$default
-		);
-
-		return $selection;
+		)->choice_question_get_answer_key();
 	}
 
 	/**

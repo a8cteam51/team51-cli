@@ -2,7 +2,7 @@
 /**
  * UI Choice Question Trait
  *
- * @package WPCOMSpecialProjects\CLI\Helper
+ * @package WPCOMSpecialProjects\CLI\Trait
  */
 
 declare(strict_types=1);
@@ -14,7 +14,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ChoiceQuestion;
 
 #[\Attribute]
-trait Choice_Question {
+trait ChoiceQuestionTrait {
 
 	// region FIELDS AND CONSTANTS
 

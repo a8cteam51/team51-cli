@@ -11,15 +11,20 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
-use WPCOMSpecialProjects\CLI\Helper\Choice_Question;
+use WPCOMSpecialProjects\CLI\Helper\ChoiceQuestionTrait;
 
 /**
  * Create a new GitHub repository, optionally from a template.
  */
 #[AsCommand( name: 'github:create-repository' )]
 final class GitHub_Repository_Create extends Command {
+	
+	// region TRAITS
+
 	use AutocompleteTrait;
-	use Choice_Question;
+	use ChoiceQuestionTrait;
+
+	// endregion
 
 	// region FIELDS AND CONSTANTS
 

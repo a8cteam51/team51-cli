@@ -5,7 +5,6 @@ use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\EventDispatcher\GenericEvent;
 use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Process\Process;
@@ -499,49 +498,6 @@ function output_table( OutputInterface $output, array $rows, array $headers, ?st
 
 	$output->writeln( '' ); // Empty line for UX purposes.
 	$table->render();
-}
-
-/**
- * Gets a value from the console input and validates it against a list of choices.
- *
- * @param   InputInterface  $input             The console input.
- * @param   OutputInterface $output            The console output.
- * @param   string          $question_text     The question to ask the user.
- * @param   array           $choices           The list of valid choices.
- * @param   callable        $question_callback The function to call to prompt the user for input.
- * @param   string|null     $default_value     The default value to use if no input is provided.This will default to the first choice if no value is provided.
- *
- * @throws  \InvalidArgumentException If the input is invalid.
- *
- * @return  array
- */
-function get_choice_input( InputInterface $input, OutputInterface $output, string $question_text, array $choices, callable $question_callback, ?string $default_value = null ): array {
-	$is_int_keys    = count( array_filter( array_keys( $choices ), 'is_int' ) ) === count( $choices );
-	$choices_values = ! $is_int_keys ? array_values( $choices ) : $choices;
-
-	$question = new ChoiceQuestion(
-		$question_text,
-		$choices_values,
-		$default_value ?? array_key_first( array_keys( $choices ) )
-	);
-
-	// Enhanced validator that throws exception on invalid input
-	$question->setValidator(
-		function ( $user_input ) use ( $choices_values ) {
-			$validated = validate_user_choice( $user_input, $choices_values );
-			if ( null === $validated ) {
-					throw new \InvalidArgumentException( "Invalid input: $user_input" );
-			}
-			return $validated;
-		}
-	);
-
-	$answer = $choices_values[ $question_callback( $input, $output, $question ) ];
-
-	$chosen_key   = array_search( $answer, $choices, true );
-	$chosen_value = $choices[ $chosen_key ];
-
-	return array( $chosen_key, $chosen_value );
 }
 
 // endregion
