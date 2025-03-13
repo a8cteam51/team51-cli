@@ -8,7 +8,6 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\Question;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 
@@ -20,6 +19,7 @@ final class Jetpack_Plugin_Search extends Command {
 	use AutocompleteTrait;
 
 	// region FIELDS AND CONSTANTS
+	const VERSION_OPERATORS = array( '<', '<=', '>', '>=', '==', '=', '!=', '<>' );
 
 	/**
 	 * The plugin to search for.
@@ -92,13 +92,19 @@ final class Jetpack_Plugin_Search extends Command {
 		$this->partial = get_bool_input( $input, 'partial' );
 		$this->version = maybe_get_string_input( $input, 'version-search' );
 		if ( ! empty( $this->version ) ) {
-			$this->version_operator = get_enum_input(
+			[$this->version_operator] = get_choice_input(
 				$input,
-				'version-operator',
-				array( '<', '<=', '>', '>=', '==', '=', '!=', '<>' ),
-				fn() => $this->prompt_version_operator_input( $input, $output )
+				$output,
+				'<question>Select the version comparison operator to use [=]:</question> ',
+				static::VERSION_OPERATORS,
+				fn($input, $output, $q) => $this->getHelper('question')->ask($input, $output, $q),
 			);
 		}
+
+		echo json_encode([
+			'version_operator' => $this->version_operator,
+		], JSON_PRETTY_PRINT);
+		exit();
 
 		$this->sites = get_wpcom_jetpack_sites();
 		$output->writeln( '<comment>Successfully fetched ' . \count( $this->sites ) . ' Jetpack site(s).</comment>' );
@@ -174,21 +180,6 @@ final class Jetpack_Plugin_Search extends Command {
 	 */
 	private function prompt_plugin_input( InputInterface $input, OutputInterface $output ): string {
 		$question = new Question( '<question>Enter the plugin term to search for:</question> ' );
-		return $this->getHelper( 'question' )->ask( $input, $output, $question );
-	}
-
-	/**
-	 * Prompts the user for the version comparison operator to use.
-	 *
-	 * @param   InputInterface  $input  The input interface.
-	 * @param   OutputInterface $output The output interface.
-	 *
-	 * @return  string
-	 */
-	private function prompt_version_operator_input( InputInterface $input, OutputInterface $output ): string {
-		$choices = array( '<', '<=', '>', '>=', '==', '=', '!=', '<>' );
-
-		$question = new ChoiceQuestion( '<question>Select the version comparison operator to use [=]:</question> ', $choices, '=' );
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
 
