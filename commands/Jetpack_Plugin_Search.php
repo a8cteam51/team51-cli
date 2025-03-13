@@ -107,13 +107,7 @@ final class Jetpack_Plugin_Search extends Command {
 			)->choice_question_get_answer_key();
 		}
 
-		echo json_encode([
-			'version_operator' => $this->version_operator,
-			'version' => $this->version,
-		], JSON_PRETTY_PRINT);
-		exit();
-
-		$this->sites = get_wpcom_jetpack_sites();
+		$this->sites = get_wpcom_jetpack_sites() ?? new \stdClass();
 		$output->writeln( '<comment>Successfully fetched ' . \count( $this->sites ) . ' Jetpack site(s).</comment>' );
 
 		// Compile the list of plugins to process.
