@@ -7,19 +7,23 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
-use Symfony\Component\Console\Output\Output;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
-use Symfony\Component\Console\Question\ChoiceQuestion;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
-
+use WPCOMSpecialProjects\CLI\Helper\ChoiceQuestionTrait;
 /**
  * Adds a launch checklist to a GitHub repository.
  */
 #[AsCommand( name: 'github:add-checklist' )]
 final class GitHub_Checklist_Add extends Command {
+	
+	// region TRAITS
+
 	use AutocompleteTrait;
+	use ChoiceQuestionTrait;
+
+	// endregion
 
 	/**
 	 * The checklists repository.
@@ -150,7 +154,8 @@ final class GitHub_Checklist_Add extends Command {
 		$output->writeln( $has_args ? 'Using arguments' : 'Using prompts', OutputInterface::VERBOSITY_DEBUG );
 
 		// Get the checklist.
-		$this->checklist_slug = get_enum_input( $input, 'checklist', array_keys( self::CHECKLISTS ), fn() => $this->prompt_checklist_input( $input, $output ) );
+		$this->checklist_slug = $this->prompt_checklist_input( $input, $output );
+
 		$input->setArgument( 'checklist', $this->checklist_slug );
 		$output->writeln( 'Checklist set to ' . $this->checklist_slug, OutputInterface::VERBOSITY_DEBUG );
 
@@ -161,7 +166,8 @@ final class GitHub_Checklist_Add extends Command {
 		$output->writeln( 'Repository set to ' . $this->gh_repository->name, OutputInterface::VERBOSITY_DEBUG );
 		$input->setArgument( 'repository', $this->gh_repository );
 
-		$this->host = get_enum_input( $input, 'host', array_keys( self::HOSTS ), fn() => $this->prompt_host_input( $input, $output ) );
+		$this->host = $this->prompt_host_input( $input, $output );
+
 		$input->setArgument( 'host', $this->host );
 		$output->writeln( 'Host set to ' . $this->host, OutputInterface::VERBOSITY_DEBUG );
 		// Check the conditional tags that are in the actual checklist on the repository.
@@ -266,8 +272,12 @@ final class GitHub_Checklist_Add extends Command {
 	 * @return  string
 	 */
 	private function prompt_checklist_input( InputInterface $input, OutputInterface $output ): string {
-		$question = new ChoiceQuestion( '<question>Please select the checklist to add [launch]:</question> ', self::CHECKLISTS, 'launch' );
-		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+		return $this->choice_question_prompt( 
+			$input, 
+			$output, 
+			'<question>Please select the checklist to add [launch]:</question> ', 
+			self::CHECKLISTS
+		)->choice_question_get_answer_key();
 	}
 
 	/**
@@ -301,9 +311,12 @@ final class GitHub_Checklist_Add extends Command {
 	 * @return  string|null
 	 */
 	private function prompt_host_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new ChoiceQuestion( '<question>Where is the site hosted? [pressable]:</question> ', self::HOSTS, 'pressable' );
-		$question->setValidator( fn( $value ) => validate_user_choice( $value, self::HOSTS ) );
-		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+		return $this->choice_question_prompt( 
+			$input, 
+			$output, 
+			'<question>Where is the site hosted? [pressable]:</question> ', 
+			self::HOSTS,
+		)->choice_question_get_answer_key();
 	}
 
 	/**
