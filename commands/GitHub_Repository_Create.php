@@ -11,6 +11,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
+use WPCOMSpecialProjects\CLI\Helper\Choice_Question;
 
 /**
  * Create a new GitHub repository, optionally from a template.
@@ -18,6 +19,7 @@ use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 #[AsCommand( name: 'github:create-repository' )]
 final class GitHub_Repository_Create extends Command {
 	use AutocompleteTrait;
+	use Choice_Question;
 
 	// region FIELDS AND CONSTANTS
 
@@ -97,13 +99,12 @@ final class GitHub_Repository_Create extends Command {
 		$this->homepage    = $input->getOption( 'homepage' );
 		$this->description = $input->getOption( 'description' );
 
-		[$this->type] = get_choice_input(
+		$this->type = $this->choice_question_prompt(
 			$input,
 			$output,
 			'<question>Please select the type of repository to create [empty]:</question> ',
 			self::REPOSITORY_TYPES,
-			fn( $input, $output, $q ) => $this->getHelper( 'question' )->ask( $input, $output, $q )
-		);
+		)->choice_question_get_answer_key();
 
 		$input->setOption( 'type', $this->type );
 
