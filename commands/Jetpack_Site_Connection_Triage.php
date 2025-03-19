@@ -37,6 +37,15 @@ final class Jetpack_Site_Connection_Triage extends Command {
 	);
 
 	/**
+	 * List of domains to ignore.
+	 *
+	 * @var array
+	 */
+	private array $ignored_domains = array(
+		'https://brodo.kinsta.cloud',
+	);
+
+	/**
 	 * Configures the command definition, arguments and help documentation.
 	 *
 	 * @since 1.0.0
@@ -160,6 +169,12 @@ EOT
 
 		// Process each site through our connection check logic
 		foreach ( $sites_to_check as $site ) {
+			// Skip ignored domains.
+			if ( in_array( $site['url'], $this->ignored_domains, true ) ) {
+				$output->writeln( 'Skipping ' . $site['url'] . '...' );
+				continue;
+			}
+
 			$site_id          = $site['blog_id'];
 			$site_url         = $site['url'];
 			$domain           = parse_url( $site_url, PHP_URL_HOST );
