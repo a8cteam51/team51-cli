@@ -22,11 +22,9 @@ function get_wporg_theme_choices( OutputInterface $output ): array {
 		return array();
 	}
 
-	return array_map(
-		function ( $theme ) {
-			return $theme->slug;
-		},
-		$response->records
+	return array_combine(
+		array_map( fn( $theme ) => $theme->slug, $response->records ),
+		array_map( fn( $theme ) => $theme->name, $response->records )
 	);
 }
 // endregion

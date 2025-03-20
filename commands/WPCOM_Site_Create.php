@@ -233,9 +233,9 @@ final class WPCOM_Site_Create extends Command {
 				$input->setOption( 'project-template', $this->project_template );
 
 				if ( 'no-code-project' === $this->project_template ) {
-					$folders = get_a8c_theme_choices( $output );
+					$folders = get_wporg_theme_choices( $output );
 					if ( empty( $folders ) ) {
-						$output->writeln( '<error>Failed to fetch a8c themes.</error>' );
+						$output->writeln( '<error>Failed to fetch wp.org themes.</error>' );
 						exit( 1 );
 					}
 
