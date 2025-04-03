@@ -134,6 +134,10 @@ final class WPCOM_Site_WP_User_Password_Rotate extends Command {
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		foreach ( $this->sites as $site ) {
+			if ( empty( $site->name ) ) {
+				$site->name = $site->URL;
+			}
+
 			$output->writeln( "<fg=magenta;options=bold>Rotating the WP user password of $this->wp_user_email on $site->name (ID $site->ID, URL $site->URL).</>" );
 
 			// Rotate the WP user password.
