@@ -169,7 +169,11 @@ final class GitHub_Repository_Create extends Command {
 	 */
 	private function prompt_type_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new ChoiceQuestion( '<question>Please select the type of repo:</question> ', self::REPO_TYPES, 'empty' );
-		$question->setAutocompleterValues( array_keys( self::REPO_TYPES ) );
+
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array_keys( self::REPO_TYPES ) );
+		}
+		
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
 
