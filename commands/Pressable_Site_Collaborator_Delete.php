@@ -42,6 +42,13 @@ final class Pressable_Site_Collaborator_Delete extends Command {
 	 */
 	private ?bool $delete_wp_user = null;
 
+	/**
+	 * The raw collaborators retrieved from the API.
+	 *
+	 * @var \stdClass[]|null
+	 */
+	private ?array $raw_collaborators = null;
+
 	// endregion
 
 	// region INHERITED METHODS
@@ -64,6 +71,10 @@ final class Pressable_Site_Collaborator_Delete extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
+		// Retrieve the list of collaborators which is required later.
+		console_writeln( "Getting collaborators from Pressable..." );
+		$this->raw_collaborators = get_pressable_collaborators() ?? array();
+
 		$this->delete_wp_user = (bool) $input->getOption( 'delete-wp-user' );
 
 		// Retrieve the collaborator email.
@@ -87,7 +98,7 @@ final class Pressable_Site_Collaborator_Delete extends Command {
 
 		// Compile the list of collaborators to process.
 		$this->collaborators = array_filter(
-			get_pressable_collaborators() ?? array(),
+			$this->raw_collaborators,
 			function ( \stdClass $collaborator ) use ( $sites ) {
 				$is_email_match = is_case_insensitive_match( $collaborator->email, $this->email );
 				$is_site_match  = \is_null( $sites ) || \in_array( $collaborator->siteId, \array_column( $sites, 'id' ), true ); // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
@@ -165,7 +176,7 @@ final class Pressable_Site_Collaborator_Delete extends Command {
 		$question = new Question( '<question>Enter the email address of the collaborator to delete:</question> ' );
 		$question->setValidator( fn( $value ) => filter_var( $value, FILTER_VALIDATE_EMAIL ) ? $value : throw new \RuntimeException( 'Invalid email address.' ) );
 		if ( ! $input->getOption( 'no-autocomplete' ) ) {
-			$question->setAutocompleterValues( array_column( get_pressable_collaborators() ?? array(), 'email' ) );
+			$question->setAutocompleterValues( array_column( $this->raw_collaborators, 'email' ) );
 		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );

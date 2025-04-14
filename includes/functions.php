@@ -34,7 +34,7 @@ function get_remote_content( string $url, array $headers = array(), string $meth
 			),
 			'method'        => $method,
 			'content'       => $content,
-			'timeout'       => 60,
+			'timeout'       => 120,
 			'ignore_errors' => true,
 		),
 	);
