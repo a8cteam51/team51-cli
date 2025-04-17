@@ -5,7 +5,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 // region API
 
 /**
- * Fetches the list of WordPress.org themes and returns them as an array of slugs.
+ * Fetches the list of WordPress.org themes.
  *
  * @param   OutputInterface $output The output interface.
  *
@@ -24,7 +24,7 @@ function get_wporg_theme_choices( OutputInterface $output ): array {
 
 	return array_combine(
 		array_map( fn( $theme ) => $theme->slug, $response->records ),
-		array_map( fn( $theme ) => $theme->name, $response->records )
+		$response->records
 	);
 }
 // endregion

@@ -233,13 +233,13 @@ final class WPCOM_Site_Create extends Command {
 				$input->setOption( 'project-template', $this->project_template );
 
 				if ( 'no-code-project' === $this->project_template ) {
-					$folders = get_wporg_theme_choices( $output );
-					if ( empty( $folders ) ) {
+					$themes = get_wporg_theme_choices( $output );
+					if ( empty( $themes ) ) {
 						$output->writeln( '<error>Failed to fetch wp.org themes.</error>' );
 						exit( 1 );
 					}
 
-					$this->no_code_theme = get_enum_input( $input, 'no-code-theme', array_keys( $folders ), fn() => $this->prompt_no_code_theme_input( $input, $output, $folders ), null );
+					$this->no_code_theme = get_enum_input( $input, 'no-code-theme', array_keys( $themes ), fn() => $this->prompt_no_code_theme_input( $input, $output, $themes ), null );
 					$input->setOption( 'no-code-theme', $this->no_code_theme );
 				}
 
@@ -290,14 +290,18 @@ final class WPCOM_Site_Create extends Command {
 	/**
 	 * Prompts the user for a no-code theme.
 	 *
-	 * @param   InputInterface  $input   The input object.
-	 * @param   OutputInterface $output  The output object.
-	 * @param   array           $folders The list of available themes.
+	 * @param   InputInterface  $input  The input object.
+	 * @param   OutputInterface $output The output object.
+	 * @param   array           $themes The list of available themes.
 	 *
 	 * @return  string|null
 	 */
-	private function prompt_no_code_theme_input( InputInterface $input, OutputInterface $output, array $folders ): ?string {
-		$question = new ChoiceQuestion( '<question>Please select the no-code theme to use for the site:</question> ', $folders, 'project' );
+	private function prompt_no_code_theme_input( InputInterface $input, OutputInterface $output, array $themes ): ?string {
+		$themes   = array_combine(
+			array_map( fn( $theme ) => $theme->slug, $themes ),
+			array_map( fn( $theme ) => $theme->name, $themes )
+		);
+		$question = new ChoiceQuestion( '<question>Please select the no-code theme to use for the site:</question> ', $themes, 'project' );
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
 

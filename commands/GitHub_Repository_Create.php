@@ -59,6 +59,13 @@ final class GitHub_Repository_Create extends Command {
 	private ?string $no_code_theme = null;
 
 	/**
+	 * The list of available themes.
+	 *
+	 * @var array|null
+	 */
+	private ?array $themes = null;
+
+	/**
 	 * The custom properties to set for the repository.
 	 *
 	 * @var array|null
@@ -149,14 +156,20 @@ final class GitHub_Repository_Create extends Command {
 			set_github_repository_topics( $repository->name, array( 'team51-empty' ) );
 		}
 
-		// Add theme files for no-code-project repositories
-		// if ( 'no-code-project' === $this->type && ! empty( $this->no_code_theme ) ) {
-		//  $result = $this->add_no_code_theme_files( $output, $repository );
-		//  if ( false === $result ) {
-		//      $output->writeln( '<error>Failed to add theme files.</error>' );
-		//      return Command::FAILURE;
-		//  }
-		// }
+		// Check if the selected no code theme is child theme.
+		if ( 'no-code-project' === $this->type && ! empty( $this->no_code_theme ) ) {
+			$theme = $this->themes[ $this->no_code_theme ];
+
+			if ( isset( $theme->parent ) && ! empty( $theme->parent ) ) {
+				$output->writeln( "<comment>The selected no-code theme $this->no_code_theme is a child theme.</comment>" );
+				$output->writeln( '<fg=magenta;options=bold>Replacing the default theme with the child theme.</>' );
+				$result = $this->add_no_code_theme_files( $output, $repository );
+				if ( false === $result ) {
+					$output->writeln( '<error>Failed to add theme files.</error>' );
+					return Command::FAILURE;
+				}
+			}
+		}
 
 		$output->writeln( "<fg=green;options=bold>Repository $this->name created successfully.</>" );
 		return Command::SUCCESS;
@@ -233,7 +246,7 @@ final class GitHub_Repository_Create extends Command {
 	}
 
 	/**
-	 * Sets up the no-code theme by cloning/pulling the a8c-themes repo and prompting for theme selection.
+	 * Sets up the no-code theme by cloning/pulling the themes repo and prompting for theme selection.
 	 *
 	 * @param InputInterface  $input  The input interface.
 	 * @param OutputInterface $output The output interface.
@@ -241,15 +254,15 @@ final class GitHub_Repository_Create extends Command {
 	 * @return void
 	 */
 	private function setup_no_code_theme( InputInterface $input, OutputInterface $output ): void {
-		$themes = get_wporg_theme_choices( $output );
+		$this->themes = get_wporg_theme_choices( $output );
 
-		if ( empty( $themes ) ) {
+		if ( empty( $this->themes ) ) {
 			$output->writeln( '<error>Failed to fetch .org themes.</error>' );
 			return;
 		}
 
 		if ( ! empty( $this->no_code_theme ) ) {
-			if ( ! in_array( $this->no_code_theme, $themes, true ) ) {
+			if ( ! in_array( $this->no_code_theme, $this->themes, true ) ) {
 				$output->writeln( '<error>The selected no-code theme is not available.</error>' );
 				$output->writeln( '<error>Please select a different theme or press enter to skip.</error>' );
 				$this->no_code_theme = null;
@@ -258,12 +271,7 @@ final class GitHub_Repository_Create extends Command {
 			}
 		}
 
-		$question            = new ChoiceQuestion(
-			'<question>Please select the no-code theme to use:</question> ',
-			$themes,
-			0
-		);
-		$this->no_code_theme = $this->getHelper( 'question' )->ask( $input, $output, $question );
+		$this->no_code_theme = $this->prompt_no_code_theme_input( $input, $output, $this->themes );
 	}
 
 	/**
@@ -275,8 +283,6 @@ final class GitHub_Repository_Create extends Command {
 	 * @return  boolean
 	 */
 	private function add_no_code_theme_files( OutputInterface $output, stdClass $repository ): bool {
-		$output->writeln( "<comment>Adding theme files from {$this->no_code_theme}...</comment>" );
-
 		// Create a temporary directory for the main repository
 		$temp_dir = sys_get_temp_dir() . '/' . uniqid( 'github-repo-' );
 		mkdir( $temp_dir );
@@ -298,75 +304,62 @@ final class GitHub_Repository_Create extends Command {
 			return false;
 		}
 
-		// Check for "Template:" entry in the chosen theme's style.css
-		$a8c_themes_dir    = dirname( TEAM51_CLI_ROOT_DIR ) . '/a8c-themes';
-		$theme_path        = $a8c_themes_dir . '/' . $this->no_code_theme;
-		$parent_theme_slug = get_theme_template_entry( $theme_path );
-
-		if ( $parent_theme_slug ) {
-			$output->writeln( "<comment>The theme {$this->no_code_theme} is a child theme. Using {$parent_theme_slug} as the parent theme.</comment>" );
-
-			// Rename the theme folder
-			$custom_theme_name = $this->no_code_theme . '-custom';
-			$custom_theme_path = $temp_dir . '/themes/' . $custom_theme_name;
-			mkdir( $custom_theme_path, 0777, true );
-
-			// Copy theme files to the new custom folder
-			$copy_command = sprintf(
-				'cp -r %s/* %s',
-				$theme_path,
-				$custom_theme_path
-			);
-			exec( $copy_command, $exec_output, $return_code );
+		// Delete the scaffold folder if it exists
+		$scaffold_path = $temp_dir . '/themes/a8csp-no-code-project-scaffold';
+		if ( is_dir( $scaffold_path ) ) {
+			$output->writeln( '<fg=magenta;options=bold>Removing scaffold theme folder...</>' );
+			exec( sprintf( 'rm -rf %s', $scaffold_path ), $exec_output, $return_code );
 			if ( 0 !== $return_code ) {
-				$output->writeln( '<error>Failed to copy theme files.</error>' );
-				$output->writeln( '<error>Command output: ' . implode( "\n", $exec_output ) . '</error>' );
+				$output->writeln( '<error>Failed to remove scaffold theme folder.</error>' );
 				return false;
 			}
+		}
 
-			// Modify the theme name in style.css after copying
-			$style_css_path = $custom_theme_path . '/style.css';
+		// Create themes directory if it doesn't exist
+		$themes_dir = $temp_dir . '/themes';
+		if ( ! is_dir( $themes_dir ) ) {
+			mkdir( $themes_dir, 0777, true );
+		}
+
+		// Download and extract theme
+		$download_url = 'https://downloads.wordpress.org/theme/' . $this->no_code_theme . '.zip';
+		$zip_path     = $temp_dir . '/' . $this->no_code_theme . '.zip';
+
+		$output->writeln( "<fg=magenta;options=bold>Downloading theme files from {$download_url}...</>" );
+
+		if ( false === file_put_contents( $zip_path, file_get_contents( $download_url ) ) ) {
+			$output->writeln( '<error>Failed to download theme files.</error>' );
+			return false;
+		}
+
+		// Extract the theme
+		$zip = new \ZipArchive();
+		if ( true !== $zip->open( $zip_path ) ) {
+			$output->writeln( '<error>Failed to open theme zip file.</error>' );
+			return false;
+		}
+
+		// Create a custom theme name TBD if needed
+		$custom_theme_name = $this->no_code_theme;
+		$custom_theme_path = $themes_dir . '/' . $custom_theme_name;
+
+		// Extract to a temporary location first
+		$extract_path = $temp_dir . '/theme-extract';
+		mkdir( $extract_path );
+		$zip->extractTo( $extract_path );
+		$zip->close();
+
+		// Move the extracted theme to the correct location with the custom name
+		rename( $extract_path . '/' . $this->no_code_theme, $custom_theme_path );
+		rmdir( $extract_path );
+		unlink( $zip_path );
+
+		// Modify the theme name in style.css
+		$style_css_path = $custom_theme_path . '/style.css';
+		if ( file_exists( $style_css_path ) ) {
 			$style_contents = file_get_contents( $style_css_path );
 			$style_contents = preg_replace( '/Theme Name:\s*(.+)/', 'Theme Name: $1 Custom', $style_contents );
 			file_put_contents( $style_css_path, $style_contents );
-
-			// Check if the parent theme exists
-			$available_themes = get_a8c_theme_choices( $output );
-			if ( in_array( $parent_theme_slug, $available_themes, true ) ) {
-				// Copy the parent theme files to the main repository
-				$parent_theme_path         = $a8c_themes_dir . '/' . $parent_theme_slug;
-				$parent_theme_copy_command = sprintf(
-					'cp -r %s %s/themes/',
-					$parent_theme_path,
-					$temp_dir
-				);
-				exec( $parent_theme_copy_command, $exec_output, $return_code );
-				if ( 0 !== $return_code ) {
-					$output->writeln( '<error>Failed to copy parent theme files.</error>' );
-					$output->writeln( '<error>Command output: ' . implode( "\n", $exec_output ) . '</error>' );
-					return false;
-				}
-			} else {
-				$output->writeln( "<error>Parent theme {$parent_theme_slug} not found.</error>" );
-			}
-		} else {
-			$output->writeln( "<comment>The theme {$this->no_code_theme} is not a child theme. Proceeding with default setup.</comment>" );
-
-			// Create themes directory and copy theme files
-			$copy_command = sprintf(
-				'cd %s && mkdir -p themes/%s && cp -r %s/%s/* themes/%s',
-				$temp_dir,
-				$this->no_code_theme,
-				$a8c_themes_dir,
-				$this->no_code_theme,
-				$this->no_code_theme
-			);
-			exec( $copy_command, $exec_output, $return_code );
-			if ( 0 !== $return_code ) {
-				$output->writeln( '<error>Failed to copy theme files.</error>' );
-				$output->writeln( '<error>Command output: ' . implode( "\n", $exec_output ) . '</error>' );
-				return false;
-			}
 		}
 
 		// Commit and push the theme files
@@ -384,16 +377,33 @@ final class GitHub_Repository_Create extends Command {
 			return false;
 		}
 
-		// Clean up main repository temporary directory
+		// Clean up temporary directory
 		exec( sprintf( 'rm -rf %s', $temp_dir ), $exec_output, $return_code );
 		if ( 0 !== $return_code ) {
 			$output->writeln( '<error>Failed to clean up temporary directory.</error>' );
-			$output->writeln( '<error>Command output: ' . implode( "\n", $exec_output ) . '</error>' );
 			return false;
 		}
 
 		$output->writeln( '<fg=green>Theme files added and pushed successfully.</>' );
 		return true;
+	}
+
+	/**
+	 * Prompts the user for a no-code theme.
+	 *
+	 * @param   InputInterface  $input  The input object.
+	 * @param   OutputInterface $output The output object.
+	 * @param   array           $themes The list of available themes.
+	 *
+	 * @return  string|null
+	 */
+	private function prompt_no_code_theme_input( InputInterface $input, OutputInterface $output, array $themes ): ?string {
+		$themes   = array_combine(
+			array_map( fn( $theme ) => $theme->slug, $themes ),
+			array_map( fn( $theme ) => $theme->name, $themes )
+		);
+		$question = new ChoiceQuestion( '<question>Please select the no-code theme to use:</question> ', $themes, 'project' );
+		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
 
 	// endregion
