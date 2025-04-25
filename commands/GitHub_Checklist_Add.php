@@ -155,11 +155,15 @@ final class GitHub_Checklist_Add extends Command {
 		$output->writeln( 'Checklist set to ' . $this->checklist_slug, OutputInterface::VERBOSITY_DEBUG );
 
 		// Retrieve the repository.
-		while ( ! $this->gh_repository ) {
-			$this->gh_repository = get_github_repository_input( $input, fn() => $this->prompt_repository_input( $input, $output ) );
+		if ( ! $input->getOption( 'skip-issue' ) ) {
+			while ( ! $this->gh_repository ) {
+				$this->gh_repository = get_github_repository_input( $input, fn() => $this->prompt_repository_input( $input, $output ) );
+			}
+			$output->writeln( 'Repository set to ' . $this->gh_repository->name, OutputInterface::VERBOSITY_DEBUG );
+			$input->setArgument( 'repository', $this->gh_repository );
+		} else {
+			$input->setArgument( 'repository', '' );
 		}
-		$output->writeln( 'Repository set to ' . $this->gh_repository->name, OutputInterface::VERBOSITY_DEBUG );
-		$input->setArgument( 'repository', $this->gh_repository );
 
 		$this->host = get_enum_input( $input, 'host', array_keys( self::HOSTS ), fn() => $this->prompt_host_input( $input, $output ) );
 		$input->setArgument( 'host', $this->host );
@@ -197,7 +201,13 @@ final class GitHub_Checklist_Add extends Command {
 	 */
 	protected function interact( InputInterface $input, OutputInterface $output ): void {
 		$tags = implode( ', ', array_keys( array_filter( $this->conditional_tags ) ) );
-		$output->writeln( "<fg=green;options=bold>Adding the {$this->checklist_slug} checklist to the {$this->gh_repository->full_name} repository on " . self::HOSTS[ $this->host ] . '</>' );
+
+		if ( $this->skip_issue ) {
+			$output->writeln( '<fg=red;options=bold>Showing the checklist in the terminal window.</>' );
+		} else {
+			$output->writeln( "<fg=green;options=bold>Adding the {$this->checklist_slug} checklist to the {$this->gh_repository->full_name} repository on " . self::HOSTS[ $this->host ] . '</>' );
+		}
+
 		foreach ( $this->conditional_tags as $tag => $set ) {
 			if ( $set ) {
 				$output->writeln( '<fg=green;options=bold>- ' . self::CONDITIONAL_TAGS[ $tag ]['description'] . '(' . $tag . ')</>' );
@@ -220,15 +230,15 @@ final class GitHub_Checklist_Add extends Command {
 		$main_issue_source = array_shift( $this->checklists );
 		$main_issue_text   = $this->parse_checklist_text( $main_issue_source, $output );
 		$issue_number      = null;
-		if ( ! $this->skip_issue ) {
+		if ( $this->skip_issue ) {
+			$output->writeln( $main_issue_text );
+		} else {
 			$response = create_github_issue( $this->gh_repository->name, sprintf( '%s Checklist', self::CHECKLISTS[ $this->checklist_slug ] ), $main_issue_text );
 			if ( ! $response ) {
 				$output->writeln( '<error>Failed to create checklist issue.</error>' );
 				return Command::FAILURE;
 			}
 			$issue_number = $response->number;
-		} else {
-			$output->writeln( $main_issue_text );
 		}
 		foreach ( $this->checklists as $checklist ) {
 			// The MD heading in the first line of the checklist is the title of the sub-issue.
@@ -251,6 +261,10 @@ final class GitHub_Checklist_Add extends Command {
 				$output->writeln( '<error>Failed to assign sub-issue to main issue.</error>' );
 				return Command::FAILURE;
 			}
+		}
+
+		if ( $this->skip_issue ) {
+			return Command::SUCCESS;
 		}
 
 		$output->writeln( sprintf( '<info>Checklist issue #%d created successfully.</info> <comment>https://github.com/a8cteam51/%s/issues/%d</comment>', $issue_number, $this->gh_repository->name, $issue_number ) );
