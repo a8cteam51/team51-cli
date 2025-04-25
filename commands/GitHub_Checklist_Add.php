@@ -134,7 +134,7 @@ final class GitHub_Checklist_Add extends Command {
 			->addArgument( 'checklist', InputArgument::REQUIRED, sprintf( 'The checklist to add. (%s)', implode( ', ', array_keys( self::CHECKLISTS ) ), 'launch', array_keys( self::CHECKLISTS ) ) )
 			->addArgument( 'repository', InputArgument::REQUIRED, 'The slug of the repository to add the checklist to.' )
 			->addArgument( 'host', InputArgument::REQUIRED, sprintf( 'The hosting platform of the site. (%s)', implode( ', ', array_keys( self::HOSTS ) ), 'pressable', array_keys( self::HOSTS ) ) )
-			->addOption( 'skip-issue', null, InputOption::VALUE_NONE, 'Skip creating the issue on the repository (for testing). Checklist text will be output to the terminal instead.' );
+			->addOption( 'skip-issue', null, InputOption::VALUE_NONE, 'Skip creating the issue on the repository. Checklist text will be output to the terminal instead.' );
 
 		foreach ( self::CONDITIONAL_TAGS as $tag => $details ) {
 			$this->addOption( $tag, null, InputOption::VALUE_NONE, $details['description'] );
