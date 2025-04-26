@@ -72,6 +72,13 @@ final class GitHub_Repository_Create extends Command {
 	 */
 	private ?array $custom_properties = null;
 
+	/**
+	 * Whether the user selected the "wpcom-theme" option.
+	 *
+	 * @var bool
+	 */
+	private bool $use_wpcom_theme = false;
+
 	// endregion
 
 	// region INHERITED METHODS
@@ -157,7 +164,7 @@ final class GitHub_Repository_Create extends Command {
 		}
 
 		// Check if the selected no code theme is child theme.
-		if ( 'no-code-project' === $this->type && ! empty( $this->no_code_theme ) ) {
+		if ( 'no-code-project' === $this->type && ! empty( $this->no_code_theme ) && ! $this->use_wpcom_theme ) {
 			$theme = $this->themes[ $this->no_code_theme ];
 
 			if ( isset( $theme->parent ) && ! empty( $theme->parent ) ) {
@@ -256,6 +263,12 @@ final class GitHub_Repository_Create extends Command {
 	private function setup_no_code_theme( InputInterface $input, OutputInterface $output ): void {
 		$this->themes = get_wporg_theme_choices( $output );
 
+		// Inject the "wpcom-theme" option
+		$this->themes[] = (object) array(
+			'slug' => 'wpcom-theme',
+			'name' => 'WPCOM theme, other theme',
+		);
+
 		if ( empty( $this->themes ) ) {
 			$output->writeln( '<error>Failed to fetch .org themes.</error>' );
 			return;
@@ -272,6 +285,13 @@ final class GitHub_Repository_Create extends Command {
 		}
 
 		$this->no_code_theme = $this->prompt_no_code_theme_input( $input, $output, $this->themes );
+
+		if ( 'wpcom-theme' === $this->no_code_theme ) {
+			$this->use_wpcom_theme = true;
+			$question              = new Question( '<question>Please enter the slug of the WPCOM theme to use:</question> ' );
+			$theme_slug            = $this->getHelper( 'question' )->ask( $input, $output, $question );
+			$this->no_code_theme   = $theme_slug;
+		}
 	}
 
 	/**
@@ -398,12 +418,29 @@ final class GitHub_Repository_Create extends Command {
 	 * @return  string|null
 	 */
 	private function prompt_no_code_theme_input( InputInterface $input, OutputInterface $output, array $themes ): ?string {
-		$themes   = array_combine(
-			array_map( fn( $theme ) => $theme->slug, $themes ),
-			array_map( fn( $theme ) => $theme->name, $themes )
+		$theme_slugs  = array_map( fn( $theme ) => $theme->slug, $themes );
+		$theme_names  = array_map( fn( $theme ) => $theme->name, $themes );
+		$slug_to_name = array_combine( $theme_slugs, $theme_names );
+		$name_to_slug = array_combine( $theme_names, $theme_slugs );
+
+		$autocompleter_values = array_merge( $theme_slugs, $theme_names );
+
+		$question = new Question(
+			'<question>Please start typing the slug or name of the no-code theme to use. Choose "wpcom-theme" for internal or unlisted themes:</question> '
 		);
-		$question = new ChoiceQuestion( '<question>Please select the no-code theme to use:</question> ', $themes, 'project' );
-		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+		$question->setAutocompleterValues( $autocompleter_values );
+
+		$selected = $this->getHelper( 'question' )->ask( $input, $output, $question );
+
+		// Normalize input: if it's a name, convert to slug
+		if ( in_array( $selected, $theme_slugs, true ) ) {
+			return $selected;
+		} elseif ( isset( $name_to_slug[ $selected ] ) ) {
+			return $name_to_slug[ $selected ];
+		} else {
+			$output->writeln( '<error>Invalid theme slug or name selected.</error>' );
+			return null;
+		}
 	}
 
 	// endregion
