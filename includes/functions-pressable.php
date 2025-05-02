@@ -223,7 +223,16 @@ function update_pressable_site_deployhq_server( string $site_id_or_url, string $
  */
 function create_pressable_site_collaborator( string $site_id_or_url, string $collaborator_email ): ?stdClass {
 	$site_id_or_url = pressable_maybe_resolve_site_alias( $site_id_or_url );
-	return API_Helper::make_pressable_request( "site-collaborators/$site_id_or_url", 'POST', array( 'email' => $collaborator_email ) );
+	return API_Helper::make_pressable_request(
+		"site-collaborators/$site_id_or_url",
+		'POST',
+		array(
+			'email' => $collaborator_email,
+			'roles' => array(
+				'wp_access',
+			),
+		)
+	);
 }
 
 /**
@@ -409,7 +418,7 @@ function get_pressable_datacenters(): ?array {
  *
  * @return  true|null
  */
-function delete_pressable_site_collaborator( string $site_id_or_url, string $collaborator, bool $delete_wp_user = false ): true|null {
+function delete_pressable_site_collaborator( string $site_id_or_url, string $collaborator, bool $delete_wp_user = false ): true | null {
 	$site_id_or_url = pressable_maybe_resolve_site_alias( $site_id_or_url );
 	return API_Helper::make_pressable_request( "site-collaborators/$site_id_or_url/$collaborator", 'DELETE', array( 'delete_wp_user' => $delete_wp_user ) );
 }
