@@ -34,7 +34,7 @@ final class WPCOM_Sites_With_Sticker_List extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function configure(): void {
-		$this->setDescription( 'Lists the Blog IDs of sites with a specific sticker.' )
+		$this->setDescription( 'Lists the Blog IDs and Site URLs of sites with a specific sticker.' )
 			->setHelp( 'Use this command to show a list of WPCOM Sites with a specific sticker.' );
 
 		$this->addArgument( 'sticker', InputArgument::REQUIRED, 'Sticker to fetch the sites with.' );
@@ -66,10 +66,22 @@ final class WPCOM_Sites_With_Sticker_List extends Command {
 		if ( empty( $sites ) ) {
 			$output->writeln( '<fg=yellow;options=bold>There are no sites with the chosen sticker.</>' );
 		} else {
+			$site_details = get_wpcom_site_batch( $sites, $errors );
+			
+			if ( ! empty( $errors ) ) {
+				$output->writeln( '<comment>Some sites could not be fetched. Showing available data.</comment>' );
+			}
+			
+			$rows = array();
+			foreach ( $sites as $site_id ) {
+				$url = isset( $site_details[ $site_id ] ) ? $site_details[ $site_id ]->URL : 'N/A';
+				$rows[] = array( $site_id, $url );
+			}
+			
 			output_table(
 				$output,
-				array_map( static fn( $site ) => array( $site ), $sites ),
-				array( 'Blog ID' ),
+				$rows,
+				array( 'Blog ID', 'Site URL' ),
 			);
 
 			$output->writeln( sprintf( '<fg=magenta;options=bold>Found <fg=yellow>%d</> sites with <fg=yellow>%s</>.</>', count( $sites ), $this->sticker ) );
