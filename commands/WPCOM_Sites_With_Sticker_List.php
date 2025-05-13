@@ -58,6 +58,7 @@ final class WPCOM_Sites_With_Sticker_List extends Command {
 		$output->writeln( "<fg=magenta;options=bold>Listing sites with {$this->sticker}.</>" );
 
 		$sites = get_wpcom_sites_with_sticker( $this->sticker );
+
 		if ( is_null( $sites ) ) {
 			$output->writeln( '<error>Could not fetch the sites.</error>' );
 			return Command::FAILURE;
@@ -67,17 +68,17 @@ final class WPCOM_Sites_With_Sticker_List extends Command {
 			$output->writeln( '<fg=yellow;options=bold>There are no sites with the chosen sticker.</>' );
 		} else {
 			$site_details = get_wpcom_site_batch( $sites, $errors );
-			
+
 			if ( ! empty( $errors ) ) {
 				$output->writeln( '<comment>Some sites could not be fetched. Showing available data.</comment>' );
 			}
-			
+
 			$rows = array();
 			foreach ( $sites as $site_id ) {
-				$url = isset( $site_details[ $site_id ] ) ? $site_details[ $site_id ]->URL : 'N/A';
+				$url    = isset( $site_details[ $site_id ] ) ? $site_details[ $site_id ]->URL : 'N/A';
 				$rows[] = array( $site_id, $url );
 			}
-			
+
 			output_table(
 				$output,
 				$rows,
