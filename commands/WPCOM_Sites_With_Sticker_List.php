@@ -67,11 +67,15 @@ final class WPCOM_Sites_With_Sticker_List extends Command {
 		if ( empty( $sites ) ) {
 			$output->writeln( '<fg=yellow;options=bold>There are no sites with the chosen sticker.</>' );
 		} else {
-			$site_details = get_wpcom_site_batch( $sites, null );
+			$site_details = get_wpcom_site_batch( $sites, $errors );
+
+			if ( ! empty( $errors ) ) {
+				$output->writeln( '<comment>Some sites could not be fetched. Showing available data.</comment>' );
+			}
 
 			$rows = array();
 			foreach ( $sites as $site_id ) {
-				$url    = isset( $site_details[ $site_id ] ) ? $site_details[ $site_id ]->URL : 'URL not found, the Jetpack connection might be broken.';
+				$url    = isset( $site_details[ $site_id ] ) ? $site_details[ $site_id ]->URL : 'URL not found, blog RC: https://mc.a8c.com/tools/reportcard/blog/?blog_id=' . $site_id;
 				$rows[] = array( $site_id, $url );
 			}
 
