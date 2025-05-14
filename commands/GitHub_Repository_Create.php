@@ -125,7 +125,7 @@ final class GitHub_Repository_Create extends Command {
 		$output->writeln( "<fg=magenta;options=bold>Creating the $type repository $this->name.</>" );
 
 		// Create the repository.
-		$repository = create_github_repository( $this->name, $this->type, $this->homepage, $this->description, $this->custom_properties );
+		$repository = create_github_repository( $this->name, 'empty' === $this->type ? null : $this->type, $this->homepage, $this->description, $this->custom_properties );
 		if ( \is_null( $repository ) ) {
 			$output->writeln( '<error>Failed to create the repository.</error>' );
 			return Command::FAILURE;
@@ -173,7 +173,7 @@ final class GitHub_Repository_Create extends Command {
 		if ( ! $input->getOption( 'no-autocomplete' ) ) {
 			$question->setAutocompleterValues( array_keys( self::REPO_TYPES ) );
 		}
-		
+
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
 
