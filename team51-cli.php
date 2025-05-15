@@ -40,6 +40,7 @@ foreach ( glob( __DIR__ . '/commands/*.php' ) as $command ) {
 }
 foreach ( $team51_cli_app->all() as $command ) {
 	$command->addOption( '--dev', null, InputOption::VALUE_NONE, 'Run the CLI tool in developer mode.' );
+	$command->addOption( '--force-update', null, InputOption::VALUE_NONE, 'Force update check regardless of when the last check was performed.' );
 	$command->addOption( '--no-autocomplete', null, InputOption::VALUE_NONE, 'Do not provide options to initialization questions.' );
 }
 

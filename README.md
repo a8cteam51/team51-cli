@@ -50,7 +50,11 @@ Be well, be kind, make things and set them free.
 1. To verify the tool was installed successfully, you can run `team51 list` from your Terminal to see a list of all current commands.
 
 ### For developers
-The CLI tool automatically updates itself. It does a hard reset to the latest version of the `trunk` branch and it will also try to switch to the `trunk` branch if it's not already on it. To bypass this behavior you can run the tool with the `--dev` flag or add an empty `.dev` file to the root folder.
+The CLI tool automatically updates itself. It does a hard reset to the latest version of the `trunk` branch and it will also try to switch to the `trunk` branch if it's not already on it. To improve performance, it only checks for updates once every 7 days. To bypass this behavior, you can:
+
+- Run the tool with the `--dev` flag to skip update checks entirely
+- Run the tool with the `--force-update` flag to force an update check regardless of when the last check was performed
+- Add an empty `.dev` file to the root folder to skip update checks entirely (legacy behavior)
 
 ## Usage
 This CLI tool is self-documenting. You can view a list of available commands with `team51 list`.
@@ -99,4 +103,4 @@ You will then need to run `brew link php@8.2` so that PHP gets symlinked properl
 
 ### `git@github.com: Permission denied (publickey)`
 
-This is likely to happen if you moved/migrated from another computer and the key you used to authenticate with GitHub is not working anymore. This [guide](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent) should help you set up a new SSH key. 
+This is likely to happen if you moved/migrated from another computer and the key you used to authenticate with GitHub is not working anymore. This [guide](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent) should help you set up a new SSH key.  
