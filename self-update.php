@@ -88,7 +88,8 @@ function team51_cli_get_dev_timestamp(): ?int {
 
 	$content = file_get_contents( $dev_file );
 	if ( empty( $content ) || ! is_numeric( $content ) ) {
-		return null;
+		// If the file is empty or doesn't contain a valid timestamp, return a far future date (2035) to force dev mode.
+		return 2062837972;
 	}
 
 	return (int) $content;
