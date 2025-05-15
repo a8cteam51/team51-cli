@@ -154,7 +154,7 @@ if ( $team51_cli_is_dev ) {
 		// Update the timestamp after checking for updates
 		team51_cli_update_dev_timestamp();
 	} else {
-		team51_cli_print_message( "\033[44mSkipping update check (less than 7 days since last check).\033[0m" );
+		team51_cli_print_message( "\033[33mSkipping update check (less than 7 days since last check).\033[0m" );
 	}
 }
 
