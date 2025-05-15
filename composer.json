@@ -9,6 +9,7 @@
     "ext-gd": "*",
     "ext-json": "*",
     "ext-posix": "*",
+    "ext-readline": "*",
     "phpseclib/phpseclib": "^3.0",
     "symfony/console": "^v7.0",
     "symfony/event-dispatcher": "^v7.0",

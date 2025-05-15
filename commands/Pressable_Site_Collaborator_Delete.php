@@ -72,7 +72,7 @@ final class Pressable_Site_Collaborator_Delete extends Command {
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
 		// Retrieve the list of collaborators which is required later.
-		console_writeln( "Getting collaborators from Pressable..." );
+		console_writeln( 'Getting collaborators from Pressable...' );
 		$this->raw_collaborators = get_pressable_collaborators() ?? array();
 
 		$this->delete_wp_user = (bool) $input->getOption( 'delete-wp-user' );

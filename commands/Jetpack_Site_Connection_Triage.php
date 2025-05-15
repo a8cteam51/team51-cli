@@ -170,7 +170,7 @@ EOT
 
 			$output->writeln( 'Checking ' . $site_url . '...' );
 
-			//fetch
+			// fetch
 			$options     = array(
 				'http' => array(
 					'method'        => 'GET',

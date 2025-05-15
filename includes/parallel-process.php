@@ -89,7 +89,7 @@ class Parallel_Process {
 		$this->output = $output;
 		$this->tasks  = $tasks;
 
-		$this->task_count   = count( $tasks );
+		$this->task_count = count( $tasks );
 	}
 
 	// endregion
