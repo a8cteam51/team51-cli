@@ -44,8 +44,8 @@ foreach ( $team51_cli_app->all() as $command ) {
 	$command->addOption( '--no-autocomplete', null, InputOption::VALUE_NONE, 'Do not provide options to initialization questions.' );
 }
 
-$is_shell_mode = in_array( '--shell', $_SERVER['argv'], true );
-if ( $is_shell_mode ) {
+// BETA SUPPORT FOR INTERACTIVE SHELL; BETA!!!
+if ( in_array( '--shell', $_SERVER['argv'], true ) ) {
 	// Remove the flag so that Symfony Console does not choke on an unknown option.
 	$_SERVER['argv'] = array_values(
 		array_filter(
