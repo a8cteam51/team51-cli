@@ -27,6 +27,7 @@ It's the nickname for our Special Projects team at Automattic.
 Be well, be kind, make things and set them free.
 
 ## Installation
+
 1. Ensure you have OpsOasis access. Details: p4Kr4c-dgn-p2#setting-up-opsoasis-1password (Not familiar with the link? Check the Field Guide for "Public GitHub Repository Shorthand".)
 1. Open the Terminal on your Mac and install [Homebrew](https://brew.sh/) (if you haven't already).
 	- `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"`
@@ -50,13 +51,15 @@ Be well, be kind, make things and set them free.
 1. To verify the tool was installed successfully, you can run `team51 list` from your Terminal to see a list of all current commands.
 
 ### For developers
+
 The CLI tool automatically updates itself. It does a hard reset to the latest version of the `trunk` branch and it will also try to switch to the `trunk` branch if it's not already on it. To improve performance, it only checks for updates once every 7 days. To bypass this behavior, you can:
 
-- Run the tool with the `--dev` flag to skip update checks entirely
-- Run the tool with the `--force-update` flag to force an update check regardless of when the last check was performed
-- Add an empty `.dev` file to the root folder to skip update checks entirely (legacy behavior)
+- Run the tool with the `--dev` flag to skip update checks entirely.
+- Run the tool with the `--force-update` flag to force an update check regardless of when the last check was performed.
+- Add a `.dev` file to the root folder containing your current timestamp to disable updates for a week.
 
 ## Usage
+
 This CLI tool is self-documenting. You can view a list of available commands with `team51 list`.
 You can then do `team51 <command-name> --help`.
 
@@ -73,20 +76,25 @@ For multiple choice questions, the default option is the one in square brackets.
 ## Troubleshooting
 
 ### Before anything else
+
 If you haven't used the CLI in a while, and you're getting a lot of `Deprecated` notices or PHP `Fatal error`, try running `./install-osx` again to make sure all the dependencies are up-to-date.
 
 Remember: you need be inside the `team51-cli` directory in order to execute the installation command.
 
 ### `error: Your local changes to the following files would be overwritten by merge: ...`
+
 If you see this error when running a command, and you don't remember intentionally changing the mentioned files on your computer, you should run `git reset --hard` to discard all the changes and get back to the state of the remote repository.
 
 ### `no such file or directory: ./install-osx`
+
 Most likely you are not inside the team51 directory. Try with `cd team51-cli`. If that doesn't work, verify where you are located by running `pwd` and then use the *change directory* command (`cd`) to navigate to the team51-cli directory we cloned in the steps above.
 
 ### `composer: command not found`
+
 If you get the error `./install-osx: line 2: composer: command not found`, you can run `brew install composer` to install Composer on your computer.
 
 ### `brew: command not found`
+
 If you don't have [brew](https://brew.sh/) yet, install it by executing this from your Terminal: `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"` — Tip: you can use brew to install all sort of apps on your Mac. Give it [a try](https://formulae.brew.sh/cask/zoom)
 
 ### `failed to open stream: Too many open files`
