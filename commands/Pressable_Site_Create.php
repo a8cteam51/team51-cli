@@ -120,7 +120,7 @@ final class Pressable_Site_Create extends Command {
 		);
 		run_pressable_site_wp_cli_command(
 			$site->id,
-			'plugin install https://github.com/a8cteam51/plugin-autoupdate-filter/releases/latest/download/plugin-autoupdate-filter.zip --activate',
+			'plugin install https://github.com/a8cteam51/a8csp-atlantis/releases/latest/download/a8csp-atlantis.zip --activate',
 		);
 
 		// Create a DeployHQ project and server for the site.
