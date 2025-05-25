@@ -224,7 +224,6 @@ final class Pressable_Site_Clone extends Command {
 			)
 		);
 		run_pressable_site_wp_cli_command( $site_clone->id, 'config set WP_ENVIRONMENT_TYPE development --type=constant' );
-		run_pressable_site_wp_cli_command( $site_clone->id, "search-replace {$this->site->url} $site_clone->url" );
 
 		if ( $this->skip_safety_net ) {
 			$output->writeln( '<comment>Skipping the installation of SafetyNet as a mu-plugin.</comment>' );
@@ -281,7 +280,10 @@ final class Pressable_Site_Clone extends Command {
 			);
 		}
 
-		run_pressable_site_wp_cli_command( $site_clone->id, 'cache flush' ); // Done last because it seems to cause issues sometimes.
+		// Done last because it seems to cause issues sometimes with the connection breaking off.
+		run_pressable_site_wp_cli_command( $site_clone->id, "search-replace {$this->site->url} $site_clone->url" );
+		run_pressable_site_wp_cli_command( $site_clone->id, 'cache flush' );
+
 		return Command::SUCCESS;
 	}
 
