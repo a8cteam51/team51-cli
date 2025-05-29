@@ -176,6 +176,8 @@ final class GitHub_Repository_Create extends Command {
 					return Command::FAILURE;
 				}
 			}
+
+			$this->wait_for_fill_in_scaffold_placeholders_action_to_complete( $output, $repository->name );
 		}
 
 		$output->writeln( "<fg=green;options=bold>Repository $this->name created successfully.</>" );
@@ -435,11 +437,28 @@ final class GitHub_Repository_Create extends Command {
 		// Normalize input: if it's a name, convert to slug
 		if ( in_array( $selected, $theme_slugs, true ) ) {
 			return $selected;
-		} elseif ( isset( $name_to_slug[ $selected ] ) ) {
+		}
+
+		if ( isset( $name_to_slug[ $selected ] ) ) {
 			return $name_to_slug[ $selected ];
-		} else {
-			$output->writeln( '<error>Invalid theme slug or name selected.</error>' );
-			return null;
+		}
+
+		$output->writeln( '<error>Invalid theme slug or name selected.</error>' );
+		return null;
+	}
+
+	/**
+	 * Waits for the fill in the scaffold placeholders workflow to complete.
+	 *
+	 * @param   OutputInterface $output     The output interface.
+	 * @param   string          $repository The name of the repository to wait for the workflow run in.
+	 *
+	 * @return  void
+	 */
+	private function wait_for_fill_in_scaffold_placeholders_action_to_complete( OutputInterface $output, string $repository ): void {
+		$finished = wait_for_github_repository_workflow_run_to_complete( $repository, 'Fill in the Scaffold Placeholders', $output );
+		if ( ! $finished ) {
+			$output->writeln( '<error>The fill in the scaffold placeholders workflow did not complete, check the repository actions for errors.</error>' );
 		}
 	}
 

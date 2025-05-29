@@ -2,6 +2,7 @@
 
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Helper\ProgressBar;
 
 // region API
 
@@ -253,6 +254,64 @@ function get_github_repository_from_deployhq_project( string $project ): ?stdCla
 	}
 
 	return get_github_repository( $gh_repo_url->repo );
+}
+
+/**
+ * Returns a list of workflow runs for a given GitHub repository.
+ *
+ * @param   string $repository The name of the repository to get the workflow runs for.
+ * @param   array  $params     The parameters to filter the results by.
+ *
+ * @return  stdClass[]|null
+ *
+ * @link    https://docs.github.com/en/rest/actions/workflow-runs#list-workflow-runs-for-a-repository
+ */
+function get_github_repository_workflow_runs( string $repository, array $params = array() ): ?array {
+	$endpoint = "repositories/$repository/workflows/runs";
+	if ( ! empty( $params ) ) {
+		$endpoint .= '?' . http_build_query( $params );
+	}
+
+	return API_Helper::make_github_request( $endpoint )?->records;
+}
+
+/**
+ * Waits for a workflow run to complete.
+ *
+ * @param   string          $repository    The name of the repository to wait for the workflow run in.
+ * @param   string          $workflow_name The name of the workflow to wait for.
+ * @param   OutputInterface $output        The output interface.
+ *
+ * @return  boolean
+ */
+function wait_for_github_repository_workflow_run_to_complete( string $repository, string $workflow_name, OutputInterface $output ): bool {
+	$output->writeln( '<comment>Waiting for workflow run ' . $workflow_name . ' to complete it could take a few minutes...</comment>' );
+
+	$progress_bar = new ProgressBar( $output );
+	$progress_bar->start();
+
+	$wait_time = 60 * 10; // 10 minutes
+
+	for ( $try = 0; $try < $wait_time; $try++ ) {
+		if ( 0 === $try % 10 ) {
+			$runs = get_github_repository_workflow_runs( $repository, array( 'status' => 'completed' ) );
+			foreach ( $runs as $run ) {
+				if ( $workflow_name === $run->name ) {
+					$output->writeln( '' );
+					$output->writeln( '<fg=green;options=bold>Workflow run ' . $workflow_name . ' completed.</>' );
+					return true;
+				}
+			}
+		}
+
+		$progress_bar->advance();
+		sleep( 5 );
+	}
+
+	$progress_bar->finish();
+	$output->writeln( '' ); // Empty line for UX purposes.
+
+	return false;
 }
 
 // endregion

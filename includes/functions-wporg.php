@@ -13,7 +13,7 @@ use Symfony\Component\Console\Output\OutputInterface;
  */
 function get_wporg_theme_choices( OutputInterface $output ): array {
 
-	$output->writeln( '<info>Fetching WordPress.org themes...</info>' );
+	$output->writeln( '<fg=magenta;options=bold>Fetching WordPress.org themes...</>' );
 
 	$endpoint = 'themes'; // Equivalent to 'sites?type=all'.
 
