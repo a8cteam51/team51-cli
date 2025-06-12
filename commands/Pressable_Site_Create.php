@@ -51,6 +51,20 @@ final class Pressable_Site_Create extends Command {
 	private ?string $no_code_theme = null;
 
 	/**
+	 * The list of available themes.
+	 *
+	 * @var array|null
+	 */
+	private ?array $themes = null;
+
+	/**
+	 * Whether the user selected the "wpcom-theme" option.
+	 *
+	 * @var bool
+	 */
+	private bool $use_wpcom_theme = false;
+
+	/**
 	 * The GitHub repository to deploy to the site from.
 	 *
 	 * @var \stdClass|null
@@ -214,12 +228,30 @@ final class Pressable_Site_Create extends Command {
 	 * @return  string|null
 	 */
 	private function prompt_no_code_theme_input( InputInterface $input, OutputInterface $output, array $themes ): ?string {
-		$themes   = array_combine(
-			array_map( fn( $theme ) => $theme->slug, $themes ),
-			array_map( fn( $theme ) => $theme->name, $themes )
+		$theme_slugs  = array_map( fn( $theme ) => $theme->slug, $themes );
+		$theme_names  = array_map( fn( $theme ) => $theme->name, $themes );
+		$name_to_slug = array_combine( $theme_names, $theme_slugs );
+
+		$autocompleter_values = array_merge( $theme_slugs, $theme_names );
+
+		$question = new Question(
+			'<question>Please start typing the slug or name of the no-code theme to use. Choose "wpcom-theme" for internal or unlisted themes:</question> '
 		);
-		$question = new ChoiceQuestion( '<question>Please select the no-code theme to use for the site:</question> ', $themes, 'project' );
-		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+		$question->setAutocompleterValues( $autocompleter_values );
+
+		$selected = $this->getHelper( 'question' )->ask( $input, $output, $question );
+
+		// Normalize input: if it's a name, convert to slug
+		if ( in_array( $selected, $theme_slugs, true ) ) {
+			return $selected;
+		}
+
+		if ( isset( $name_to_slug[ $selected ] ) ) {
+			return $name_to_slug[ $selected ];
+		}
+
+		$output->writeln( '<error>Invalid theme slug or name selected.</error>' );
+		return null;
 	}
 
 	/**
@@ -275,13 +307,7 @@ final class Pressable_Site_Create extends Command {
 				$input->setOption( 'project-template', $this->project_template );
 
 				if ( 'no-code-project' === $this->project_template ) {
-					$themes = get_wporg_theme_choices( $output );
-					if ( empty( $themes ) ) {
-						$output->writeln( '<error>Failed to fetch wp.org themes.</error>' );
-						exit( 1 );
-					}
-
-					$this->no_code_theme = get_enum_input( $input, 'no-code-theme', array_keys( $themes ), fn() => $this->prompt_no_code_theme_input( $input, $output, $themes ), null );
+					$this->setup_no_code_theme( $input, $output );
 					$input->setOption( 'no-code-theme', $this->no_code_theme );
 				}
 
@@ -309,6 +335,48 @@ final class Pressable_Site_Create extends Command {
 		}
 
 		return $repository;
+	}
+
+	/**
+	 * Sets up the no-code theme by cloning/pulling the themes repo and prompting for theme selection.
+	 *
+	 * @param InputInterface  $input  The input interface.
+	 * @param OutputInterface $output The output interface.
+	 *
+	 * @return void
+	 */
+	private function setup_no_code_theme( InputInterface $input, OutputInterface $output ): void {
+		$this->themes = get_wporg_theme_choices( $output );
+
+		// Inject the "wpcom-theme" option
+		$this->themes[] = (object) array(
+			'slug' => 'wpcom-theme',
+			'name' => 'WPCOM theme, other theme',
+		);
+
+		if ( empty( $this->themes ) ) {
+			$output->writeln( '<error>Failed to fetch .org themes.</error>' );
+			return;
+		}
+
+		if ( ! empty( $this->no_code_theme ) ) {
+			if ( ! in_array( $this->no_code_theme, $this->themes, true ) ) {
+				$output->writeln( '<error>The selected no-code theme is not available.</error>' );
+				$output->writeln( '<error>Please select a different theme or press enter to skip.</error>' );
+				$this->no_code_theme = null;
+			} else {
+				return;
+			}
+		}
+
+		$this->no_code_theme = $this->prompt_no_code_theme_input( $input, $output, $this->themes );
+
+		if ( 'wpcom-theme' === $this->no_code_theme ) {
+			$this->use_wpcom_theme = true;
+			$question              = new Question( '<question>Please enter the slug of the WPCOM theme to use:</question> ' );
+			$theme_slug            = $this->getHelper( 'question' )->ask( $input, $output, $question );
+			$this->no_code_theme   = $theme_slug;
+		}
 	}
 
 	// endregion

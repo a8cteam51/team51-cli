@@ -9,7 +9,6 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
@@ -165,6 +164,16 @@ final class GitHub_Repository_Create extends Command {
 
 		// Check if the selected no code theme is child theme.
 		if ( 'no-code-project' === $this->type && ! empty( $this->no_code_theme ) && ! $this->use_wpcom_theme ) {
+			if ( null === $this->themes ) {
+				$this->themes = get_wporg_theme_choices( $output );
+			}
+
+			if ( ! isset( $this->themes[ $this->no_code_theme ] ) ) {
+				$output->writeln( '<error>The selected no-code theme is not available.</error>' );
+				$output->writeln( '<error>Please select a different theme.</error>' );
+				return Command::FAILURE;
+			}
+
 			$theme = $this->themes[ $this->no_code_theme ];
 
 			if ( isset( $theme->parent ) && ! empty( $theme->parent ) ) {
@@ -176,9 +185,9 @@ final class GitHub_Repository_Create extends Command {
 					return Command::FAILURE;
 				}
 			}
-
-			$this->wait_for_fill_in_scaffold_placeholders_action_to_complete( $output, $repository->name );
 		}
+
+		$this->wait_for_fill_in_scaffold_placeholders_action_to_complete( $output, $repository->name );
 
 		$output->writeln( "<fg=green;options=bold>Repository $this->name created successfully.</>" );
 		return Command::SUCCESS;
@@ -422,7 +431,6 @@ final class GitHub_Repository_Create extends Command {
 	private function prompt_no_code_theme_input( InputInterface $input, OutputInterface $output, array $themes ): ?string {
 		$theme_slugs  = array_map( fn( $theme ) => $theme->slug, $themes );
 		$theme_names  = array_map( fn( $theme ) => $theme->name, $themes );
-		$slug_to_name = array_combine( $theme_slugs, $theme_names );
 		$name_to_slug = array_combine( $theme_names, $theme_slugs );
 
 		$autocompleter_values = array_merge( $theme_slugs, $theme_names );
