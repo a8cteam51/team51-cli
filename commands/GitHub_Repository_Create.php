@@ -78,10 +78,11 @@ final class GitHub_Repository_Create extends Command {
 	 * @var array
 	 */
 	private const REPO_TYPES = array(
-		'project' => 'Full Project Repo',
-		'plugin'  => 'Plugin Specific Repo',
-		'issues'  => 'Issues Only Repo',
-		'empty'   => 'Empty Repo',
+		'project'         => 'Full Project Repo',
+		'no-code-project' => 'No-Code Project Repo',
+		'plugin'          => 'Plugin Specific Repo',
+		'issues'          => 'Issues Only Repo',
+		'empty'           => 'Empty Repo',
 	);
 
 	/**
