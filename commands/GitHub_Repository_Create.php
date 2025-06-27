@@ -200,7 +200,9 @@ final class GitHub_Repository_Create extends Command {
 			}
 		}
 
-		$this->wait_for_fill_in_scaffold_placeholders_action_to_complete( $output, $repository->name );
+		if ( 'no-code-project' === $this->type && ! empty( $this->no_code_theme ) ) {
+			$this->wait_for_fill_in_scaffold_placeholders_action_to_complete( $output, $repository->name );
+		}
 
 		$output->writeln( "<fg=green;options=bold>Repository $this->name created successfully.</>" );
 		return Command::SUCCESS;
