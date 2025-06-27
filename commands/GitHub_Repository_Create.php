@@ -200,7 +200,7 @@ final class GitHub_Repository_Create extends Command {
 			}
 		}
 
-		if ( 'no-code-project' === $this->type && ! empty( $this->no_code_theme ) ) {
+		if ( in_array( $this->type, array( 'no-code-project', 'project', 'plugin' ), true ) ) {
 			$this->wait_for_fill_in_scaffold_placeholders_action_to_complete( $output, $repository->name );
 		}
 
