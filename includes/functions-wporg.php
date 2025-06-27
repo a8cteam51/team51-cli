@@ -7,13 +7,9 @@ use Symfony\Component\Console\Output\OutputInterface;
 /**
  * Fetches the list of WordPress.org themes.
  *
- * @param   OutputInterface $output The output interface.
- *
  * @return  string[]
  */
-function get_wporg_theme_choices( OutputInterface $output ): array {
-
-	$output->writeln( '<fg=magenta;options=bold>Fetching WordPress.org themes...</>' );
+function get_wporg_theme_choices(): array {
 
 	$endpoint = 'themes'; // Equivalent to 'sites?type=all'.
 

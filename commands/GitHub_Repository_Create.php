@@ -85,13 +85,6 @@ final class GitHub_Repository_Create extends Command {
 		'empty'           => 'Empty Repo',
 	);
 
-	/**
-	 * Whether the user selected the "wpcom-theme" option.
-	 *
-	 * @var bool
-	 */
-	private bool $use_wpcom_theme = false;
-
 	// endregion
 
 	// region INHERITED METHODS
@@ -138,7 +131,7 @@ final class GitHub_Repository_Create extends Command {
 			exit( 2 );
 		}
 
-		if ( 'no-code-project' === $this->type ) {
+		if ( 'no-code-project' === $this->type && empty( $this->no_code_theme ) ) {
 			$this->setup_no_code_theme( $input, $output );
 
 			if ( ! empty( $this->no_code_theme ) ) {
@@ -176,26 +169,22 @@ final class GitHub_Repository_Create extends Command {
 		}
 
 		// Check if the selected no code theme is child theme.
-		if ( 'no-code-project' === $this->type && ! empty( $this->no_code_theme ) && ! $this->use_wpcom_theme ) {
+		if ( 'no-code-project' === $this->type && ! empty( $this->no_code_theme ) ) {
 			if ( null === $this->themes ) {
-				$this->themes = get_wporg_theme_choices( $output );
+				$this->themes = get_wporg_theme_choices();
 			}
 
-			if ( ! isset( $this->themes[ $this->no_code_theme ] ) ) {
-				$output->writeln( '<error>The selected no-code theme is not available.</error>' );
-				$output->writeln( '<error>Please select a different theme.</error>' );
-				return Command::FAILURE;
-			}
+			if ( isset( $this->themes[ $this->no_code_theme ] ) ) {
+				$theme = $this->themes[ $this->no_code_theme ];
 
-			$theme = $this->themes[ $this->no_code_theme ];
-
-			if ( isset( $theme->parent ) && ! empty( $theme->parent ) ) {
-				$output->writeln( "<comment>The selected no-code theme $this->no_code_theme is a child theme.</comment>" );
-				$output->writeln( '<fg=magenta;options=bold>Replacing the default theme with the child theme.</>' );
-				$result = $this->add_no_code_theme_files( $output, $repository );
-				if ( false === $result ) {
-					$output->writeln( '<error>Failed to add theme files.</error>' );
-					return Command::FAILURE;
+				if ( isset( $theme->parent ) && ! empty( $theme->parent ) ) {
+					$output->writeln( "<comment>The selected no-code theme $this->no_code_theme is a child theme.</comment>" );
+					$output->writeln( '<fg=magenta;options=bold>Replacing the default theme with the child theme.</>' );
+					$result = $this->add_no_code_theme_files( $output, $repository );
+					if ( false === $result ) {
+						$output->writeln( '<error>Failed to add theme files.</error>' );
+						return Command::FAILURE;
+					}
 				}
 			}
 		}
@@ -287,7 +276,9 @@ final class GitHub_Repository_Create extends Command {
 	 * @return void
 	 */
 	private function setup_no_code_theme( InputInterface $input, OutputInterface $output ): void {
-		$this->themes = get_wporg_theme_choices( $output );
+		$output->writeln( '<fg=magenta;options=bold>Fetching WordPress.org themes...</>' );
+
+		$this->themes = get_wporg_theme_choices();
 
 		// Inject the "wpcom-theme" option
 		$this->themes[] = (object) array(
@@ -313,10 +304,9 @@ final class GitHub_Repository_Create extends Command {
 		$this->no_code_theme = $this->prompt_no_code_theme_input( $input, $output, $this->themes );
 
 		if ( 'wpcom-theme' === $this->no_code_theme ) {
-			$this->use_wpcom_theme = true;
-			$question              = new Question( '<question>Please enter the slug of the WPCOM theme to use:</question> ' );
-			$theme_slug            = $this->getHelper( 'question' )->ask( $input, $output, $question );
-			$this->no_code_theme   = $theme_slug;
+			$question            = new Question( '<question>Please enter the slug of the WPCOM theme to use:</question> ' );
+			$theme_slug          = $this->getHelper( 'question' )->ask( $input, $output, $question );
+			$this->no_code_theme = $theme_slug;
 		}
 	}
 

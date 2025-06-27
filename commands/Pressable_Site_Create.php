@@ -58,13 +58,6 @@ final class Pressable_Site_Create extends Command {
 	private ?array $themes = null;
 
 	/**
-	 * Whether the user selected the "wpcom-theme" option.
-	 *
-	 * @var bool
-	 */
-	private bool $use_wpcom_theme = false;
-
-	/**
 	 * The GitHub repository to deploy to the site from.
 	 *
 	 * @var \stdClass|null
@@ -346,7 +339,9 @@ final class Pressable_Site_Create extends Command {
 	 * @return void
 	 */
 	private function setup_no_code_theme( InputInterface $input, OutputInterface $output ): void {
-		$this->themes = get_wporg_theme_choices( $output );
+		$output->writeln( '<fg=magenta;options=bold>Fetching WordPress.org themes...</>' );
+
+		$this->themes = get_wporg_theme_choices();
 
 		// Inject the "wpcom-theme" option
 		$this->themes[] = (object) array(
@@ -372,10 +367,9 @@ final class Pressable_Site_Create extends Command {
 		$this->no_code_theme = $this->prompt_no_code_theme_input( $input, $output, $this->themes );
 
 		if ( 'wpcom-theme' === $this->no_code_theme ) {
-			$this->use_wpcom_theme = true;
-			$question              = new Question( '<question>Please enter the slug of the WPCOM theme to use:</question> ' );
-			$theme_slug            = $this->getHelper( 'question' )->ask( $input, $output, $question );
-			$this->no_code_theme   = $theme_slug;
+			$question            = new Question( '<question>Please enter the slug of the WPCOM theme to use:</question> ' );
+			$theme_slug          = $this->getHelper( 'question' )->ask( $input, $output, $question );
+			$this->no_code_theme = $theme_slug;
 		}
 	}
 
