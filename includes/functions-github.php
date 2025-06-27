@@ -257,6 +257,52 @@ function get_github_repository_from_deployhq_project( string $project ): ?stdCla
 }
 
 /**
+ * Creates a new issue in a given GitHub repository.
+ *
+ * @param   string $repository The name of the repository to create the issue in.
+ * @param   string $title      The title of the issue to create.
+ * @param   string $issue_body The body of the issue to create.
+ * @param   array  $labels     The labels to add to the issue.
+ *
+ * @return  stdClass|null
+ */
+function create_github_issue( string $repository, string $title, string $issue_body, array $labels = array() ): ?stdClass {
+	$body = array(
+		'repo'   => $repository,
+		'title'  => $title,
+		'body'   => $issue_body,
+		'labels' => $labels,
+	);
+
+	return API_Helper::make_github_request(
+		"repositories/{$repository}/issues",
+		'POST',
+		$body,
+	);
+}
+
+/**
+ * Creates a new sub-issue in a given GitHub repository.
+ *
+ * @param   string $repository The name of the repository to create the issue in.
+ * @param   int    $issue_number      The number of the parent issue to create the sub-issue for.
+ * @param   int    $sub_issue_id      The ID of the sub-issue to create.
+ *
+ * @return  stdClass|null
+ */
+function create_github_sub_issue( string $repository, int $issue_number, int $sub_issue_id ): ?stdClass {
+	$body = array(
+		'sub_issue_id' => $sub_issue_id,
+	);
+
+	return API_Helper::make_github_request(
+		"repositories/{$repository}/issues/{$issue_number}/sub_issue",
+		'POST',
+		$body,
+	);
+}
+
+/**
  * Returns a list of workflow runs for a given GitHub repository.
  *
  * @param   string $repository The name of the repository to get the workflow runs for.

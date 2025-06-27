@@ -9,6 +9,7 @@
     "ext-gd": "*",
     "ext-json": "*",
     "ext-posix": "*",
+    "ext-readline": "*",
     "phpseclib/phpseclib": "^3.0",
     "symfony/console": "^v7.0",
     "symfony/event-dispatcher": "^v7.0",
@@ -40,7 +41,9 @@
       "includes/functions-jetpack.php",
       "includes/functions-pressable.php",
       "includes/functions-wporg.php",
-      "includes/functions-wpcom.php"
+      "includes/functions-wpcom.php",
+      "includes/parallel-process.php",
+      "includes/enum-site-type.php"
     ]
   },
 
@@ -51,7 +54,7 @@
     "packages-install": "@composer install --ignore-platform-reqs --no-interaction",
     "packages-update": [
       "@composer clear-cache",
-      "@composer update --prefer-stable --no-interaction"
+      "@composer update --prefer-stable --ignore-platform-reqs --no-interaction"
     ]
   },
   "config": {
@@ -61,7 +64,7 @@
       "phpstan/extension-installer": true
     },
     "platform": {
-      "php": "8.2"
+      "php": "8.3"
     }
   }
 }

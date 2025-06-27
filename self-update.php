@@ -72,11 +72,49 @@ function team51_cli_self_update(): void {
 
 // endregion
 
+// region TIMESTAMP FUNCTIONS
+
+/**
+ * Gets the timestamp from the .dev file.
+ *
+ * @return  int|null  The timestamp, or null if the file doesn't exist or doesn't contain a valid timestamp.
+ */
+function team51_cli_get_dev_timestamp(): ?int {
+	$dev_file = TEAM51_CLI_ROOT_DIR . '/.dev';
+
+	if ( ! file_exists( $dev_file ) ) {
+		return null;
+	}
+
+	$content = file_get_contents( $dev_file );
+	if ( empty( $content ) || ! is_numeric( $content ) ) {
+		// If the file is empty or doesn't contain a valid timestamp, return a far future date (2035) to force dev mode.
+		return 2062837972;
+	}
+
+	return (int) $content;
+}
+
+/**
+ * Writes the current timestamp to the .dev file.
+ *
+ * @return  void
+ */
+function team51_cli_update_dev_timestamp(): void {
+	$dev_file  = TEAM51_CLI_ROOT_DIR . '/.dev';
+	$timestamp = time();
+
+	file_put_contents( $dev_file, $timestamp );
+}
+
+// endregion
+
 // region EXECUTION LOGIC
 
-$team51_cli_is_quiet    = file_exists( TEAM51_CLI_ROOT_DIR . '/.quiet' );
-$team51_cli_is_dev      = file_exists( TEAM51_CLI_ROOT_DIR . '/.dev' );
-$team51_is_autocomplete = false;
+$team51_cli_is_quiet     = file_exists( TEAM51_CLI_ROOT_DIR . '/.quiet' );
+$team51_cli_is_dev       = false; // Will be set based on .dev file timestamp or --dev flag
+$team51_is_autocomplete  = false;
+$team51_cli_force_update = false;
 
 foreach ( $argv as $arg ) {
 	switch ( $arg ) {
@@ -91,6 +129,9 @@ foreach ( $argv as $arg ) {
 		case '--dev':
 			$team51_cli_is_dev = true;
 			break;
+		case '--force-update':
+			$team51_cli_force_update = true;
+			break;
 	}
 }
 
@@ -101,8 +142,21 @@ team51_cli_print_message( file_get_contents( TEAM51_CLI_ROOT_DIR . '/.ascii' ) )
 if ( $team51_cli_is_dev ) {
 	team51_cli_print_message( "\033[44mRunning in developer mode. Skipping update check.\033[0m" );
 } else {
-	team51_cli_print_message( "\033[33mChecking for updates..\033[0m" );
-	team51_cli_self_update();
+	$dev_timestamp         = team51_cli_get_dev_timestamp();
+	$seven_days_in_seconds = 7 * 24 * 60 * 60; // 7 days in seconds
+
+	$should_update = $team51_cli_force_update ||
+					null === $dev_timestamp ||
+					( time() - $dev_timestamp ) >= $seven_days_in_seconds;
+
+	if ( $should_update ) {
+		team51_cli_print_message( "\033[33mChecking for updates..\033[0m" );
+		team51_cli_self_update();
+		// Update the timestamp after checking for updates
+		team51_cli_update_dev_timestamp();
+	} else {
+		team51_cli_print_message( "\033[33mSkipping update check (less than 7 days since last check).\033[0m" );
+	}
 }
 
 // Update Composer.

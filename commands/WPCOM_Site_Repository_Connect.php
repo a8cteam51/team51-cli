@@ -153,7 +153,7 @@ final class WPCOM_Site_Repository_Connect extends Command {
 	 * @return  string|null
 	 */
 	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new Question( '<question>Enter the domain or WPCOM site ID to connect the repository to to:</question> ' );
+		$question = new Question( '<question>Enter the domain or WPCOM site ID to connect the repository to:</question> ' );
 		if ( ! $input->getOption( 'no-autocomplete' ) ) {
 			$question->setAutocompleterValues(
 				\array_map(

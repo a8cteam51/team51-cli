@@ -11,6 +11,7 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
+use Symfony\Component\Console\Question\ChoiceQuestion;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 
 /**
@@ -72,6 +73,18 @@ final class GitHub_Repository_Create extends Command {
 	private ?array $custom_properties = null;
 
 	/**
+	 * Repo types that can be created.
+	 *
+	 * @var array
+	 */
+	private const REPO_TYPES = array(
+		'project' => 'Full Project Repo',
+		'plugin'  => 'Plugin Specific Repo',
+		'issues'  => 'Issues Only Repo',
+		'empty'   => 'Empty Repo',
+	);
+
+	/**
 	 * Whether the user selected the "wpcom-theme" option.
 	 *
 	 * @var bool
@@ -92,7 +105,7 @@ final class GitHub_Repository_Create extends Command {
 		$this->addArgument( 'name', InputArgument::REQUIRED, 'The name of the repository to create.' )
 			->addOption( 'homepage', null, InputOption::VALUE_REQUIRED, 'A URL with more information about the repository.' )
 			->addOption( 'description', null, InputOption::VALUE_REQUIRED, 'A short, human-friendly description for this project.' )
-			->addOption( 'type', null, InputOption::VALUE_REQUIRED, 'The name of the template repository to use, if any. One of either `project`, `no-code-project`, `plugin`, or `issues`. Default empty repo.' )
+			->addOption( 'type', null, InputOption::VALUE_REQUIRED, 'The name of the template repository to use, if any. One of either `project`, `no-code-project`, `plugin`, `issues`, or `empty`. Default empty repo.' )
 			->addOption( 'no-code-theme', null, InputOption::VALUE_OPTIONAL, 'The name of the no-code theme to use for the repository.' );
 
 		$this->addOption( 'custom-properties', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'The custom properties to set for the repository.' );
@@ -109,7 +122,7 @@ final class GitHub_Repository_Create extends Command {
 		$this->description   = $input->getOption( 'description' );
 		$this->no_code_theme = $input->getOption( 'no-code-theme' );
 
-		$this->type = get_enum_input( $input, 'type', array( 'project', 'no-code-project', 'plugin', 'issues' ), fn() => $this->prompt_type_input( $input, $output ) );
+		$this->type = get_enum_input( $input, 'type', array_keys( self::REPO_TYPES ), fn() => $this->prompt_type_input( $input, $output ) );
 		$input->setOption( 'type', $this->type );
 	}
 
@@ -148,8 +161,7 @@ final class GitHub_Repository_Create extends Command {
 		$input->setOption( 'custom-properties', $this->custom_properties );
 
 		// Create the repository.
-		$repository = create_github_repository( $this->name, $this->type, $this->homepage, $this->description, $this->custom_properties );
-
+		$repository = create_github_repository( $this->name, 'empty' === $this->type ? null : $this->type, $this->homepage, $this->description, $this->custom_properties );
 		if ( \is_null( $repository ) ) {
 			$output->writeln( '<error>Failed to create the repository.</error>' );
 			return Command::FAILURE;
@@ -219,10 +231,10 @@ final class GitHub_Repository_Create extends Command {
 	 * @return  string|null
 	 */
 	private function prompt_type_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new Question( '<question>Please enter the type of repository to create or press enter for an empty repo:</question> ' );
-		// TODO: Show choices in a list.
+		$question = new ChoiceQuestion( '<question>Please select the type of repo:</question> ', self::REPO_TYPES, 'empty' );
+
 		if ( ! $input->getOption( 'no-autocomplete' ) ) {
-			$question->setAutocompleterValues( array( 'project', 'no-code-project', 'plugin', 'issues' ) );
+			$question->setAutocompleterValues( array_keys( self::REPO_TYPES ) );
 		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );

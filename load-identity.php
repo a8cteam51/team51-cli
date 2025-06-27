@@ -16,27 +16,32 @@ define( 'OPSOASIS_WP_USERNAME', $team51_op_account->email ?? null );
 if ( ! empty( getenv( 'TEAM51_OPSOASIS_APP_PASSWORD' ) ) ) {
 	define( 'OPSOASIS_APP_PASSWORD', getenv( 'TEAM51_OPSOASIS_APP_PASSWORD' ) );
 } else {
-	$team51_op_logins = list_1password_items(
-		array(
-			'categories' => 'Login',
-			'vault'      => 'Private',
-		)
-	);
+	try {
+		$team51_op_logins = list_1password_items(
+			array(
+				'categories' => 'Login',
+				'vault'      => 'Private',
+			)
+		);
 
-	foreach ( $team51_op_logins as $op_login ) {
-		foreach ( $op_login->urls ?? array() as $url ) {
-			if ( 'opsoasis.wpspecialprojects.com' !== parse_url( $url->href, PHP_URL_HOST ) ) {
-				continue;
-			}
+		foreach ( $team51_op_logins as $op_login ) {
+			foreach ( $op_login->urls ?? array() as $url ) {
+				if ( 'opsoasis.wpspecialprojects.com' !== parse_url( $url->href, PHP_URL_HOST ) ) {
+					continue;
+				}
 
-			$op_login = get_1password_item( $op_login->id ); // Hydrate the custom fields.
-			foreach ( $op_login->fields as $field ) {
-				if ( 'App Password' === $field->label ) {
-					define( 'OPSOASIS_APP_PASSWORD', $field->value );
-					break 3;
+				$op_login = get_1password_item( $op_login->id ); // Hydrate the custom fields.
+				foreach ( $op_login->fields as $field ) {
+					if ( 'App Password' === $field->label ) {
+						define( 'OPSOASIS_APP_PASSWORD', $field->value );
+						break 3;
+					}
 				}
 			}
 		}
+	} catch ( \RuntimeException $e ) {
+		console_writeln( "Error retrieving OpsOasis app password: {$e->getMessage()}" );
+		exit( 1 );
 	}
 }
 

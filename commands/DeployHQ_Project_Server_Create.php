@@ -107,6 +107,8 @@ final class DeployHQ_Project_Server_Create extends Command {
 		$this->pressable_site = get_pressable_site_input( $input, fn() => $this->prompt_pressable_site_input( $input, $output ) );
 		$input->setArgument( 'site', $this->pressable_site );
 
+		// TODO: There is a bug here -- instead of the owner, we need the concierge@wordpress.com user because
+		// otherwise this won't work with Pressable accounts of partners.
 		$this->pressable_site_sftp_owner = get_pressable_site_sftp_owner( $this->pressable_site->id );
 		if ( \is_null( $this->pressable_site_sftp_owner ) ) {
 			$output->writeln( '<error>Could not find the SFTP owner for the site. Aborting!</error>' );

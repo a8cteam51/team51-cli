@@ -3,7 +3,7 @@
 	<description>Custom ruleset for the Team51 CLI.</description>
 
 	<!-- Extend the A8CTeam51 ruleset. -->
-	<rule ref="vendor/a8cteam51/team51-configs/quality-tools/phpcs.dist.xml"/>
+	<rule ref="vendor/a8cteam51/team51-configs/quality-assurance/phpcs.dist.xml"/>
 
 	<!-- Add any other custom rules here. -->
 	<rule ref="WordPress.PHP">

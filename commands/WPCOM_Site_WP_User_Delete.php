@@ -11,7 +11,11 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
-use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
+
+use WPCOMSpecialProjects\CLI\Helper\{
+	AutocompleteTrait,
+	Parallel_Process
+};
 
 /**
  * Deletes a WP user from WPCOM sites.
@@ -52,6 +56,20 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 	 */
 	private ?bool $dry_run = null;
 
+	/**
+	 * The timeout, in seconds, for the SSH connection process to run.
+	 *
+	 * @var int|null
+	 */
+	private ?int $ssh_timeout = null;
+
+	/**
+	 * The maximum number of parallel processes to run.
+	 *
+	 * @var int|null
+	 */
+	private ?int $max_parallel;
+
 	// endregion
 
 	// region INHERITED METHODS
@@ -67,7 +85,9 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 			->addArgument( 'site', InputArgument::OPTIONAL, 'The domain or WPCOM ID of the site to delete the user from.' );
 
 		$this->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Determines whether the `site` argument is optional or not. Accepted values are `all` or a comma-separated list of site IDs or domains.' )
-			->addOption( 'dry-run', null, InputOption::VALUE_NONE, 'Perform a dry run without actually deleting users' );
+			->addOption( 'dry-run', null, InputOption::VALUE_NONE, 'Perform a dry run without actually deleting users' )
+			->addOption( 'ssh-timeout', null, InputOption::VALUE_OPTIONAL, 'Timeout, in seconds, for the SSH connection process to run.', 60 )
+			->addOption( 'max-parallel', null, InputOption::VALUE_OPTIONAL, 'The maximum number of parallel processes to run.', 10 );
 	}
 
 	/**
@@ -80,6 +100,9 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 
 		// Retrieve the dry run option.
 		$this->dry_run = get_bool_input( $input, 'dry-run' );
+
+		// Retrieve the maximum number of parallel processes to run.
+		$this->max_parallel = (int) $input->getOption( 'max-parallel' );
 
 		// If processing a given site, retrieve it from the input.
 		$multiple = $input->getOption( 'multiple' );
@@ -118,7 +141,7 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 			$output->writeln( "<comment>There are $number_of_errors sites that could NOT be searched.</comment>" );
 			$output->writeln( '<fg=magenta;options=bold>Trying to connect to those sites using SSH.</>' );
 
-			$errors = $this->maybe_get_user_using_ssh( $output, $errors, $sites );
+			$errors = $this->get_users_using_ssh( $output, $errors, $sites );
 		}
 
 		maybe_output_wpcom_failed_sites_table( $output, $errors, $sites, 'Sites that could NOT be searched' );
@@ -254,6 +277,8 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 	 * @param   InputInterface  $input  The input object.
 	 * @param   OutputInterface $output The output object.
 	 *
+	 * @throws \RuntimeException If the email address is invalid.
+	 *
 	 * @return  string|null
 	 */
 	private function prompt_email_input( InputInterface $input, OutputInterface $output ): ?string {
@@ -286,69 +311,134 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 	}
 
 	/**
-	 * Check if we can get the user with SSH on Jetpack API failed sites.
+	 * Get the user using SSH.
 	 *
-	 * @param OutputInterface $output            The output interface.
-	 * @param array           $sites_with_errors Sites with errors when using Jetpack API.
-	 * @param array           $sites             The sites.
+	 * @param   OutputInterface $output The output interface.
+	 * @param   array           $sites_with_errors The sites with errors.
+	 * @param   array           $sites The sites.
 	 *
-	 * @return array
+	 * @return  array
 	 */
-	private function maybe_get_user_using_ssh( OutputInterface $output, array $sites_with_errors, array $sites ): array {
-
-		$sites_hosted     = array_reduce( $sites, static fn( $carry, $site ) => $carry + array( $site->ID => $site ), array() );
-		$failed_ssh_sites = array();
-		$ssh_sites        = 0;
-		$progress_bar     = new ProgressBar( $output, count( $sites_with_errors ) );
-		$progress_bar->start();
-
-		foreach ( $sites_with_errors as $site_id => $site_error_data ) {
-			$progress_bar->advance();
-			$output->writeln( '' );
-			$site      = $sites_hosted[ $site_id ];
-			$is_atomic = $site->is_wpcom_atomic;
-			$ssh       = $is_atomic ? \WPCOM_Connection_Helper::get_ssh_connection( $site_id ) : null;
-
-			if ( ! $is_atomic ) {
-				$pressable_site = get_pressable_site( $site->URL );
-				$ssh            = $pressable_site ? \Pressable_Connection_Helper::get_ssh_connection( $pressable_site->id ) : null;
+	private function get_users_using_ssh( OutputInterface $output, array $sites_with_errors, array $sites ): array {
+		$email                = $this->email;
+		$site_ids_with_errors = array_keys( $sites_with_errors );
+		$sites_index          = array_filter(
+			array_column( $sites, null, 'ID' ),
+			function ( $site ) use ( $site_ids_with_errors ) {
+				return in_array( $site->ID, $site_ids_with_errors, true );
 			}
+		);
+		$users                = &$this->users;
+		$ssh_users            = &$this->ssh_users;
+		$user_count           = 0;
 
-			if ( $ssh ) {
-				try {
-					$ssh->setTimeout( 0 ); // Disable timeout in case the command takes a long time.
-					$ssh->exec(
-						"wp user get $this->email --fields=ID,email --format=json",
-						function ( string $str ) use ( $output ): void {
-							$GLOBALS['wp_cli_output'] = $str;
-						}
+		$output->writeln( '' );
+
+		$progress_bar = $this->initialize_progress_bar( $output, count( $site_ids_with_errors ) );
+
+		$failed_tasks = Parallel_Process::create( $output, $site_ids_with_errors )
+			->configure(
+				array(
+					'max_parallel' => $this->max_parallel,
+					'ssh_timeout'  => $this->ssh_timeout,
+				)
+			)
+			->add_callback(
+				'shell_command',
+				static function () use ( $email ): string {
+					return sprintf(
+						'wp user get %s --fields=ID,email --format=json',
+						escapeshellarg( $email )
 					);
-					++$ssh_sites;
-					$user = json_decode( $GLOBALS['wp_cli_output'] );
-					if ( $user ) {
-						$this->users[ $site_id ]     = array( $user );
-						$ssh_user_data['type']       = ! empty( $pressable_site ) ? 'pressable' : 'wpcom';
-						$ssh_user_data['id']         = ! empty( $pressable_site ) ? $pressable_site->id : $site_id;
-						$this->ssh_users[ $site_id ] = $ssh_user_data;
-					}
-				} catch ( \RuntimeException $exception ) {
-					$output->writeln( "<error>SSH command failed for site ID {$site_id}: {$exception->getMessage()}</error>" );
-					$failed_ssh_sites[ $site_id ] = $site_error_data;
-				} finally {
-					$ssh->disconnect();
 				}
-			} else {
-				$error_message = $is_atomic ? 'NO SSH WPCOM connection available' : 'NO Pressable SSH connection available';
-				$output->writeln( "<error>{$error_message} for site ID {$site_id}</error>" );
-				$failed_ssh_sites[ $site_id ] = $site_error_data;
-			}
-		}
+			)
+			->add_callback(
+				'command_args',
+				static function ( int $site_id ) use ( $sites_index ): string {
+					$site = $sites_index[ $site_id ];
+					return sprintf(
+						'--site-id=%s --site-type=%s --site-url=%s',
+						escapeshellarg( $site_id ),
+						$site->is_wpcom_atomic ? 'wpcom' : 'pressable',
+						escapeshellarg( $site->URL )
+					);
+				}
+			)
+			->add_callback(
+				'parse_result',
+				static function ( array $result ) use ( $sites_index ): array {
+					$site_url = $sites_index[ $result['site_id'] ]->URL;
+
+					// Test for invalid users.
+					if ( isset( $result['details'] ) && str_contains( $result['details'], 'Error: Invalid user' ) ) {
+						return array(
+							'code'              => 'user_not_found',
+							'site_id'           => $result['site_id'] ?? 0,
+							'details'           => isset( $result['type'] ) ? sprintf( 'User not found on %s', $site_url ) : $result['details'],
+							'type'              => $result['type'] ?? 'unknown_type',
+							'pressable_site_id' => $result['pressable_site_id'] ?? 0,
+						);
+					}
+					// Test for valid users.
+					if ( isset( $result['code'] ) && 'success' === $result['code'] ) {
+						return array(
+							'code'              => 'user_found',
+							'site_id'           => $result['site_id'],
+							'details'           => (object) $result['data'],
+							'type'              => $result['type'],
+							'pressable_site_id' => $result['pressable_site_id'],
+						);
+					}
+					return $result;
+				}
+			)
+			->add_callback(
+				'process_complete',
+				static function (
+					int $site_id,
+					mixed $result,
+					int $failed_count,
+				) use (
+					$sites_index,
+					&$users,
+					&$ssh_users,
+					&$progress_bar,
+					&$user_count
+				): void {
+					$site_url    = $sites_index[ $site_id ]->URL;
+					$result_code = $result['code'] ?? null;
+
+					if ( 'user_found' === $result_code ) {
+						++$user_count;
+						$users[ $site_id ]     = array(
+							(object) array(
+								'ID'       => (int) $result['details']->ID,
+								'site_ID'  => $site_id,
+								'site_URL' => $site_url,
+							),
+						);
+						$ssh_users[ $site_id ] = array(
+							'type' => $result['type'],
+							'id'   => 'pressable' === $result['type'] ? $result['pressable_site_id'] : $result['site_id'],
+						);
+					}
+
+					$progress_bar->setMessage(
+						sprintf(
+							'<fg=red>Errors: %d</fg=red> • <fg=green>Found: %d</fg=green>',
+							$failed_count,
+							$user_count,
+						)
+					);
+
+					$progress_bar->advance();
+				}
+			)
+			->process_tasks();
 
 		$progress_bar->finish();
-		$output->writeln( '' );
-		$output->writeln( "<comment>Connected to $ssh_sites sites using SSH.</comment>" );
 
-		return $failed_ssh_sites;
+		return $failed_tasks;
 	}
 
 	/**
@@ -389,6 +479,23 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 				return ! \in_array( $site_domain, $exclude_sites, true );
 			}
 		);
+	}
+
+	/**
+	 * Initialize progress bar for SSH operations.
+	 *
+	 * @param   OutputInterface $output The output interface.
+	 * @param   int             $total_items The total number of items to process.
+	 *
+	 * @return  ProgressBar
+	 */
+	private function initialize_progress_bar( OutputInterface $output, int $total_items ): ProgressBar {
+		$progress_bar = new ProgressBar( $output, $total_items );
+		$progress_bar->setFormat( '(%current%/%max%) [%bar%] %percent:3s%% • %message%' );
+		$progress_bar->setMessage( 'Initializing...' );
+		$progress_bar->start();
+
+		return $progress_bar;
 	}
 
 	// endregion
