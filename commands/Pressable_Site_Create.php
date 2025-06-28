@@ -127,7 +127,19 @@ final class Pressable_Site_Create extends Command {
 		if ( ! \is_null( $this->gh_repository ) ) {
 			$deployhq_project = create_deployhq_project_for_pressable_site( $site, $this->gh_repository, $this->name );
 			if ( ! \is_null( $deployhq_project ) ) {
-				create_deployhq_project_server_for_pressable_site( $site, $deployhq_project, 'Production', 'trunk' );
+				$deployhq_server = create_deployhq_project_server_for_pressable_site( $site, $deployhq_project, 'Production', 'trunk' );
+
+				// Trigger initial deployment
+				if ( ! \is_null( $deployhq_server ) ) {
+					$output->writeln( '<fg=magenta;options=bold>Triggering initial deployment...</>' );
+
+					$deployment_success = trigger_deployhq_deployment( $deployhq_project, $this->gh_repository, 'trunk' );
+					if ( $deployment_success ) {
+						$output->writeln( '<fg=green;options=bold>Initial deployment triggered successfully.</>' );
+					} else {
+						$output->writeln( '<error>Failed to trigger initial deployment. You may need to manually deploy from the DeployHQ dashboard.</error>' );
+					}
+				}
 			}
 		}
 

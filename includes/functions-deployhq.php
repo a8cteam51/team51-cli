@@ -153,6 +153,43 @@ function create_deployhq_project_server( string $project, string $name, array $p
 	);
 }
 
+/**
+ * Triggers a deployment for a DeployHQ project using its auto deploy webhook URL.
+ *
+ * @param   stdClass $deployhq_project The DeployHQ project object.
+ * @param   stdClass $github_repository The GitHub repository object.
+ * @param   string   $branch           The branch to deploy from.
+ * @param   string   $email            The email address to notify on completion.
+ *
+ * @return  bool
+ */
+function trigger_deployhq_deployment( stdClass $deployhq_project, stdClass $github_repository, string $branch = 'trunk', string $email = 'concierge@wordpress.com' ): bool {
+	$payload = array(
+		'payload' => array(
+			'new_ref'   => 'latest',
+			'branch'    => $branch,
+			'email'     => $email,
+			'clone_url' => $github_repository->ssh_url,
+		),
+	);
+
+	$response = get_remote_content(
+		$deployhq_project->auto_deploy_url,
+		array(
+			'Content-Type' => 'application/json',
+		),
+		'POST',
+		encode_json_content( $payload )
+	);
+
+	if ( is_null( $response ) ) {
+		return false;
+	}
+
+	// Check if the response indicates success (2xx status codes)
+	return str_starts_with( (string) $response['headers']['http_code'], '2' );
+}
+
 // endregion
 
 // region CONSOLE
