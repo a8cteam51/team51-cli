@@ -435,9 +435,13 @@ function get_theme_template_entry( string $theme_path ): ?string {
 		return null;
 	}
 
-	$style_contents = file_get_contents( $style_css_path );
-	if ( preg_match( '/Template:\s*(\S+)/', $style_contents, $matches ) ) {
-		return $matches[1];
+	$style_contents = file_get_contents( $style_css_path, false, null, 0, 8192 );
+	if ( false === $style_contents ) {
+		return null;
+	}
+
+	if ( preg_match( '/Template:\s*(.+)$/mi', $style_contents, $matches ) ) {
+		return trim( $matches[1] );
 	}
 
 	return null;

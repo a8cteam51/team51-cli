@@ -18,9 +18,18 @@ function get_wporg_theme_choices(): array {
 		return array();
 	}
 
+	if ( ! is_object( $response ) || ! isset( $response->records ) || ! is_iterable( $response->records ) ) {
+		return array();
+	}
+
+	$valid_themes = array_filter( $response->records, fn( $theme ) => isset( $theme->slug ) );
+	if ( empty( $valid_themes ) ) {
+		return array();
+	}
+
 	return array_combine(
-		array_map( fn( $theme ) => $theme->slug, $response->records ),
-		$response->records
+		array_map( fn( $theme ) => $theme->slug, $valid_themes ),
+		$valid_themes
 	);
 }
 // endregion
