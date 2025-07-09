@@ -164,6 +164,12 @@ function create_deployhq_project_server( string $project, string $name, array $p
  * @return  bool
  */
 function trigger_deployhq_deployment( stdClass $deployhq_project, stdClass $github_repository, string $branch = 'trunk', string $email = 'concierge@wordpress.com' ): bool {
+	// Validate required properties
+	if ( empty( $deployhq_project->auto_deploy_url ) || empty( $github_repository->ssh_url ) ) {
+		console_writeln( '❌ DeployHQ deployment failed: missing auto_deploy_url or ssh_url.' );
+		return false;
+	}
+
 	$payload = array(
 		'payload' => array(
 			'new_ref'   => 'latest',
@@ -183,11 +189,18 @@ function trigger_deployhq_deployment( stdClass $deployhq_project, stdClass $gith
 	);
 
 	if ( is_null( $response ) ) {
+		console_writeln( '❌ DeployHQ deployment failed: no response from auto_deploy_url.' );
 		return false;
 	}
 
-	// Check if the response indicates success (2xx status codes)
-	return str_starts_with( (string) $response['headers']['http_code'], '2' );
+	// Ensure we have an HTTP status code and it’s 2xx
+	$http_code = $response['headers']['http_code'] ?? null;
+	if ( ! $http_code || ! str_starts_with( (string) $http_code, '2' ) ) {
+		console_writeln( "❌ DeployHQ deployment failed with HTTP code: {$http_code}" );
+		return false;
+	}
+
+	return true;
 }
 
 // endregion
