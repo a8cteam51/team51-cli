@@ -153,6 +153,56 @@ function create_deployhq_project_server( string $project, string $name, array $p
 	);
 }
 
+/**
+ * Triggers a deployment for a DeployHQ project using its auto deploy webhook URL.
+ *
+ * @param   stdClass $deployhq_project The DeployHQ project object.
+ * @param   stdClass $github_repository The GitHub repository object.
+ * @param   string   $branch           The branch to deploy from.
+ * @param   string   $email            The email address to notify on completion.
+ *
+ * @return  bool
+ */
+function trigger_deployhq_deployment( stdClass $deployhq_project, stdClass $github_repository, string $branch = 'trunk', string $email = 'concierge@wordpress.com' ): bool {
+	// Validate required properties
+	if ( empty( $deployhq_project->auto_deploy_url ) || empty( $github_repository->ssh_url ) ) {
+		console_writeln( '❌ DeployHQ deployment failed: missing auto_deploy_url or ssh_url.' );
+		return false;
+	}
+
+	$payload = array(
+		'payload' => array(
+			'new_ref'   => 'latest',
+			'branch'    => $branch,
+			'email'     => $email,
+			'clone_url' => $github_repository->ssh_url,
+		),
+	);
+
+	$response = get_remote_content(
+		$deployhq_project->auto_deploy_url,
+		array(
+			'Content-Type' => 'application/json',
+		),
+		'POST',
+		encode_json_content( $payload )
+	);
+
+	if ( is_null( $response ) ) {
+		console_writeln( '❌ DeployHQ deployment failed: no response from auto_deploy_url.' );
+		return false;
+	}
+
+	// Ensure we have an HTTP status code and it’s 2xx
+	$http_code = $response['headers']['http_code'] ?? null;
+	if ( ! $http_code || ! str_starts_with( (string) $http_code, '2' ) ) {
+		console_writeln( "❌ DeployHQ deployment failed with HTTP code: {$http_code}" );
+		return false;
+	}
+
+	return true;
+}
+
 // endregion
 
 // region CONSOLE
