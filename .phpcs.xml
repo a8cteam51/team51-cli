@@ -19,4 +19,7 @@
 	<rule ref="Universal.Operators">
 		<exclude name="Universal.Operators.DisallowShortTernary.Found"/>
 	</rule>
+
+	<!-- Add this section to exclude .history directory -->
+	<exclude-pattern>/.history/*</exclude-pattern>
 </ruleset>

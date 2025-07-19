@@ -8,6 +8,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\EventDispatcher\GenericEvent;
 use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Process\Process;
+use Symfony\Component\Console\Helper\ProgressBar;
 
 // region HTTP
 
@@ -419,6 +420,31 @@ function get_site_input( InputInterface $input, ?callable $no_input_func = null,
 	}
 
 	return $site_id_or_url;
+}
+
+/**
+ * Fetches the template entry from a theme's style.css file.
+ *
+ * @param   string $theme_path The path to the theme.
+ *
+ * @return  string|null
+ */
+function get_theme_template_entry( string $theme_path ): ?string {
+	$style_css_path = $theme_path . '/style.css';
+	if ( ! file_exists( $style_css_path ) ) {
+		return null;
+	}
+
+	$style_contents = file_get_contents( $style_css_path, false, null, 0, 8192 );
+	if ( false === $style_contents ) {
+		return null;
+	}
+
+	if ( preg_match( '/Template:\s*(.+)$/mi', $style_contents, $matches ) ) {
+		return trim( $matches[1] );
+	}
+
+	return null;
 }
 
 /**

@@ -8,6 +8,7 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
@@ -35,6 +36,27 @@ final class WPCOM_Site_Create extends Command {
 	 */
 	private ?\stdClass $gh_repository = null;
 
+	/**
+	 * The project template to use for the site.
+	 *
+	 * @var string
+	 */
+	private string $project_template = 'project';
+
+	/**
+	 * The no-code theme to use for the site.
+	 *
+	 * @var string|null
+	 */
+	private ?string $no_code_theme = null;
+
+	/**
+	 * The list of available themes.
+	 *
+	 * @var array|null
+	 */
+	private ?array $themes = null;
+
 	// endregion
 
 	// region INHERITED METHODS
@@ -47,7 +69,9 @@ final class WPCOM_Site_Create extends Command {
 			->setHelp( 'Use this command to create a new production site on WordPress.com.' );
 
 		$this->addArgument( 'name', InputArgument::REQUIRED, 'The name of the site to create. Probably the same as the project name.' )
-			->addOption( 'repository', null, InputOption::VALUE_REQUIRED, 'The GitHub repository to deploy to the site from.' );
+			->addOption( 'repository', null, InputOption::VALUE_REQUIRED, 'The GitHub repository to deploy to the site from.' )
+			->addOption( 'project-template', null, InputOption::VALUE_OPTIONAL, 'The project template to use for the site. Either `project` or `no-code-project`. Defaults to `project`.' )
+			->addOption( 'no-code-theme', null, InputOption::VALUE_OPTIONAL, 'The name of the no-code theme to use for the repository if using the `no-code-project` template.' );
 	}
 
 	/**
@@ -66,8 +90,9 @@ final class WPCOM_Site_Create extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function interact( InputInterface $input, OutputInterface $output ): void {
-		$repo_query = $this->gh_repository ? "and to connect it to the `{$this->gh_repository->full_name}` repository via WPCOM GitHub Deployments" : 'without connecting it to a GitHub repository';
-		$question   = new ConfirmationQuestion( "<question>Are you sure you want to create a new WordPress.com site named `$this->name` $repo_query? [y/N]</question> ", false );
+		$template_text = 'project' === $this->project_template ? 'using the `project` template' : 'using the `no-code-project` template';
+		$repo_query    = $this->gh_repository ? "and to connect it to the `{$this->gh_repository->full_name}` repository via WPCOM GitHub Deployments $template_text" : 'without connecting it to a GitHub repository';
+		$question      = new ConfirmationQuestion( "<question>Are you sure you want to create a new WordPress.com site named `$this->name` $repo_query? [y/N]</question> ", false );
 		if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 			$output->writeln( '<comment>Command aborted by user.</comment>' );
 			exit( 2 );
@@ -80,7 +105,8 @@ final class WPCOM_Site_Create extends Command {
 	 * @noinspection PhpUnhandledExceptionInspection
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
-		$repo_text = $this->gh_repository ? "and connecting it to the `{$this->gh_repository->full_name}` repository via WPCOM GitHub Deployments" : 'without connecting it to a GitHub repository';
+		$project_template_text = 'project' === $this->project_template ? 'using the `project` template' : 'using the `no-code-project` template';
+		$repo_text             = $this->gh_repository ? "and connecting it to the `{$this->gh_repository->full_name}` repository via WPCOM GitHub Deployments $project_template_text" : 'without connecting it to a GitHub repository';
 		$output->writeln( "<fg=magenta;options=bold>Creating new WordPress.com site named `$this->name` $repo_text.</>" );
 
 		// Create the site and wait for it to be provisioned.
@@ -210,13 +236,22 @@ final class WPCOM_Site_Create extends Command {
 					$php_globals_short_prefix = \explode( '_', $php_globals_long_prefix )[0];
 				}
 
+				$this->project_template = get_enum_input( $input, 'project-template', array( 'project', 'no-code-project' ), fn() => $this->prompt_project_template_input( $input, $output ), 'project' );
+				$input->setOption( 'project-template', $this->project_template );
+
+				if ( 'no-code-project' === $this->project_template ) {
+					$this->setup_no_code_theme( $input, $output );
+					$input->setOption( 'no-code-theme', $this->no_code_theme );
+				}
+
 				/* @noinspection PhpUnhandledExceptionInspection */
 				$status = run_app_command(
 					GitHub_Repository_Create::getDefaultName(),
 					array(
 						'name'                => $name,
 						'--homepage'          => "https://$name.wpcomstaging.com",
-						'--type'              => 'project',
+						'--type'              => $this->project_template,
+						'--no-code-theme'     => $this->no_code_theme,
 						'--custom-properties' => array(
 							"php-globals-long-prefix=$php_globals_long_prefix",
 							"php-globals-short-prefix=$php_globals_short_prefix",
@@ -233,6 +268,103 @@ final class WPCOM_Site_Create extends Command {
 		}
 
 		return $repository;
+	}
+
+	/**
+	 * Prompts the user for a project template.
+	 *
+	 * @param   InputInterface  $input  The input object.
+	 * @param   OutputInterface $output The output object.
+	 *
+	 * @return  string|null
+	 */
+	private function prompt_project_template_input( InputInterface $input, OutputInterface $output ): ?string {
+		$choices = array(
+			'project'         => 'Project',
+			'no-code-project' => 'No-Code Project',
+		);
+
+		$question = new ChoiceQuestion( '<question>Please select the project template to use for the site [project]:</question> ', $choices, 'project' );
+		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+	}
+
+	/**
+	 * Sets up the no-code theme by cloning/pulling the themes repo and prompting for theme selection.
+	 *
+	 * @param InputInterface  $input  The input interface.
+	 * @param OutputInterface $output The output interface.
+	 *
+	 * @return void
+	 */
+	private function setup_no_code_theme( InputInterface $input, OutputInterface $output ): void {
+		$output->writeln( '<fg=magenta;options=bold>Fetching WordPress.org themes...</>' );
+
+		$this->themes = get_wporg_theme_choices();
+
+		// Inject the "wpcom-theme" option
+		$this->themes[] = (object) array(
+			'slug' => 'wpcom-theme',
+			'name' => 'WPCOM theme, other theme',
+		);
+
+		if ( empty( $this->themes ) ) {
+			$output->writeln( '<error>Failed to fetch .org themes.</error>' );
+			return;
+		}
+
+		if ( ! empty( $this->no_code_theme ) ) {
+			if ( ! in_array( $this->no_code_theme, $this->themes, true ) ) {
+				$output->writeln( '<error>The selected no-code theme is not available.</error>' );
+				$output->writeln( '<error>Please select a different theme or press enter to skip.</error>' );
+				$this->no_code_theme = null;
+			} else {
+				return;
+			}
+		}
+
+		$this->no_code_theme = $this->prompt_no_code_theme_input( $input, $output, $this->themes );
+
+		if ( 'wpcom-theme' === $this->no_code_theme ) {
+			$question            = new Question( '<question>Please enter the slug of the WPCOM theme to use:</question> ' );
+			$theme_slug          = $this->getHelper( 'question' )->ask( $input, $output, $question );
+			$this->no_code_theme = $theme_slug;
+		}
+	}
+
+	/**
+	 * Prompts the user for a no-code theme.
+	 *
+	 * @param   InputInterface  $input  The input object.
+	 * @param   OutputInterface $output The output object.
+	 * @param   array           $themes The list of available themes.
+	 *
+	 * @return  string|null
+	 */
+	private function prompt_no_code_theme_input( InputInterface $input, OutputInterface $output, array $themes ): ?string {
+		$theme_slugs  = array_map( fn( $theme ) => $theme->slug, $themes );
+		$theme_names  = array_map( fn( $theme ) => $theme->name, $themes );
+		$name_to_slug = array_combine( $theme_names, $theme_slugs );
+
+		$autocompleter_values = array_merge( $theme_slugs, $theme_names );
+
+		$question = new Question(
+			'<question>Please start typing the slug or name of the no-code theme to use. Choose "wpcom-theme" for internal or unlisted themes:</question> '
+		);
+		$question->setAutocompleterValues( $autocompleter_values );
+
+		$selected = $this->getHelper( 'question' )->ask( $input, $output, $question );
+
+		// Normalize input: if it's a name, convert to slug
+		if ( in_array( $selected, $theme_slugs, true ) ) {
+			return $selected;
+		}
+
+		if ( isset( $name_to_slug[ $selected ] ) ) {
+			return $name_to_slug[ $selected ];
+		}
+
+		$output->writeln( '<error>Invalid theme slug or name selected.</error>' );
+		return null;
 	}
 
 	// endregion
