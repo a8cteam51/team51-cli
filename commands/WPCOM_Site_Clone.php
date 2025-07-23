@@ -180,7 +180,6 @@ final class WPCOM_Site_Clone extends Command {
 		);
 
 		run_wpcom_site_wp_cli_command( $staging_site->id, 'config set WP_ENVIRONMENT_TYPE development --type=constant' );
-		run_wpcom_site_wp_cli_command( $staging_site->id, "search-replace {$this->site->URL} $staging_site_https_url" );
 		run_wpcom_site_wp_cli_command( $staging_site->id, 'cache flush' );
 
 		if ( $this->skip_safety_net ) {
@@ -201,7 +200,7 @@ final class WPCOM_Site_Clone extends Command {
 			);
 
 			if ( ! $safety_net_installed ) {
-				run_wpcom_site_wp_cli_command( $transfer->blog_id, 'plugin install https://github.com/a8cteam51/safety-net/releases/latest/download/safety-net.zip' );
+				run_wpcom_site_wp_cli_command( $transfer->blog_id, 'plugin install https://github.com/a8cteam51/safety-net/releases/latest/download/safety-net.zip --skip-plugins --skip-themes' );
 				$ssh_connection->exec( 'mv -f htdocs/wp-content/plugins/safety-net htdocs/wp-content/mu-plugins/safety-net' );
 				$ssh_connection->exec(
 					'ls htdocs/wp-content/mu-plugins',
