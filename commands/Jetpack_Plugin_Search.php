@@ -353,33 +353,10 @@ final class Jetpack_Plugin_Search extends Command {
 	 * @return  void
 	 */
 	protected function create_csv( array $headers, array $rows, array $summary ): void {
-		$csv_header_compare = array_map(
-			static fn ( $column ) => strtoupper( preg_replace( '/\s+/', '', $column ) ),
-			$headers
-		);
+		$filtered_data = $this->filter_export_columns( $headers, $rows );
 
-		if ( ! empty( $this->export_excluded_columns ) ) {
-			$this->export_excluded_columns = array_map(
-				static fn ( $column ) => strtoupper( preg_replace( '/\s+/', '', $column ) ),
-				$this->export_excluded_columns
-			);
-
-			foreach ( $this->export_excluded_columns as $column ) {
-				$column_index = array_search( $column, $csv_header_compare, true );
-				unset( $headers[ $column_index ] );
-				foreach ( $rows as &$site ) {
-					unset( $site[ $column_index ] );
-				}
-				unset( $site );
-			}
-
-			// Reindex arrays after column removal for consistency
-			$headers = array_values( $headers );
-			$rows = array_map( 'array_values', $rows );
-		}
-
-		\fputcsv( $this->stream, $headers );
-		foreach ( $rows as $fields ) {
+		\fputcsv( $this->stream, $filtered_data['headers'] );
+		foreach ( $filtered_data['rows'] as $fields ) {
 			\fputcsv( $this->stream, $fields );
 		}
 		foreach ( $summary as $key => $item ) {
@@ -398,34 +375,58 @@ final class Jetpack_Plugin_Search extends Command {
 	 * @return  void
 	 */
 	protected function create_json( array $headers, array $rows, array $summary ): void {
-		$json_header_compare = array_map(
+		$filtered_data = $this->filter_export_columns( $headers, $rows );
+
+		$filtered_data['rows'][] = $summary;
+		\fwrite( $this->stream, encode_json_content( $filtered_data['rows'], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) );
+		\fclose( $this->stream );
+	}
+
+	/**
+	 * Filters out excluded columns from headers and rows.
+	 *
+	 * @param array $headers The headers to filter.
+	 * @param array $rows    The rows to filter.
+	 *
+	 * @return array Array containing filtered headers and rows.
+	 */
+	private function filter_export_columns( array $headers, array $rows ): array {
+		if ( empty( $this->export_excluded_columns ) ) {
+			return array(
+				'headers' => $headers,
+				'rows'    => $rows,
+			);
+		}
+
+		$header_compare = array_map(
 			static fn ( $column ) => strtoupper( preg_replace( '/\s+/', '', $column ) ),
 			$headers
 		);
 
-		if ( ! empty( $this->export_excluded_columns ) ) {
-			$this->export_excluded_columns = array_map(
-				static fn ( $column ) => strtoupper( preg_replace( '/\s+/', '', $column ) ),
-				$this->export_excluded_columns
-			);
+		$excluded_columns = array_map(
+			static fn ( $column ) => strtoupper( preg_replace( '/\s+/', '', $column ) ),
+			$this->export_excluded_columns
+		);
 
-			foreach ( $this->export_excluded_columns as $column ) {
-				$column_index = array_search( $column, $json_header_compare, true );
+		foreach ( $excluded_columns as $column ) {
+			$column_index = array_search( $column, $header_compare, true );
+			if ( false !== $column_index ) {
 				unset( $headers[ $column_index ] );
 				foreach ( $rows as &$site ) {
 					unset( $site[ $column_index ] );
 				}
 				unset( $site );
 			}
-
-			// Reindex arrays after column removal for consistency
-			$headers = array_values( $headers );
-			$rows = array_map( 'array_values', $rows );
 		}
 
-		$rows[] = $summary;
-		\fwrite( $this->stream, encode_json_content( $rows, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) );
-		\fclose( $this->stream );
+		// Reindex arrays after column removal for consistency
+		$headers = array_values( $headers );
+		$rows = array_map( 'array_values', $rows );
+
+		return array(
+			'headers' => $headers,
+			'rows'    => $rows,
+		);
 	}
 
 	// endregion
