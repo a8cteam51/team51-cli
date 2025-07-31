@@ -372,6 +372,10 @@ final class Jetpack_Plugin_Search extends Command {
 				}
 				unset( $site );
 			}
+
+			// Reindex arrays after column removal for consistency
+			$headers = array_values( $headers );
+			$rows = array_map( 'array_values', $rows );
 		}
 
 		\fputcsv( $this->stream, $headers );
@@ -413,6 +417,10 @@ final class Jetpack_Plugin_Search extends Command {
 				}
 				unset( $site );
 			}
+
+			// Reindex arrays after column removal for consistency
+			$headers = array_values( $headers );
+			$rows = array_map( 'array_values', $rows );
 		}
 
 		$rows[] = $summary;
