@@ -216,7 +216,7 @@ final class Jetpack_Plugin_Search extends Command {
 		);
 
 		foreach ( $summary_output as $key => $value ) {
-			$output->writeln( "<info>$key: $value<info>" );
+			$output->writeln( "<info>$key: $value</info>" );
 		}
 
 		if ( ! \is_null( $this->stream ) ) {
@@ -366,7 +366,6 @@ final class Jetpack_Plugin_Search extends Command {
 
 			foreach ( $this->export_excluded_columns as $column ) {
 				$column_index = array_search( $column, $csv_header_compare, true );
-				$column_name  = $headers[ $column_index ];
 				unset( $headers[ $column_index ] );
 				foreach ( $rows as &$site ) {
 					unset( $site[ $column_index ] );
@@ -408,7 +407,6 @@ final class Jetpack_Plugin_Search extends Command {
 
 			foreach ( $this->export_excluded_columns as $column ) {
 				$column_index = array_search( $column, $json_header_compare, true );
-				$column_name  = $headers[ $column_index ];
 				unset( $headers[ $column_index ] );
 				foreach ( $rows as &$site ) {
 					unset( $site[ $column_index ] );
