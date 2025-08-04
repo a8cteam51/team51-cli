@@ -209,6 +209,9 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 		$output->writeln( "<fg=magenta;options=bold>$action_verb user `$this->email` from " . count( $this->users ) . ' WPCOM site(s).</>' );
 
 		foreach ( $this->users as $user ) {
+			// Get admin user for content reassignment
+			$admin_user_id = $this->get_admin_user_for_site( $user->site_ID );
+
 			if ( isset( $this->ssh_users[ $user->site_ID ] ) ) {
 				$ssh_user_data = $this->ssh_users[ $user->site_ID ];
 				$output->writeln( "<fg=magenta;options=bold>Connecting to site ID {$ssh_user_data['id']} using SSH.</>" );
@@ -228,7 +231,7 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 				try {
 					$ssh->setTimeout( 0 ); // Disable timeout in case the command takes a long time.
 					$ssh->exec(
-						"wp user delete $user->ID --yes",
+						"wp user delete $user->ID --reassign=$admin_user_id --yes",
 						function ( string $str ) use ( $output ): void {
 							$GLOBALS['wp_cli_output'] = $str;
 						}
@@ -250,7 +253,7 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 					continue;
 				}
 
-				$result = delete_wpcom_site_user( $user->site_ID, $user->ID );
+				$result = delete_wpcom_site_user( $user->site_ID, $user->ID, $admin_user_id );
 				if ( true !== $result ) {
 					$output->writeln( "<error>Failed to delete user $user->ID from WPCOM site $user->site_URL (ID $user->site_ID).</error>" );
 					continue;
@@ -496,6 +499,23 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 		$progress_bar->start();
 
 		return $progress_bar;
+	}
+
+	/**
+	 * Get an admin user ID for content reassignment.
+	 *
+	 * @param   string $site_id The site ID.
+	 *
+	 * @return  int|null
+	 */
+	private function get_admin_user_for_site( string $site_id ): ?int {
+		$users = get_wpcom_site_users( $site_id, array(
+			'role'   => 'administrator',
+			'number' => 1,
+			'fields' => 'ID',
+		) );
+
+		return $users[0]->ID ?? null;
 	}
 
 	// endregion
