@@ -246,14 +246,12 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 		output_table(
 			$output,
 			array_map(
-				function ( \stdClass $user ) {
-					return array(
-						$user->site_ID,
-						$user->site_URL,
-						$user->ID,
-						$this->reassign_users[ $user->site_ID ]->email . " (ID {$this->reassign_users[ $user->site_ID ]->ID})",
-					);
-				},
+				fn ( \stdClass $user ) => array(
+					$user->site_ID,
+					$user->site_URL,
+					$user->ID,
+					$this->reassign_users[ $user->site_ID ]->email . " (ID {$this->reassign_users[ $user->site_ID ]->ID})",
+				),
 				$this->users
 			),
 			array( 'Site ID', 'Site URL', 'WP User ID', 'Reassign User' ),
