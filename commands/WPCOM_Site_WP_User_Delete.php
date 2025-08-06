@@ -11,11 +11,8 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
-
-use WPCOMSpecialProjects\CLI\Helper\{
-	AutocompleteTrait,
-	Parallel_Process
-};
+use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
+use WPCOMSpecialProjects\CLI\Helper\Parallel_Process;
 
 /**
  * Deletes a WP user from WPCOM sites.
@@ -43,6 +40,13 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 	private ?array $users = null;
 
 	/**
+	 * The list of users to reassign content to.
+	 *
+	 * @var array|null
+	 */
+	private ?array $reassign_users = null;
+
+	/**
 	 * The list of user objects to process using SSH to connect to the site.
 	 *
 	 * @var \stdClass[]|null
@@ -55,20 +59,6 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 	 * @var bool|null
 	 */
 	private ?bool $dry_run = null;
-
-	/**
-	 * The timeout, in seconds, for the SSH connection process to run.
-	 *
-	 * @var int|null
-	 */
-	private ?int $ssh_timeout = null;
-
-	/**
-	 * The maximum number of parallel processes to run.
-	 *
-	 * @var int|null
-	 */
-	private ?int $max_parallel;
 
 	// endregion
 
@@ -85,9 +75,7 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 			->addArgument( 'site', InputArgument::OPTIONAL, 'The domain or WPCOM ID of the site to delete the user from.' );
 
 		$this->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Determines whether the `site` argument is optional or not. Accepted values are `all` or a comma-separated list of site IDs or domains.' )
-			->addOption( 'dry-run', null, InputOption::VALUE_NONE, 'Perform a dry run without actually deleting users' )
-			->addOption( 'ssh-timeout', null, InputOption::VALUE_OPTIONAL, 'Timeout, in seconds, for the SSH connection process to run.', 60 )
-			->addOption( 'max-parallel', null, InputOption::VALUE_OPTIONAL, 'The maximum number of parallel processes to run.', 10 );
+			->addOption( 'dry-run', null, InputOption::VALUE_NONE, 'Perform a dry run without actually deleting users' );
 	}
 
 	/**
@@ -100,9 +88,6 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 
 		// Retrieve the dry run option.
 		$this->dry_run = get_bool_input( $input, 'dry-run' );
-
-		// Retrieve the maximum number of parallel processes to run.
-		$this->max_parallel = (int) $input->getOption( 'max-parallel' );
 
 		// If processing a given site, retrieve it from the input.
 		$multiple = $input->getOption( 'multiple' );
@@ -133,45 +118,124 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 					)
 				)
 			),
-			$errors
+			$find_user_errors
 		);
 
-		if ( $errors ) {
-			$number_of_errors = count( $errors );
+		if ( $find_user_errors ) {
+			$number_of_errors = count( $find_user_errors );
 			$output->writeln( "<comment>There are $number_of_errors sites that could NOT be searched.</comment>" );
 			$output->writeln( '<fg=magenta;options=bold>Trying to connect to those sites using SSH.</>' );
 
-			$errors = $this->get_users_using_ssh( $output, $errors, $sites );
+			$find_user_errors = $this->get_users_using_ssh( $output, $find_user_errors, $sites );
 		}
 
-		maybe_output_wpcom_failed_sites_table( $output, $errors, $sites, 'Sites that could NOT be searched' );
+		maybe_output_wpcom_failed_sites_table( $output, $find_user_errors, $sites, 'Sites that could NOT be searched' );
 
-		$this->users = \array_filter(
-			\array_map(
-				static function ( string $site_id, mixed $site_users ) use ( $sites ) {
-					if ( ! \is_array( $site_users ) || empty( $site_users ) ) {
-						return null;
-					}
+		foreach ( $this->users as $site_id => $site_users ) {
+			if ( ! is_array( $site_users ) || empty( $site_users ) ) {
+				unset( $this->users[ $site_id ] );
+				continue;
+			}
 
-					$site = $sites[ $site_id ];
-					$user = \current( $site_users );
+			$site = $sites[ $site_id ];
+			$user = \current( $site_users );
 
-					return (object) \array_merge(
-						(array) $user,
-						array(
-							'site_ID'  => $site->ID,
-							'site_URL' => $site->URL,
-						)
-					);
-				},
-				\array_keys( $this->users ),
-				$this->users
-			)
-		);
+			$this->users[ $site_id ] = (object) \array_merge(
+				(array) $user,
+				array(
+					'site_ID'  => $site->ID,
+					'site_URL' => $site->URL,
+				)
+			);
+		}
 
 		if ( empty( $this->users ) ) {
 			$output->writeln( '<error>No users found with the given email address.</error>' );
 			exit( 1 );
+		}
+
+		// Compile the list of users to reassign content to.
+		$api_site_ids    = array_keys( array_diff_key( $this->users, $this->ssh_users ?? array() ) );
+		$api_site_admins = get_wpcom_site_users_batch(
+			$api_site_ids,
+			array_combine(
+				$api_site_ids,
+				array_fill(
+					0,
+					count( $api_site_ids ),
+					array(
+						'role'   => 'administrator',
+						'fields' => 'ID,email',
+						'number' => 999, // Arbitrary large number to ensure we get all admins.
+					)
+				)
+			),
+			$find_reassign_errors
+		);
+		if ( $find_reassign_errors ) {
+			$output->writeln( '<error>There are sites that could NOT be searched for administrators.</error>' );
+			exit( 1 );
+		}
+
+		foreach ( $api_site_admins as $site_id => $site_users ) {
+			$site = $sites[ $site_id ];
+			if ( ! is_array( $site_users ) || empty( $site_users ) ) {
+				$output->writeln( "<error>No administrators found on site {$site['site_URL']} (ID $site_id).</error>" );
+				exit( 1 );
+			}
+
+			$concierge_user = null;
+			$oldest_user    = null;
+			foreach ( $site_users as $site_user ) {
+				if ( ( null === $oldest_user || $site_user->ID < $oldest_user->ID ) && $site_user->ID !== $this->users[ $site_id ]->ID ) {
+					$oldest_user = $site_user;
+				}
+				if ( in_array( $site_user->email, array( 'concierge@wordpress.com', 'concierge@automattic.com', 'concierge@a8c.com' ), true ) ) {
+					$concierge_user = $site_user;
+				}
+			}
+
+			$this->reassign_users[ $site_id ] = $concierge_user ?? $oldest_user;
+		}
+
+		foreach ( $this->ssh_users ?? array() as $site_id => $ssh_user_data ) {
+			if ( 'pressable' === $ssh_user_data['type'] ) {
+				$result = run_pressable_site_wp_cli_command( $ssh_user_data['id'], 'user list --role=administrator --skip-themes --skip-plugins --format=json', true );
+			} else {
+				$result = run_wpcom_site_wp_cli_command( $ssh_user_data['id'], 'user list --role=administrator --skip-themes --skip-plugins --format=json', true );
+			}
+
+			if ( 0 !== $result ) {
+				$output->writeln( "<error>Failed to retrieve administrator users for site ID {$ssh_user_data['id']} using SSH.</error>" );
+				exit( 1 );
+			}
+
+			$site_admins = decode_json_content( $GLOBALS['wp_cli_output'] );
+			if ( null === $site_admins ) {
+				$output->writeln( "<error>Failed to decode administrator users for site ID {$ssh_user_data['id']} using SSH.</error>" );
+				exit( 1 );
+			}
+
+			if ( empty( $site_admins ) ) {
+				$output->writeln( "<error>No administrators found on site ID {$ssh_user_data['id']} using SSH.</error>" );
+				exit( 1 );
+			}
+
+			$concierge_user = null;
+			$oldest_user    = null;
+			foreach ( $site_admins as $site_admin ) {
+				if ( ( null === $oldest_user || $site_admin->ID < $oldest_user->ID ) && $site_admin->ID !== $this->users[ $site_id ]->ID ) {
+					$oldest_user = $site_admin;
+				}
+				if ( in_array( $site_admin->user_email, array( 'concierge@wordpress.com', 'concierge@automattic.com', 'concierge@a8c.com' ), true ) ) {
+					$concierge_user = $site_admin;
+				}
+			}
+
+			$this->reassign_users[ $site_id ] = (object) array(
+				'ID'    => $concierge_user?->ID ?? $oldest_user?->ID,
+				'email' => $concierge_user?->user_email ?? $oldest_user?->user_email,
+			);
 		}
 	}
 
@@ -182,14 +246,15 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 		output_table(
 			$output,
 			array_map(
-				static fn( \stdClass $user ) => array(
+				fn ( \stdClass $user ) => array(
 					$user->site_ID,
 					$user->site_URL,
 					$user->ID,
+					$this->reassign_users[ $user->site_ID ]->email . " (ID {$this->reassign_users[ $user->site_ID ]->ID})",
 				),
 				$this->users
 			),
-			array( 'Site ID', 'Site URL', 'WP User ID' ),
+			array( 'Site ID', 'Site URL', 'WP User ID', 'Reassign User' ),
 			'WPCOM sites on which the user was found'
 		);
 
@@ -211,37 +276,19 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 		foreach ( $this->users as $user ) {
 			if ( isset( $this->ssh_users[ $user->site_ID ] ) ) {
 				$ssh_user_data = $this->ssh_users[ $user->site_ID ];
-				$output->writeln( "<fg=magenta;options=bold>Connecting to site ID {$ssh_user_data['id']} using SSH.</>" );
-
 				if ( $this->dry_run ) {
 					$output->writeln( "<comment>Dry run: Would delete user $user->ID from WPCOM site $user->site_URL (ID $user->site_ID) using SSH.</comment>", OutputInterface::VERBOSITY_VERBOSE );
 					continue;
 				}
 
-				$ssh = 'pressable' === $ssh_user_data['type'] ? \Pressable_Connection_Helper::get_ssh_connection( $ssh_user_data['id'] ) : \WPCOM_Connection_Helper::get_ssh_connection( $ssh_user_data['id'] );
-
-				if ( ! $ssh ) {
-					$output->writeln( "<error>Failed to connect to site ID {$ssh_user_data['id']} using SSH.</error>" );
-					continue;
+				if ( 'pressable' === $ssh_user_data['type'] ) {
+					$result = run_pressable_site_wp_cli_command( $ssh_user_data['id'], "user delete $user->ID --reassign={$this->reassign_users[ $user->site_ID ]->ID} --yes", true );
+				} else {
+					$result = run_wpcom_site_wp_cli_command( $ssh_user_data['id'], "user delete $user->ID --reassign={$this->reassign_users[ $user->site_ID ]->ID} --yes", true );
 				}
 
-				try {
-					$ssh->setTimeout( 0 ); // Disable timeout in case the command takes a long time.
-					$ssh->exec(
-						"wp user delete $user->ID --yes",
-						function ( string $str ) use ( $output ): void {
-							$GLOBALS['wp_cli_output'] = $str;
-						}
-					);
-
-					if ( ! is_string( $GLOBALS['wp_cli_output'] ) || ! str_contains( $GLOBALS['wp_cli_output'], 'Success' ) ) {
-						$output->writeln( "<error>Failed to delete user $user->ID from WPCOM site $user->site_URL (ID $user->site_ID).</error>" );
-						continue;
-					}
-
-					$ssh->disconnect();
-				} catch ( \RuntimeException $exception ) {
-					$output->writeln( "<error>SSH command failed for site ID {$user->site_ID}: {$exception->getMessage()}</error>" );
+				if ( 0 !== $result ) {
+					$output->writeln( "<error>Failed to delete user $user->ID from WPCOM site $user->site_URL (ID $user->site_ID).</error>" );
 					continue;
 				}
 			} else {
@@ -250,7 +297,7 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 					continue;
 				}
 
-				$result = delete_wpcom_site_user( $user->site_ID, $user->ID );
+				$result = delete_wpcom_site_user( $user->site_ID, $user->ID, $this->reassign_users[ $user->site_ID ]->ID );
 				if ( true !== $result ) {
 					$output->writeln( "<error>Failed to delete user $user->ID from WPCOM site $user->site_URL (ID $user->site_ID).</error>" );
 					continue;
@@ -339,8 +386,8 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 		$failed_tasks = Parallel_Process::create( $output, $site_ids_with_errors )
 			->configure(
 				array(
-					'max_parallel' => $this->max_parallel,
-					'ssh_timeout'  => $this->ssh_timeout,
+					'max_parallel' => 10,
+					'ssh_timeout'  => 60,
 				)
 			)
 			->add_callback(

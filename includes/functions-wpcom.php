@@ -228,6 +228,10 @@ function get_wpcom_site_users( string $site_id_or_url, array $params = array() )
  * @return  stdClass[]|null
  */
 function get_wpcom_site_users_batch( array $site_ids_or_urls, array $params = array(), ?array &$errors = null ): ?array {
+	if ( empty( $site_ids_or_urls ) ) {
+		return array();
+	}
+
 	$sites_users = API_Helper::make_wpcom_request(
 		'site-users/batch',
 		'POST',
@@ -267,11 +271,12 @@ function get_wpcom_site_user( string $site_id_or_url, string $user_id_or_usernam
  *
  * @param   string $site_id_or_url               The site URL or WordPress.com site ID.
  * @param   string $user_id_or_username_or_email The user ID, username, or email.
+ * @param   int    $reassign_user_id             The user ID to reassign the user's content to.
  *
  * @return  true|null
  */
-function delete_wpcom_site_user( string $site_id_or_url, string $user_id_or_username_or_email ): true|null {
-	return API_Helper::make_wpcom_request( "site-users/$site_id_or_url/$user_id_or_username_or_email", 'DELETE' );
+function delete_wpcom_site_user( string $site_id_or_url, string $user_id_or_username_or_email, int $reassign_user_id ): true|null {
+	return API_Helper::make_wpcom_request( "site-users/$site_id_or_url/$user_id_or_username_or_email?reassign=$reassign_user_id", 'DELETE' );
 }
 
 /**
