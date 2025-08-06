@@ -69,6 +69,10 @@ final class GitHub_Checklist_Add extends Command {
 			'question'    => 'Has the site previously been hosted on WordPress.com or WordPress VIP?',
 			'description' => 'The site has previously been hosted on WordPress.com or WordPress VIP.',
 		),
+		'site-redesign' => array(
+			'question'    => 'Is this a redesign of a site that has an existing T51 repo?',
+			'description' => 'This site already has a Team 51 GitHub code repository',
+		),
 	);
 
 	/**
