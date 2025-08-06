@@ -297,7 +297,7 @@ class Parallel_Process {
 		$duration = round( microtime( true ) - $start_time );
 		$hours    = intval( $duration / 3600 );
 		$minutes  = intval( ( $duration % 3600 ) / 60 );
-		$seconds  = intval( $duration % 60 );
+		$seconds  = $duration % 60;
 
 		$this->output->writeln(
 			sprintf(

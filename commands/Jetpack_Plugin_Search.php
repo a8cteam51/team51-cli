@@ -421,7 +421,7 @@ final class Jetpack_Plugin_Search extends Command {
 
 		// Reindex arrays after column removal for consistency
 		$headers = array_values( $headers );
-		$rows = array_map( 'array_values', $rows );
+		$rows    = array_map( 'array_values', $rows );
 
 		return array(
 			'headers' => $headers,
