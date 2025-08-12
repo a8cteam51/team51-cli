@@ -69,6 +69,10 @@ final class GitHub_Checklist_Add extends Command {
 			'question'    => 'Has the site previously been hosted on WordPress.com or WordPress VIP?',
 			'description' => 'The site has previously been hosted on WordPress.com or WordPress VIP.',
 		),
+		'wp-subdomain' => array(
+			'question'    => 'Will the final URL be a subdomain of WordPress.com or WordPress.org?',
+			'description' => 'The site uses a subdomain of WordPress.com or WordPress.org.',
+		),
 	);
 
 	/**
