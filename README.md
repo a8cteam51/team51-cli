@@ -63,7 +63,7 @@ The CLI tool automatically updates itself. It does a hard reset to the latest ve
 This CLI tool is self-documenting. You can view a list of available commands with `team51 list`.
 You can then do `team51 <command-name> --help`.
 
-A copy of that documentation is also available on the [Github Wiki for this repository](https://github.com/a8cteam51/team51-cli/wiki/team51-commands). When developing, if you add any new commands or update any descriptions, help, or arguments, [follow these instructions to update the documentation](https://github.com/a8cteam51/team51-cli/wiki/Updating-the-CLI-command-documentation).
+A copy of that documentation is also available on the [Github Wiki for this repository](https://github.com/a8cteam51/team51-cli/wiki). When developing, if you add any new commands or update any descriptions, help, or arguments, [follow these instructions to update the documentation](https://github.com/a8cteam51/team51-cli/wiki/Updating-the-CLI-command-documentation).
 
 ### Conventions around defaults
 
