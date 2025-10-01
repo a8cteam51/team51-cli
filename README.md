@@ -22,6 +22,22 @@ This tool is fairly specific to our team's workflow...and we intend to keep it t
 
 It's the nickname for our Special Projects team at Automattic.
 
+## MCP Integration (AI Assistant Support)
+
+This CLI now supports the Model Control Protocol (MCP), allowing AI assistants like ChatGPT and Claude to call CLI commands directly. Instead of typing commands manually, you can ask an AI:
+
+- "Get me the PHP errors for site example.com"
+- "Create a new Pressable site called 'my-project'"
+- "List all our WordPress.com sites"
+
+### Quick Setup for AI Integration
+
+1. Start the MCP server: `./start-mcp-server.sh`
+2. Configure your AI client (see `MCP_INTEGRATION.md` for details)
+3. Ask your AI assistant to perform Team51 CLI tasks!
+
+For complete setup instructions and usage examples, see [MCP_INTEGRATION.md](MCP_INTEGRATION.md).
+
 ## Anything else?
 
 Be well, be kind, make things and set them free.
