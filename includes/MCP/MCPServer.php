@@ -69,11 +69,28 @@ class MCPServer {
 	 * Register a single command as an MCP tool
 	 */
 	private function registerCommand( Command $command ): void {
-		$tool_name = 'team51_' . str_replace( ':', '_', $command->getName() );
+		$tool_name = 'team51_' . str_replace( [ ':', '-' ], '_', $command->getName() );
+		
+		// Debug logging for tool registration
+		fwrite( STDERR, "[MCP Server] " . date('Y-m-d H:i:s') . " - Registering tool: $tool_name (from command: " . $command->getName() . ")\n" );
+		
+		// Create more descriptive tool descriptions
+		$description = $command->getDescription() ?: 'Team51 CLI command: ' . $command->getName();
+		
+		// Add context to make tool selection clearer
+		$enhanced_description = match($command->getName()) {
+			'wpcom:list-site-plugins' => 'List plugins installed on a single WPCOM site. Use this to get plugins for one specific site.',
+			'jetpack:export-site-plugins' => 'Export plugins from multiple Jetpack sites to a file. Use this for bulk operations across many sites.',
+			'pressable:list-site-php-errors' => 'List recent PHP errors for a single Pressable site. Use this to troubleshoot PHP issues.',
+			'wpcom:list-sites' => 'List all WPCOM sites managed by Team51. Use this to get an overview of all sites.',
+			'wpcom:list-site-stickers' => 'List stickers (tags) associated with a WPCOM site.',
+			'jetpack:list-site-modules' => 'List Jetpack modules and their status for a site.',
+			default => $description
+		};
 		
 		$tool_definition = [
 			'name' => $tool_name,
-			'description' => $command->getDescription() ?: 'Team51 CLI command: ' . $command->getName(),
+			'description' => $enhanced_description,
 			'inputSchema' => [
 				'type' => 'object',
 				'properties' => [],
@@ -131,9 +148,24 @@ class MCPServer {
 	 * Run the MCP server
 	 */
 	public function run(): void {
+		// Set unlimited execution time for MCP server
+		set_time_limit(0);
+		
+		// Set stream to non-blocking mode with timeout
+		stream_set_timeout($this->input_stream, 60); // 60 second timeout for reads
+		
 		while ( true ) {
 			$line = fgets( $this->input_stream );
+			
+			// Check for timeout or connection closed
+			$stream_meta = stream_get_meta_data($this->input_stream);
+			if ( $stream_meta['timed_out'] ) {
+				fwrite( $this->error_stream, "[MCP Server] " . date('Y-m-d H:i:s') . " - Input stream timed out, continuing...\n" );
+				continue;
+			}
+			
 			if ( $line === false ) {
+				fwrite( $this->error_stream, "[MCP Server] " . date('Y-m-d H:i:s') . " - Input stream closed, exiting...\n" );
 				break;
 			}
 			

@@ -23,6 +23,9 @@ use Symfony\Component\Console\Helper\ProgressBar;
  * @return  array|null
  */
 function get_remote_content( string $url, array $headers = array(), string $method = 'GET', ?string $content = null ): ?array {
+	// Use shorter timeout for MCP server context
+	$timeout = (int) ($_ENV['TEAM51_MCP_TIMEOUT'] ?? getenv('TEAM51_MCP_TIMEOUT') ?: 120);
+	
 	$options = array(
 		'http' => array(
 			'header'        => implode(
@@ -35,7 +38,7 @@ function get_remote_content( string $url, array $headers = array(), string $meth
 			),
 			'method'        => $method,
 			'content'       => $content,
-			'timeout'       => 120,
+			'timeout'       => $timeout,
 			'ignore_errors' => true,
 		),
 	);
