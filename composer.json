@@ -32,7 +32,6 @@
     "files": [
       "includes/api-helper.php",
       "includes/autocomplete-trait.php",
-      "includes/json-output-trait.php",
       "includes/abstract-connection-helper.php",
       "includes/connection-helper-pressable.php",
       "includes/connection-helper-wpcom.php",

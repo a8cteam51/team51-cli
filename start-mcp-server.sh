@@ -13,10 +13,13 @@ echo "[MCP Startup] $(date '+%Y-%m-%d %H:%M:%S') - Starting Team51 CLI MCP Serve
 
 # Pre-authenticate with 1Password by running a simple CLI command
 echo "[MCP Startup] $(date '+%Y-%m-%d %H:%M:%S') - Pre-authenticating with 1Password..." >&2
+set +e  # Temporarily disable exit on error
 php team51-cli.php --version > /dev/null 2>&1
+PRE_AUTH_STATUS=$?
+set -e  # Re-enable exit on error
 
 # Check if pre-authentication was successful
-if [ $? -eq 0 ]; then
+if [ $PRE_AUTH_STATUS -eq 0 ]; then
     echo "[MCP Startup] $(date '+%Y-%m-%d %H:%M:%S') - Pre-authentication successful, starting MCP server..." >&2
 else
     echo "[MCP Startup] $(date '+%Y-%m-%d %H:%M:%S') - Pre-authentication failed, attempting to start MCP server anyway..." >&2

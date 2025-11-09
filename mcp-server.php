@@ -8,9 +8,11 @@
  * as tools that AI models can call directly.
  */
 
-// Error reporting for debugging
+// Error reporting for debugging - send all errors to stderr, not stdout
 error_reporting(E_ALL);
-ini_set('display_errors', 1);
+ini_set('display_errors', 0);  // Disable display_errors to prevent breaking JSON output
+ini_set('log_errors', 1);
+ini_set('error_log', 'php://stderr');  // Send errors to stderr
 
 // Log errors to stderr for debugging
 function mcp_error_log($message) {
@@ -31,25 +33,14 @@ use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
 use WPCOMSpecialProjects\CLI\MCP\MCPServer;
 
-// Load Team51 identity from 1Password (same as main CLI)
-// mcp_error_log("Loading Team51 identity from 1Password...");
-// try {
-//     require_once TEAM51_CLI_ROOT_DIR . '/load-identity.php';
-//     mcp_error_log("Authentication loaded successfully");
-// } catch (Throwable $e) {
-//     mcp_error_log("Authentication failed: " . $e->getMessage());
-//     mcp_error_log("This may require 1Password CLI authentication. Please run a Team51 CLI command manually first to authenticate.");
-//     throw $e;
-// }
-
 try {
     mcp_error_log("Starting Team51 CLI MCP Server...");
-
+    
     // Initialize the MCP server
     mcp_error_log("Initializing MCP server...");
     $mcp_server = new MCPServer();
-
-    // Create the Symfony Console application first
+    
+    // Create the Symfony Console application
     mcp_error_log("Creating Symfony Console application...");
     $team51_cli_app = new Application();
 

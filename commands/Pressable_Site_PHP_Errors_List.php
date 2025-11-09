@@ -13,14 +13,12 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\Question;
-use WPCOMSpecialProjects\CLI\Helper\JsonOutputTrait;
 
 /**
  * CLI command for displaying the latest PHP errors of a Pressable site.
  */
 #[AsCommand( name: 'pressable:list-site-php-errors' )]
 final class Pressable_Site_PHP_Errors_List extends Command {
-	use JsonOutputTrait;
 	// region FIELDS AND CONSTANTS
 
 	/**
@@ -85,7 +83,7 @@ final class Pressable_Site_PHP_Errors_List extends Command {
 
 		$this->addArgument( 'site', InputArgument::OPTIONAL, 'ID or URL of the site to display the errors for.' )
 			->addOption( 'limit', null, InputOption::VALUE_REQUIRED, 'The number of distinct PHP fatal errors to return.', 5 )
-			->addOption( 'format', null, InputOption::VALUE_REQUIRED, 'The format to output the logs in. Accepts `list`, `table`, `raw`, or `json`.', 'list' )
+			->addOption( 'format', null, InputOption::VALUE_REQUIRED, 'The format to output the logs in. Accepts either `list`, `table` or `raw`.', 'list' )
 			->addOption( 'severity', null, InputOption::VALUE_REQUIRED, 'The error severity to filter by. Valid values are "User", "Warning", "Deprecated", and "Fatal error". Default all.' )
 			->addOption( 'source', null, InputOption::VALUE_REQUIRED, 'Where to retrieve the PHP errors from. Accepts either `file`, `api`, or `auto`.', 'auto' )
 			->addOption( 'audit', null, InputOption::VALUE_NONE, 'Whether to check all the sites for the ones with the highest number of errors.' );
@@ -113,7 +111,7 @@ final class Pressable_Site_PHP_Errors_List extends Command {
 
 		// Retrieve and validate the modifier options.
 		$this->limit    = max( 1, (int) $input->getOption( 'limit' ) );
-		$this->format   = get_enum_input( $input, 'format', array( 'list', 'table', 'raw', 'json' ) );
+		$this->format   = get_enum_input( $input, 'format', array( 'list', 'table', 'raw' ) );
 		$this->severity = get_enum_input( $input, 'severity', array( 'User', 'Warning', 'Deprecated', 'Fatal error' ) );
 		$this->source   = get_enum_input( $input, 'source', array( 'file', 'api', 'auto' ) );
 	}
@@ -122,11 +120,6 @@ final class Pressable_Site_PHP_Errors_List extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
-		// Handle JSON output differently
-		if ( $this->isJsonOutput( $input ) ) {
-			return $this->executeJsonOutput( $input, $output );
-		}
-
 		if ( $this->is_audit ) {
 			$output->writeln( '<fg=magenta;options=bold>Performing an audit of PHP errors on all Pressable sites.</>' );
 		}
@@ -195,64 +188,6 @@ final class Pressable_Site_PHP_Errors_List extends Command {
 			}
 		}
 
-		return Command::SUCCESS;
-	}
-
-	/**
-	 * Execute the command with JSON output
-	 */
-	private function executeJsonOutput( InputInterface $input, OutputInterface $output ): int {
-		$result_data = [];
-
-		foreach ( $this->sites as $site ) {
-			$php_errors = $this->get_php_errors( $output, $site );
-			if ( \is_null( $php_errors ) ) {
-				$this->outputJsonError( $output, "Could not retrieve PHP errors for site {$site->displayName}" );
-				return Command::FAILURE;
-			}
-
-			if ( 0 === \count( $php_errors ) ) {
-				$site_data = [
-					'site_id' => $site->id,
-					'site_name' => $site->displayName,
-					'site_url' => $site->url,
-					'source' => $this->source,
-					'errors' => [],
-					'error_count' => 0,
-					'message' => 'No PHP errors found'
-				];
-			} else {
-				$stats_table = $this->analyze_log_entries( $php_errors );
-				$stats_table_limit = \array_slice( $stats_table, 0, $this->limit );
-
-				$site_data = [
-					'site_id' => $site->id,
-					'site_name' => $site->displayName,
-					'site_url' => $site->url,
-					'source' => $this->source,
-					'errors' => $stats_table_limit,
-					'error_count' => \count( $stats_table ),
-					'raw_errors' => $php_errors
-				];
-			}
-
-			if ( $this->is_audit ) {
-				$result_data['sites'][] = $site_data;
-			} else {
-				$result_data = $site_data;
-				break; // Only process one site for non-audit mode
-			}
-		}
-
-		if ( $this->is_audit ) {
-			// Sort by error count for audit
-			\usort( $result_data['sites'], static fn ( $a, $b ) => $b['error_count'] <=> $a['error_count'] );
-			$result_data['sites'] = \array_slice( $result_data['sites'], 0, 10 ); // Top 10 sites
-			$result_data['audit'] = true;
-			$result_data['limit'] = $this->limit;
-		}
-
-		$this->outputJson( $output, $result_data );
 		return Command::SUCCESS;
 	}
 

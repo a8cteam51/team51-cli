@@ -376,7 +376,7 @@ class MCPServer {
 				'success' => false,
 				'exit_code' => 1,
 				'error' => $e->getMessage(),
-				'trace' => $e->getTraceAsString()
+				'trace' => defined('WP_DEBUG') && WP_DEBUG ? $e->getTraceAsString() : 'Stack trace suppressed'
 			], JSON_PRETTY_PRINT );
 		}
 	}

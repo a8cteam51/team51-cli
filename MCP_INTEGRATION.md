@@ -37,7 +37,7 @@ php mcp-server.php
 
 2. **Create the file if it doesn't exist** (it usually doesn't exist by default)
 
-3. **Add this configuration** (replace `/Users/[my-user]/www/team51-cli` with your actual path):
+3. **Add this configuration** (replace `/Users/[my-user]/path/to/team51-cli` with your actual path):
 
 ```json
 // config.json
@@ -45,7 +45,7 @@ php mcp-server.php
   "mcpServers": {
     "team51-cli": {
       "command": "php",
-      "args": ["/Users/[my-user]/www/team51-cli/mcp-server.php"],
+      "args": ["/Users/[my-user]/path/to/team51-cli/mcp-server.php"],
       "env": {
         "PATH": "/usr/local/bin:/usr/bin:/bin"
       }
@@ -72,13 +72,13 @@ php mcp-server.php
    touch ~/Library/Application\ Support/Claude/claude_desktop_config.json
    ```
 
-4. **Add this configuration** (replace `/Users/[my-user]/www/team51-cli` with your actual path):
+4. **Add this configuration** (replace `/Users/[my-user]/path/to/team51-cli` with your actual path):
 
 ```json
 {
   "mcpServers": {
     "team51-cli": {
-      "command": "/Users/[my-user]/www/team51-cli/start-mcp-server.sh",
+      "command": "/Users/[my-user]/path/to/team51-cli/start-mcp-server.sh",
       "args": [],
       "env": {
         "PATH": "/usr/local/bin:/usr/bin:/bin"
@@ -105,55 +105,38 @@ After configuration:
 
 ## Available Tools
 
-The MCP server automatically discovers and exposes all Team51 CLI commands as tools. Each command becomes a tool with the prefix `team51_`. For example:
+The MCP server exposes read-only Team51 CLI commands as tools for safety. Each command becomes a tool with the prefix `team51_`. For example:
 
-- `pressable:list-site-php-errors` becomes `team51_pressable_list_site_php_errors`
 - `wpcom:list-sites` becomes `team51_wpcom_list_sites`
-- `github:create-repository` becomes `team51_github_create_repository`
+- `wpcom:list-site-stickers` becomes `team51_wpcom_list_site_stickers`
+- `wpcom:list-site-plugins` becomes `team51_wpcom_list_site_plugins`
+- `jetpack:list-site-modules` becomes `team51_jetpack_list_site_modules`
+- `jetpack:search-plugin` becomes `team51_jetpack_search_plugin`
+
+**Note**: Only read-only commands (list, export, search) are available via MCP. Commands that modify data (create, update, delete) are intentionally excluded for security.
 
 ## Usage Examples
 
-### Example 1: Check PHP Errors
-
-**User**: "Get me the PHP errors for the site mysite.pressable.com"
-
-**AI Model**: Calls `team51_pressable_list_site_php_errors` with parameters:
-```json
-{
-  "site": "mysite.pressable.com",
-  "limit": "5",
-  "format": "json"
-}
-```
-
-**Response**: JSON data containing the PHP errors, timestamps, and error counts.
-
-### Example 2: List Sites
+### Example 1: List Sites
 
 **User**: "Show me all our WordPress.com sites"
 
-**AI Model**: Calls `team51_wpcom_list_sites` with parameters:
+**AI Model**: Calls `team51_wpcom_list_sites` (no additional parameters needed)
+
+**Response**: The command output with site information is automatically captured and returned to the AI model.
+
+### Example 2: List Site Stickers
+
+**User**: "Show me a list of all the WP stickers on the website automattic.com"
+
+**AI Model**: Calls `team51_wpcom_list_site_stickers` with parameters:
 ```json
 {
-  "format": "json"
+  "site": "automattic.com"
 }
 ```
 
-**Response**: JSON data with site information including names, URLs, and IDs.
-
-### Example 3: Create a Site
-
-**User**: "Create a new Pressable site called 'client-project'"
-
-**AI Model**: Calls `team51_pressable_create_site` with parameters:
-```json
-{
-  "name": "client-project",
-  "format": "json"
-}
-```
-
-**Response**: JSON data with the new site details and creation status.
+**Response**: The command output showing all stickers (tags) associated with the site is automatically captured and returned to the AI model.
 
 ## JSON Output Format
 
@@ -181,56 +164,17 @@ For errors:
 
 ## Command Compatibility
 
-### Commands with JSON Support
-
-Commands that already have `--format json` option work seamlessly:
-- `pressable:list-site-php-errors`
-- `wpcom:list-sites`
-- Most listing and reporting commands
-
-### Commands without JSON Support
-
-Commands without built-in JSON support will return their output in this format:
+All Team51 CLI commands can be used via MCP. The MCP server automatically captures command output and returns it to the AI model in a standardized format:
 
 ```json
 {
   "success": true,
   "exit_code": 0,
-  "output": "Raw command output here"
+  "output": "Command output here"
 }
 ```
 
-## Adding JSON Support to Commands
-
-To add JSON support to a command:
-
-1. Use the `JsonOutputTrait`:
-```php
-use WPCOMSpecialProjects\CLI\Helper\JsonOutputTrait;
-
-class MyCommand extends Command {
-    use JsonOutputTrait;
-    
-    protected function configure(): void {
-        $this->addJsonFormatOption(); // Adds --format option
-    }
-    
-    protected function execute(InputInterface $input, OutputInterface $output): int {
-        if ($this->isJsonOutput($input)) {
-            $data = ['result' => 'success'];
-            $this->outputJson($output, $data);
-            return Command::SUCCESS;
-        }
-        
-        // Regular output logic
-    }
-}
-```
-
-2. Update the format option description to include `json`:
-```php
-->addOption('format', null, InputOption::VALUE_REQUIRED, 'Output format: table, list, json', 'table')
-```
+Commands with structured output (tables, lists, etc.) will have their output captured exactly as displayed in the terminal.
 
 ## Troubleshooting
 
@@ -252,12 +196,10 @@ composer dump-autoload
 
 1. Ensure the command works normally:
 ```bash
-./team51-cli.php command:name --help
+team51 command:name --help
 ```
 
-2. Check if the command supports `--format json`
-
-3. Look for interactive prompts that need `--no-interaction` flag
+2. Look for interactive prompts that may cause issues with MCP
 
 ### Connection Issues
 
@@ -299,7 +241,7 @@ New commands are automatically discovered when you:
 
 Test individual commands via MCP:
 ```bash
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"team51_pressable_list_site_php_errors","arguments":{"site":"example.com"}}}' | php mcp-server.php
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"team51_wpcom_list_site_stickers","arguments":{"site":"automattic.com"}}}' | php mcp-server.php
 ```
 
 ### Debugging
