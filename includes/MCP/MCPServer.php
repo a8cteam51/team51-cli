@@ -337,18 +337,16 @@ class MCPServer {
 				}
 			}
 			
-			// Force JSON output for MCP compatibility if the command supports it
-			if ( $command->getDefinition()->hasOption( 'format' ) ) {
-				$input_array['--format'] = 'json';
-			}
-			
-			// Add common options to prevent interactive prompts
-			$input_array['--no-interaction'] = true;
+			// Disable autocomplete in MCP context as it's not useful for AI models
 			if ( $command->getDefinition()->hasOption( 'no-autocomplete' ) ) {
 				$input_array['--no-autocomplete'] = true;
 			}
 			
 			$input = new ArrayInput( $input_array );
+			
+			// Disable interactive mode since MCP communication is stateless request/response
+			// Missing parameters will throw exceptions that the AI model receives and can
+			// then ask the user for the missing information before retrying the command
 			$input->setInteractive( false );
 			$output = new BufferedOutput();
 			
