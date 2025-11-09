@@ -12,19 +12,18 @@ The MCP integration allows AI models (like ChatGPT, Claude, etc.) to call Team51
 
 ## Setup
 
-### 1. Start the MCP Server
+### 1. First-Time Setup: Allow 1Password Access
 
-The MCP server exposes your Team51 CLI commands as tools. Start it with:
+**Important:** The first time you start Claude Desktop with the MCP server, you'll see **3-5 permission prompts** asking "Claude would like to access data from other apps."
 
-```bash
-./start-mcp-server.sh
-```
+**This is normal and expected!** Click **"Allow"** for each prompt. These are macOS security prompts for the 1Password CLI integration.
 
-Or directly with PHP:
+**Why so many prompts?**
+- The Team51 CLI uses 1Password CLI to securely retrieve credentials
+- macOS requires permission for each 1Password API call (checking accounts, listing items, retrieving passwords)
+- This only happens on the first connection or when the 1Password CLI session expires (every few hours)
 
-```bash
-php mcp-server.php
-```
+**After the first time:** Subsequent Claude sessions typically only show 1-2 prompts, as the 1Password CLI session is reused.
 
 ### 2. Configure Your AI Client
 
@@ -177,6 +176,30 @@ All Team51 CLI commands can be used via MCP. The MCP server automatically captur
 Commands with structured output (tables, lists, etc.) will have their output captured exactly as displayed in the terminal.
 
 ## Troubleshooting
+
+### Multiple Permission Prompts (3-5 prompts)
+
+Seeing 3-5 "Claude would like to access data from other apps" prompts when starting Claude is **normal and expected**.
+
+**Why this happens:**
+- The Team51 CLI uses 1Password CLI to securely retrieve credentials
+- macOS requires explicit permission for each inter-app communication
+- The MCP server makes 3-5 1Password CLI calls during initialization:
+  1. List accounts (to find Team51 account)
+  2. List items (to find OpsOasis credentials)
+  3. Get specific items (to retrieve passwords)
+
+**This is a one-time thing per session:**
+- First connection each day: 3-5 prompts
+- Subsequent connections (same session): 1-2 prompts
+- After 1Password CLI session expires (~few hours): 3-5 prompts again
+
+**Optional: Reduce prompts by pre-authenticating**
+If you want to avoid prompts during Claude startup, authenticate beforehand:
+```bash
+team51 --version  # Any Team51 command will establish the 1Password session
+# Then start Claude
+```
 
 ### Server Won't Start
 
