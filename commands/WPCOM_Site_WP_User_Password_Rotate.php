@@ -139,6 +139,10 @@ final class WPCOM_Site_WP_User_Password_Rotate extends Command {
 			}
 
 			$output->writeln( "<fg=magenta;options=bold>Rotating the WP user password of $this->wp_user_email on $site->name (ID $site->ID, URL $site->URL).</>" );
+			if ( '242557543' == $site->ID ) { // TODO: Investigate why this site fails and remove this check.
+				$output->writeln( '<error>Skipping site ID 242557543 as it is known to have issues with password rotation.</error>' );
+				continue;
+			}
 
 			// Rotate the WP user password.
 			$credentials = $this->rotate_site_wp_user_password( $output, $site->ID );
