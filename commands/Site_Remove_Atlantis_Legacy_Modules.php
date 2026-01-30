@@ -182,26 +182,26 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
 		// Check if processing multiple sites from CSV.
 		$this->sites_csv_path = $input->getOption( 'sites' );
-		
+
 		if ( $this->sites_csv_path ) {
 			// Get options for CSV processing.
-			$this->quiet            = (bool) $input->getOption( 'no-output' );
-			$this->merge_pr         = (bool) $input->getOption( 'merge-pr' );
+			$this->quiet             = (bool) $input->getOption( 'no-output' );
+			$this->merge_pr          = (bool) $input->getOption( 'merge-pr' );
 			$this->uninstall_plugins = (bool) $input->getOption( 'uninstall' );
-			
+
 			// Validate CSV file exists.
 			if ( ! file_exists( $this->sites_csv_path ) ) {
 				$output->writeln( "<error>CSV file not found: {$this->sites_csv_path}</error>" );
 				exit( 1 );
 			}
-			
+
 			// Skip individual site initialization.
 			return;
 		}
 
 		// Get no-output, merge-pr, and uninstall options.
-		$this->quiet            = (bool) $input->getOption( 'no-output' );
-		$this->merge_pr         = (bool) $input->getOption( 'merge-pr' );
+		$this->quiet             = (bool) $input->getOption( 'no-output' );
+		$this->merge_pr          = (bool) $input->getOption( 'merge-pr' );
 		$this->uninstall_plugins = (bool) $input->getOption( 'uninstall' );
 
 		// Get the site argument. If not provided, prompt for it (unless in quiet mode).
@@ -222,12 +222,12 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 		// Initialize site.
 		try {
 			$this->initialize_site_from_url( $site_input, $this->host );
-			
+
 			// For WPCOM sites, normalize the URL property.
 			if ( 'atomic' === $this->host && isset( $this->site->URL ) ) {
 				$this->site->url = $this->site->URL;
 			}
-			
+
 			$input->setArgument( 'site', $this->site );
 		} catch ( \Exception $e ) {
 			$output->writeln( "<error>Failed to find the site with input: $site_input</error>" );
@@ -237,7 +237,7 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 		// Initialize repository.
 		try {
 			$this->initialize_repository( $input, $output );
-			
+
 			// Show DeployHQ info for Pressable sites.
 			if ( 'pressable' === $this->host && $this->deployhq_project ) {
 				$output->writeln( "<comment>Found DeployHQ project {$this->deployhq_project->name} (permalink {$this->deployhq_project->permalink}) for the given site.</comment>", OutputInterface::VERBOSITY_VERBOSE );
@@ -311,7 +311,7 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 		}
 
 		// Validate required columns exist in first row.
-		$first_row = reset( $csv_data );
+		$first_row        = reset( $csv_data );
 		$required_columns = array( 'Site', 'URL', 'Host' );
 		foreach ( $required_columns as $column ) {
 			if ( ! isset( $first_row[ $column ] ) ) {
@@ -320,10 +320,10 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 			}
 		}
 
-		$total_sites    = count( $csv_data );
-		$processed      = 0;
-		$skipped        = 0;
-		$failed         = 0;
+		$total_sites = count( $csv_data );
+		$processed   = 0;
+		$skipped     = 0;
+		$failed      = 0;
 
 		foreach ( $csv_data as $index => $site_data ) {
 			$site_name = $site_data['Site'] ?? 'Unknown';
@@ -335,7 +335,7 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 				$note = 'Missing required fields (URL or Host)';
 				$this->update_csv_row( $index, '', '', $note );
 				$output->writeln( "<error>[$index/$total_sites] Skipping {$site_name} - {$note}</error>" );
-				$skipped++;
+				++$skipped;
 				continue;
 			}
 
@@ -344,7 +344,7 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 				$note = "Invalid host value: {$host} (must be 'pressable' or 'atomic')";
 				$this->update_csv_row( $index, '', '', $note );
 				$output->writeln( "<error>[$index/$total_sites] Skipping {$site_name} - {$note}</error>" );
-				$skipped++;
+				++$skipped;
 				continue;
 			}
 
@@ -353,7 +353,7 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 				$note = 'Already processed (has PR or marked as Merged)';
 				$this->update_csv_row( $index, $site_data['PR'] ?? '', $site_data['Merged'] ?? '', $note );
 				$output->writeln( "<comment>[$index/$total_sites] Skipping {$site_name} - already processed</comment>" );
-				$skipped++;
+				++$skipped;
 				continue;
 			}
 
@@ -370,7 +370,7 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 
 				// Initialize site.
 				$this->initialize_site_from_url( $site_url, $host );
-				
+
 				// Initialize repository (handle WPCOM GitHub Deployments error gracefully).
 				try {
 					$this->initialize_repository( $input, $output );
@@ -380,13 +380,13 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 						$note = 'Unable to find a WPCOM GitHub Deployment for the site';
 						$this->update_csv_row( $index, '', '', $note );
 						$output->writeln( "<comment>⚠ {$site_name}: {$note}</comment>" );
-						$skipped++;
+						++$skipped;
 						continue;
 					}
 					// Re-throw if it's a different error.
 					throw $e;
 				}
-				
+
 				$this->initialize_paths_and_branch( $input );
 
 				// Determine environment and base branch.
@@ -405,22 +405,22 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 						$merged_status = $this->merge_pr ? 'Y' : '';
 						$this->update_csv_row( $index, $this->pr_url, $merged_status );
 						$output->writeln( "<info>✓ {$site_name} completed successfully</info>" );
-						$processed++;
+						++$processed;
 					} else {
 						// No PR created (likely no modules found).
 						$note = 'No legacy modules found in repository';
 						$this->update_csv_row( $index, '', '', $note );
 						$output->writeln( "<comment>⚠ {$site_name}: {$note}</comment>" );
-						$skipped++;
+						++$skipped;
 					}
 				} else {
-					$failed++;
+					++$failed;
 					$output->writeln( "<error>✗ {$site_name} failed</error>" );
 				}
 			} catch ( \Exception $e ) {
 				$note = 'Error: ' . $e->getMessage();
 				$this->update_csv_row( $index, '', '', $note );
-				$failed++;
+				++$failed;
 				$output->writeln( "<error>✗ {$site_name} failed: {$e->getMessage()}</error>" );
 			}
 
@@ -463,9 +463,21 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 		$this->write_output( $output, '' );
 		$this->write_output( $output, '<fg=cyan;options=bold>Searching for legacy modules to remove...</>' );
 
+		// First, find which legacy modules exist.
+		$found_modules = array();
 		foreach ( $this->legacy_modules as $plugin_name ) {
 			$plugin_info = $this->find_plugin( $plugin_name, $output );
 			if ( null !== $plugin_info ) {
+				$found_modules[ $plugin_name ] = $plugin_info;
+			}
+		}
+
+		// Only install the Atlantis plugin if we found legacy modules to replace.
+		if ( ! empty( $found_modules ) ) {
+			$this->install_atlantis_plugin( $output );
+
+			// Now delete the found modules.
+			foreach ( $found_modules as $plugin_name => $plugin_info ) {
 				$this->delete_plugin( $plugin_name, $plugin_info['location'], $plugin_info['path'], $output );
 			}
 		}
@@ -495,7 +507,7 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 				\run_system_command( array( 'rm', '-rf', $this->repo_dir ), $this->repo_dir, false );
 				$this->write_output( $output, "<info>Deleted repository folder: {$this->repo_dir}</info>" );
 			} else {
-				$this->write_output( $output, "<error>Safety check failed: repository path is not within repos directory. Skipping deletion.</error>" );
+				$this->write_output( $output, '<error>Safety check failed: repository path is not within repos directory. Skipping deletion.</error>' );
 			}
 		}
 
@@ -528,21 +540,21 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 	 *
 	 * @return  string The domain only.
 	 */
-	private function extract_domain_from_url(string $url): string {
-		if (empty($url)) {
+	private function extract_domain_from_url( string $url ): string {
+		if ( empty( $url ) ) {
 			return '';
 		}
-	
+
 		// Remove protocol (http://, https://)
-		$domain = preg_replace('#^https?://#i', '', $url);
-	
+		$domain = preg_replace( '#^https?://#i', '', $url );
+
 		// Remove path, query string, and fragment
 		// Use a different delimiter (e.g., ~) to avoid conflicts with '#'
-		$domain = preg_replace('~[/?#].*$~', '', $domain);
-	
+		$domain = preg_replace( '~[/?#].*$~', '', $domain );
+
 		// Remove trailing slash if any
-		$domain = rtrim($domain ?? '', '/');
-	
+		$domain = rtrim( $domain ?? '', '/' );
+
 		return $domain;
 	}
 
@@ -558,7 +570,7 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 	private function initialize_site_from_url( string $site_url, string $host ): void {
 		// Extract domain only (remove protocol, path, etc.).
 		$domain = $this->extract_domain_from_url( $site_url );
-		
+
 		if ( 'pressable' === $host ) {
 			$this->site = get_pressable_site( $domain );
 		} else {
@@ -585,19 +597,19 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 			$deployhq_config = get_pressable_site_deployhq_config( $this->site->id );
 			if ( $deployhq_config ) {
 				$this->deployhq_project = $deployhq_config->project;
-				$this->gh_repository = get_github_repository_from_deployhq_project( $this->deployhq_project->permalink );
+				$this->gh_repository    = get_github_repository_from_deployhq_project( $this->deployhq_project->permalink );
 			}
 		} else {
 			// Get WPCOM repository.
 			// Check for WPCOM GitHub Deployments first.
 			$wpcom_gh_repositories = get_wpcom_site_code_deployments( $this->site->ID );
-			
+
 			if ( empty( $wpcom_gh_repositories ) ) {
 				// In CSV processing mode, throw exception instead of asking.
 				if ( $this->sites_csv_path ) {
 					throw new \Exception( 'Unable to find a WPCOM GitHub Deployments for the site.' );
 				}
-				
+
 				// In interactive mode, ask user.
 				$output->writeln( '<error>Unable to find a WPCOM GitHub Deployments for the site.</error>' );
 				$question = new ConfirmationQuestion( '<question>Do you want to continue anyway? [y/N]</question> ', false );
@@ -607,7 +619,7 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 				}
 				return; // Exit early if user chooses to continue without repository.
 			}
-			
+
 			// Continue with normal WPCOM repository initialization.
 			$this->get_wpcom_repository( $input, $output );
 		}
@@ -629,7 +641,7 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 		// Set up repository paths.
 		$this->repos_dir = getcwd() . '/repos';
 		$this->repo_dir  = $this->repos_dir . '/' . $this->gh_repository->name;
-		
+
 		// Set default branch.
 		$this->gh_repo_branch = 'develop';
 		$input->setOption( 'branch', $this->gh_repo_branch );
@@ -844,26 +856,33 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 		// Create PR from remove/atlantis-legacy-modules to the base branch.
 		// Always show PR creation output, even in silent mode.
 		$this->write_output( $output, "<info>Creating PR to merge remove/atlantis-legacy-modules into {$this->git_base_branch}...</info>", OutputInterface::VERBOSITY_QUIET );
-		
+
 		// Try to create the PR. If it already exists, gh will output the existing PR URL.
-		$process = \run_system_command( 
-			array( 
-				'gh', 'pr', 'create', 
-				'--title', 'Atlantis Rollout - Remove legacy modules', 
-				'--body', 'This PR was automatically generated by a script. Please review the changes and merge if they look good.', 
-				'--base', $this->git_base_branch, 
-				'--head', 'remove/atlantis-legacy-modules', 
-				'--repo', 'a8cteam51/' . $this->gh_repository->name 
+		$process = \run_system_command(
+			array(
+				'gh',
+				'pr',
+				'create',
+				'--title',
+				'Atlantis Rollout - Remove legacy modules',
+				'--body',
+				'This PR was automatically generated by a script. Please review the changes and merge if they look good.',
+				'--base',
+				$this->git_base_branch,
+				'--head',
+				'remove/atlantis-legacy-modules',
+				'--repo',
+				'a8cteam51/' . $this->gh_repository->name,
 			),
 			$this->repo_dir,
 			false // Don't exit on error - the PR might already exist.
 		);
-		
+
 		// Output the result (either new PR URL or error message).
 		$pr_output = trim( $process->getOutput() . $process->getErrorOutput() );
 		if ( ! empty( $pr_output ) ) {
 			$output->writeln( $pr_output, OutputInterface::VERBOSITY_QUIET );
-			
+
 			// Extract and save PR URL for CSV processing.
 			// The output typically contains the PR URL (e.g., https://github.com/a8cteam51/repo/pull/123).
 			if ( preg_match( '#https://github\.com/[^/]+/[^/]+/pull/\d+#', $pr_output, $matches ) ) {
@@ -886,17 +905,21 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 		if ( $should_merge ) {
 			// Merge the PR - always show output, even in silent mode.
 			$output->writeln( '<info>Merging PR...</info>', OutputInterface::VERBOSITY_QUIET );
-			
+
 			// Try with --auto first (for PRs that need to wait for checks).
 			// Use Process directly to avoid printing the error when it's expected.
 			$process = new \Symfony\Component\Process\Process(
-				array( 
-					'gh', 'pr', 'merge', 'remove/atlantis-legacy-modules', 
+				array(
+					'gh',
+					'pr',
+					'merge',
+					'remove/atlantis-legacy-modules',
 					'--squash',  // Squash all commits into one
 					'--auto',    // Auto-merge when requirements are met
 					'--delete-branch',  // Delete the branch after merge
-					'--repo', 'a8cteam51/' . $this->gh_repository->name 
-				), 
+					'--repo',
+					'a8cteam51/' . $this->gh_repository->name,
+				),
 				$this->repo_dir
 			);
 			$process->run();
@@ -905,14 +928,18 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 			if ( 0 !== $process->getExitCode() && str_contains( $process->getErrorOutput(), 'is in clean status' ) ) {
 				// PR is ready to merge immediately, try without --auto.
 				$output->writeln( '<comment>PR is ready, merging immediately...</comment>', OutputInterface::VERBOSITY_QUIET );
-				$process = \run_system_command( 
-					array( 
-						'gh', 'pr', 'merge', 'remove/atlantis-legacy-modules', 
+				$process = \run_system_command(
+					array(
+						'gh',
+						'pr',
+						'merge',
+						'remove/atlantis-legacy-modules',
 						'--squash',
 						'--delete-branch',
-						'--repo', 'a8cteam51/' . $this->gh_repository->name 
-					), 
-					$this->repo_dir 
+						'--repo',
+						'a8cteam51/' . $this->gh_repository->name,
+					),
+					$this->repo_dir
 				);
 			} elseif ( 0 !== $process->getExitCode() ) {
 				// Some other error occurred, output it and exit.
@@ -1026,6 +1053,51 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 	}
 
 	/**
+	 * Installs and activates the Atlantis plugin from GitHub.
+	 *
+	 * @param   OutputInterface $output The output object.
+	 *
+	 * @return  void
+	 */
+	private function install_atlantis_plugin( OutputInterface $output ): void {
+		$plugin_url      = 'https://github.com/a8cteam51/a8csp-atlantis/releases/download/v1.0.2/a8csp-atlantis.zip';
+		$site_identifier = 'atomic' === $this->host ? $this->site->ID : $this->site->id;
+
+		$this->write_output( $output, '' );
+		$this->write_output( $output, '<fg=cyan;options=bold>Installing Atlantis plugin from GitHub...</>' );
+
+		try {
+			// Install the plugin.
+			$install_command = "plugin install {$plugin_url} --force";
+			$this->write_output( $output, "  Running: wp {$install_command}" );
+
+			if ( 'pressable' === $this->host ) {
+				run_pressable_site_wp_cli_command( $site_identifier, $install_command, $this->quiet );
+			} else {
+				run_wpcom_site_wp_cli_command( $site_identifier, $install_command, $this->quiet );
+			}
+
+			$this->write_output( $output, '  <info>✓ Plugin installed successfully</info>' );
+
+			// Activate the plugin.
+			$activate_command = 'plugin activate a8csp-atlantis';
+			$this->write_output( $output, "  Running: wp {$activate_command}" );
+
+			if ( 'pressable' === $this->host ) {
+				run_pressable_site_wp_cli_command( $site_identifier, $activate_command, $this->quiet );
+			} else {
+				run_wpcom_site_wp_cli_command( $site_identifier, $activate_command, $this->quiet );
+			}
+
+			$this->write_output( $output, '  <info>✓ Plugin activated successfully</info>' );
+
+		} catch ( \Exception $e ) {
+			$this->write_output( $output, "  <error>Failed to install/activate Atlantis plugin: {$e->getMessage()}</error>" );
+			$this->write_output( $output, '  <comment>Continuing with legacy module removal...</comment>' );
+		}
+	}
+
+	/**
 	 * Uninstalls all legacy plugins from WordPress in a single command.
 	 *
 	 * @param   OutputInterface $output The output object.
@@ -1051,7 +1123,7 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 				run_wpcom_site_wp_cli_command( $site_identifier, $command, $this->quiet );
 			}
 
-			$this->write_output( $output, "  <info>✓ Plugins deactivated and uninstalled from WordPress</info>" );
+			$this->write_output( $output, '  <info>✓ Plugins deactivated and uninstalled from WordPress</info>' );
 		} catch ( \Exception $e ) {
 			$this->write_output( $output, "  <error>Failed to uninstall plugins from WordPress: {$e->getMessage()}</error>" );
 			$this->write_output( $output, '  <comment>This is usually fine if the plugins were not installed on the site.</comment>' );
@@ -1083,19 +1155,19 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 		// Read data rows.
 		$row_index = 1; // Start at 1 (0 is header).
 		while ( ( $row = fgetcsv( $handle ) ) !== false ) {
-			$row_index++;
-			
+			++$row_index;
+
 			// Skip empty rows.
 			if ( empty( array_filter( $row ) ) ) {
 				continue;
 			}
-			
+
 			// Ensure row has same number of columns as headers.
 			if ( count( $row ) !== count( $headers ) ) {
 				// Pad or truncate row to match header count.
 				$row = array_pad( array_slice( $row, 0, count( $headers ) ), count( $headers ), '' );
 			}
-			
+
 			$site_data = array_combine( $headers, $row );
 			if ( $site_data ) {
 				$csv_data[ $row_index ] = $site_data;
@@ -1144,7 +1216,7 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 		// If Notes column doesn't exist, we'll add it.
 		$needs_notes_column = false === $notes_index;
 		if ( $needs_notes_column ) {
-			$headers[] = 'Notes';
+			$headers[]   = 'Notes';
 			$notes_index = count( $headers ) - 1;
 		}
 
@@ -1152,7 +1224,7 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 
 		$current_row = 1; // Start at 1 (header is row 0).
 		while ( ( $row = fgetcsv( $handle ) ) !== false ) {
-			$current_row++;
+			++$current_row;
 
 			// Update the target row.
 			if ( $current_row === $row_index ) {
@@ -1210,13 +1282,13 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 	 * @return  void
 	 */
 	private function reset_site_state(): void {
-		$this->site              = null;
-		$this->deployhq_project  = null;
-		$this->gh_repository     = null;
-		$this->gh_repo_branch    = null;
-		$this->repo_dir          = null;
-		$this->removed_modules   = array();
-		$this->git_base_branch   = 'develop';
+		$this->site             = null;
+		$this->deployhq_project = null;
+		$this->gh_repository    = null;
+		$this->gh_repo_branch   = null;
+		$this->repo_dir         = null;
+		$this->removed_modules  = array();
+		$this->git_base_branch  = 'develop';
 	}
 
 	// endregion
