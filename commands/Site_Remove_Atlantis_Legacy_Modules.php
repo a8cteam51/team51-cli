@@ -105,6 +105,7 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 	private array $legacy_modules = array(
 		'colophon',
 		'plugin-autoupdate-filter',
+		'team51-tracking',
 	);
 
 	/**
@@ -475,6 +476,9 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 		// Only install the Atlantis plugin if we found legacy modules to replace.
 		if ( ! empty( $found_modules ) ) {
 			$this->install_atlantis_plugin( $output );
+
+			// Check if plugin-autoupdate-filter exists but is deactivated, and disable Atlantis module if so.
+			$this->check_autoupdate_filter_status( $output );
 
 			// Now delete the found modules.
 			foreach ( $found_modules as $plugin_name => $plugin_info ) {
@@ -1093,6 +1097,90 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 
 		} catch ( \Exception $e ) {
 			$this->write_output( $output, "  <error>Failed to install/activate Atlantis plugin: {$e->getMessage()}</error>" );
+			$this->write_output( $output, '  <comment>Continuing with legacy module removal...</comment>' );
+		}
+	}
+
+	/**
+	 * Checks if plugin-autoupdate-filter (or variants) is installed but deactivated,
+	 * and if so, disables the Atlantis autoupdates module via option.
+	 *
+	 * The plugin slug can have variants like:
+	 * - plugin-autoupdate-filter
+	 * - plugin-autoupdate-filter-5
+	 * - plugin-autoupdate-filter-trunk
+	 * - plugin-autoupdate-filter-1.4.3
+	 *
+	 * @param   OutputInterface $output The output object.
+	 *
+	 * @return  void
+	 */
+	private function check_autoupdate_filter_status( OutputInterface $output ): void {
+		$site_identifier = 'atomic' === $this->host ? $this->site->ID : $this->site->id;
+
+		$this->write_output( $output, '' );
+		$this->write_output( $output, '<fg=cyan;options=bold>Checking plugin-autoupdate-filter status...</>' );
+
+		try {
+			// Get list of all plugins in JSON format.
+			$list_command = 'plugin list --format=json';
+
+			if ( 'pressable' === $this->host ) {
+				$result = run_pressable_site_wp_cli_command( $site_identifier, $list_command, true );
+			} else {
+				$result = run_wpcom_site_wp_cli_command( $site_identifier, $list_command, true );
+			}
+
+			// Parse the JSON output.
+			$plugins = json_decode( $result, true );
+			if ( ! is_array( $plugins ) ) {
+				$this->write_output( $output, '  <comment>Could not parse plugin list.</comment>' );
+				return;
+			}
+
+			// Find any plugin-autoupdate-filter variants.
+			$autoupdate_plugins = array();
+			foreach ( $plugins as $plugin ) {
+				if ( isset( $plugin['name'] ) && str_starts_with( $plugin['name'], 'plugin-autoupdate-filter' ) ) {
+					$autoupdate_plugins[] = $plugin;
+				}
+			}
+
+			if ( empty( $autoupdate_plugins ) ) {
+				$this->write_output( $output, '  <info>No plugin-autoupdate-filter variants found on the site.</info>' );
+				return;
+			}
+
+			// Check if any of them are active.
+			// Note: must-use plugins are always active (they load automatically).
+			$active_statuses = array( 'active', 'active-network', 'must-use' );
+			$any_active      = false;
+			foreach ( $autoupdate_plugins as $plugin ) {
+				$this->write_output( $output, "  Found: {$plugin['name']} (status: {$plugin['status']})" );
+				if ( in_array( $plugin['status'], $active_statuses, true ) ) {
+					$any_active = true;
+				}
+			}
+
+			// If found but none are active, disable the Atlantis autoupdates module.
+			if ( ! $any_active ) {
+				$this->write_output( $output, '  <comment>Plugin found but not active. Disabling Atlantis autoupdates module...</comment>' );
+
+				// Set option to disable the autoupdates module: a:1:{s:7:"enabled";s:1:"0";}
+				$option_command = "option update a8csp_module_autoupdates 'a:1:{s:7:\"enabled\";s:1:\"0\";}'";
+
+				if ( 'pressable' === $this->host ) {
+					run_pressable_site_wp_cli_command( $site_identifier, $option_command, $this->quiet );
+				} else {
+					run_wpcom_site_wp_cli_command( $site_identifier, $option_command, $this->quiet );
+				}
+
+				$this->write_output( $output, '  <info>✓ Atlantis autoupdates module disabled</info>' );
+			} else {
+				$this->write_output( $output, '  <info>Plugin is active, Atlantis autoupdates module will remain enabled.</info>' );
+			}
+		} catch ( \Exception $e ) {
+			$this->write_output( $output, "  <error>Failed to check plugin status: {$e->getMessage()}</error>" );
 			$this->write_output( $output, '  <comment>Continuing with legacy module removal...</comment>' );
 		}
 	}
