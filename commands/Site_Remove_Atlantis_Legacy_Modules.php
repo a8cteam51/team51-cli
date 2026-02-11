@@ -157,6 +157,34 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 	 */
 	private ?string $pr_url = null;
 
+	/**
+	 * The PHP version of the current site.
+	 *
+	 * @var string|null
+	 */
+	private ?string $php_version = null;
+
+	/**
+	 * Minimum required PHP version for Atlantis plugin.
+	 *
+	 * @var string
+	 */
+	private string $min_php_version = '8.3';
+
+	/**
+	 * Note explaining why a site was skipped (for CSV processing).
+	 *
+	 * @var string|null
+	 */
+	private ?string $skip_note = null;
+
+	/**
+	 * The CSV URL for environment detection (more reliable than API URL).
+	 *
+	 * @var string|null
+	 */
+	private ?string $csv_url = null;
+
 	// endregion
 
 	// region INHERITED METHODS
@@ -325,8 +353,10 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 		$processed   = 0;
 		$skipped     = 0;
 		$failed      = 0;
+		$counter     = 0;
 
 		foreach ( $csv_data as $index => $site_data ) {
+			++$counter;
 			$site_name = $site_data['Site'] ?? 'Unknown';
 			$site_url  = $site_data['URL'] ?? '';
 			$host      = strtolower( $site_data['Host'] ?? '' );
@@ -335,7 +365,7 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 			if ( empty( $site_url ) || empty( $host ) ) {
 				$note = 'Missing required fields (URL or Host)';
 				$this->update_csv_row( $index, '', '', $note );
-				$output->writeln( "<error>[$index/$total_sites] Skipping {$site_name} - {$note}</error>" );
+				$output->writeln( "<error>[{$counter}/{$total_sites}] Skipping {$site_name} - {$note}</error>" );
 				++$skipped;
 				continue;
 			}
@@ -344,7 +374,7 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 			if ( ! in_array( $host, array( 'pressable', 'atomic' ), true ) ) {
 				$note = "Invalid host value: {$host} (must be 'pressable' or 'atomic')";
 				$this->update_csv_row( $index, '', '', $note );
-				$output->writeln( "<error>[$index/$total_sites] Skipping {$site_name} - {$note}</error>" );
+				$output->writeln( "<error>[{$counter}/{$total_sites}] Skipping {$site_name} - {$note}</error>" );
 				++$skipped;
 				continue;
 			}
@@ -353,12 +383,12 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 			if ( ! empty( $site_data['PR'] ?? '' ) || 'Y' === strtoupper( $site_data['Merged'] ?? '' ) ) {
 				$note = 'Already processed (has PR or marked as Merged)';
 				$this->update_csv_row( $index, $site_data['PR'] ?? '', $site_data['Merged'] ?? '', $note );
-				$output->writeln( "<comment>[$index/$total_sites] Skipping {$site_name} - already processed</comment>" );
+				$output->writeln( "<comment>[{$counter}/{$total_sites}] Skipping {$site_name} - already processed</comment>" );
 				++$skipped;
 				continue;
 			}
 
-			$output->writeln( "<info>[$index/$total_sites] Processing: {$site_name} ({$site_url})</info>" );
+			$output->writeln( "<info>[{$counter}/{$total_sites}] Processing: {$site_name} ({$site_url})</info>" );
 
 			try {
 				// Reset state for this site.
@@ -372,13 +402,38 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 				// Initialize site.
 				$this->initialize_site_from_url( $site_url, $host );
 
-				// Initialize repository (handle WPCOM GitHub Deployments error gracefully).
+				// Normalize URL property for WPCOM sites (they use uppercase URL).
+				if ( 'atomic' === $host && isset( $this->site->URL ) ) {
+					$this->site->url = $this->site->URL;
+				}
+
+				// Safety check: Compare CSV URL with API URL (applies to both Atomic AND Pressable).
+				$csv_domain = $this->extract_domain_from_url( $site_url );
+				$api_domain = $this->extract_domain_from_url( $this->site->url ?? '' );
+
+				if ( $csv_domain !== $api_domain ) {
+					$note = "API URL differs from CSV: {$this->site->url}";
+					$this->update_csv_row( $index, '', '', $note );
+					$output->writeln( "<comment>⚠ {$site_name}: {$note}</comment>" );
+					++$skipped;
+					continue;
+				}
+
+				// Store CSV URL for environment detection (more reliable than API URL).
+				$this->csv_url = $site_url;
+
+				// Initialize repository (handle deployment configuration errors gracefully).
 				try {
 					$this->initialize_repository( $input, $output );
 				} catch ( \Exception $e ) {
-					// Check if it's the WPCOM GitHub Deployments error.
-					if ( str_contains( $e->getMessage(), 'WPCOM GitHub Deployments' ) || str_contains( $e->getMessage(), 'GitHub repository' ) ) {
-						$note = 'Unable to find a WPCOM GitHub Deployment for the site';
+					// Check if it's a deployment configuration error (DeployHQ for Pressable, WPCOM GitHub Deployments for Atomic).
+					$is_deployment_error = str_contains( $e->getMessage(), 'WPCOM GitHub Deployments' )
+						|| str_contains( $e->getMessage(), 'GitHub repository' )
+						|| str_contains( $e->getMessage(), 'DeployHQ' );
+
+					if ( $is_deployment_error ) {
+						$deployment_type = ( 'pressable' === $site_host ) ? 'DeployHQ' : 'WPCOM GitHub';
+						$note            = "Unable to find a {$deployment_type} deployment for the site";
 						$this->update_csv_row( $index, '', '', $note );
 						$output->writeln( "<comment>⚠ {$site_name}: {$note}</comment>" );
 						++$skipped;
@@ -396,24 +451,46 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 					$this->git_base_branch = 'trunk';
 				}
 
+				// Safety check: If CSV URL indicates staging, never use trunk/master.
+				// This prevents accidentally processing production when staging was intended.
+				$csv_url_lower  = strtolower( $site_url );
+				$is_staging_url = str_contains( $csv_url_lower, 'staging' ) ||
+					str_contains( $csv_url_lower, 'mystagingwebsite' ) ||
+					str_contains( $csv_url_lower, 'wpcomstaging' ) ||
+					str_contains( $csv_url_lower, '-dev' ) ||
+					str_contains( $csv_url_lower, '-development' );
+
+				if ( $is_staging_url && in_array( $this->git_base_branch, array( 'trunk', 'master' ), true ) ) {
+					$note = "Staging URL but would use {$this->git_base_branch} branch - skipping for safety";
+					$this->update_csv_row( $index, '', '', $note );
+					$output->writeln( "<error>⚠ {$site_name}: {$note}</error>" );
+					++$skipped;
+					continue;
+				}
+
 				// Process the site.
 				$result = $this->process_single_site( $input, $output );
 
-				if ( Command::SUCCESS === $result ) {
+				if ( Command::INVALID === $result ) {
+					// Site was skipped due to PHP version or branch issue.
+					$note = $this->skip_note ?? 'Site skipped (unknown reason)';
+					$this->update_csv_row( $index, '', '', $note );
+					$output->writeln( "<comment>⚠ {$site_name}: {$note}</comment>" );
+					++$skipped;
+				} elseif ( Command::SUCCESS === $result ) {
 					if ( $this->pr_url ) {
 						// Update CSV with PR URL and Merged status.
 						// Mark as 'Y' only if --merge-pr was used.
 						$merged_status = $this->merge_pr ? 'Y' : '';
 						$this->update_csv_row( $index, $this->pr_url, $merged_status );
 						$output->writeln( "<info>✓ {$site_name} completed successfully</info>" );
-						++$processed;
 					} else {
-						// No PR created (likely no modules found).
-						$note = 'No legacy modules found in repository';
-						$this->update_csv_row( $index, '', '', $note );
-						$output->writeln( "<comment>⚠ {$site_name}: {$note}</comment>" );
-						++$skipped;
+						// No PR created - plugin installed, no repo changes needed (no legacy modules in repo).
+						// This is still a successful completion.
+						$this->update_csv_row( $index, '', 'Y', 'Plugin installed (no repo changes needed)' );
+						$output->writeln( "<info>✓ {$site_name} completed successfully (no repo changes needed)</info>" );
 					}
+					++$processed;
 				} else {
 					++$failed;
 					$output->writeln( "<error>✗ {$site_name} failed</error>" );
@@ -452,10 +529,29 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 	private function process_single_site( InputInterface $input, OutputInterface $output ): int {
 		$this->write_output( $output, "<fg=magenta;options=bold>Processing repository for site {$this->site->url} (base branch: {$this->git_base_branch}).</>" );
 
+		// Check PHP version first - Atlantis plugin requires PHP 8.3+.
+		$this->check_php_version( $output );
+		if ( ! $this->meets_php_requirement() ) {
+			$this->skip_note = "PHP version {$this->php_version} < {$this->min_php_version} required";
+			$this->write_output( $output, "<error>{$this->skip_note}. Skipping Atlantis plugin installation.</error>" );
+			// Return a special status to indicate PHP version issue (caller will handle CSV update).
+			return Command::INVALID;
+		}
+
 		$this->clone_repo( $output );
 
-		// Checkout the base branch.
-		\run_system_command( array( 'git', 'checkout', $this->git_base_branch ), $this->repo_dir );
+		// Checkout the base branch - handle failure gracefully.
+		$checkout_process = \run_system_command( array( 'git', 'checkout', $this->git_base_branch ), $this->repo_dir, false );
+		if ( ! $checkout_process->isSuccessful() ) {
+			$this->skip_note = "Branch '{$this->git_base_branch}' not found";
+			$this->write_output( $output, "<error>{$this->skip_note}. Skipping site.</error>" );
+			// Clean up the cloned repo folder.
+			if ( $this->repo_dir && $this->repos_dir && str_starts_with( $this->repo_dir, $this->repos_dir ) ) {
+				\run_system_command( array( 'rm', '-rf', $this->repo_dir ), $this->repo_dir, false );
+			}
+			// Return a special status to indicate branch issue (caller will handle CSV update).
+			return Command::INVALID;
+		}
 
 		// Checkout the branch 'remove/atlantis-legacy-modules'.
 		$this->git_checkout_branch( 'remove/atlantis-legacy-modules', $output );
@@ -473,34 +569,25 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 			}
 		}
 
-		// Only install the Atlantis plugin if we found legacy modules to replace.
-		if ( ! empty( $found_modules ) ) {
-			$this->install_atlantis_plugin( $output );
+		// Check autoupdate filter status BEFORE installing Atlantis.
+		// This must happen first so the database option is set before Atlantis activates.
+		$this->check_autoupdate_filter_status( $output );
 
-			// Check if plugin-autoupdate-filter exists but is deactivated, and disable Atlantis module if so.
-			$this->check_autoupdate_filter_status( $output );
+		// Always install the Atlantis plugin.
+		$plugin_installed = $this->install_atlantis_plugin( $output );
 
-			// Now delete the found modules.
+		if ( $plugin_installed && ! empty( $found_modules ) ) {
+			// Delete the found modules from the repository.
 			foreach ( $found_modules as $plugin_name => $plugin_info ) {
 				$this->delete_plugin( $plugin_name, $plugin_info['location'], $plugin_info['path'], $output );
 			}
 		}
 
 		// Uninstall plugins from WordPress if --uninstall option is provided.
-		if ( $this->uninstall_plugins && count( $this->legacy_modules ) > 0 ) {
-			// In quiet mode, automatically uninstall plugins.
-			if ( $this->quiet ) {
-				$this->uninstall_plugins_from_wordpress( $output );
-			} else {
-				$output->writeln( '' );
-				$plugins_list = implode( ', ', $this->legacy_modules );
-				$question     = new ConfirmationQuestion( "<question>Do you want to deactivate and uninstall these plugins from WordPress ({$plugins_list})? [y/N]</question> ", false );
-				if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
-					$this->uninstall_plugins_from_wordpress( $output );
-				} else {
-					$output->writeln( '<comment>Skipping WordPress plugin uninstallation.</comment>' );
-				}
-			}
+		// No confirmation needed - just proceed automatically.
+		$legacy_modules_count = count( $this->legacy_modules );
+		if ( $this->uninstall_plugins && $legacy_modules_count > 0 ) {
+			$this->uninstall_plugins_from_wordpress( $output );
 		}
 
 		if ( count( $this->removed_modules ) > 0 ) {
@@ -721,8 +808,11 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 	 * @return  string
 	 */
 	private function get_site_environment( OutputInterface $output ): string {
-		// If the site URL contains 'mystagingwebsite' or 'wpcomstaging' it's a staging site. Otherwise it's a production site.
-		if ( str_contains( $this->site->url, 'mystagingwebsite' ) || str_contains( $this->site->url, 'wpcomstaging' ) ) {
+		// Use stored CSV URL if available (more reliable for staging detection).
+		$url_to_check = $this->csv_url ?? $this->site->url ?? '';
+
+		// If the URL contains 'mystagingwebsite' or 'wpcomstaging' it's a staging site. Otherwise it's a production site.
+		if ( str_contains( $url_to_check, 'mystagingwebsite' ) || str_contains( $url_to_check, 'wpcomstaging' ) ) {
 			$this->write_output( $output, '<info>Site is a staging site.</info>' );
 			return 'staging';
 		}
@@ -896,7 +986,7 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 
 		// Ask for confirmation before merging PR and deleting branches (unless merge-pr or quiet flag is set).
 		$should_merge = $this->merge_pr;
-		if ( ! $this->quiet ) {
+		if ( ! $this->quiet && ! $this->merge_pr ) {
 			$output->writeln( '' );
 			$question = new ConfirmationQuestion( '<question>Do you want to merge the PR and delete the branches? [y/N]</question> ', false );
 			if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
@@ -928,10 +1018,18 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 			);
 			$process->run();
 
-			// Check if auto-merge failed because PR is already in clean status.
-			if ( 0 !== $process->getExitCode() && str_contains( $process->getErrorOutput(), 'is in clean status' ) ) {
-				// PR is ready to merge immediately, try without --auto.
-				$output->writeln( '<comment>PR is ready, merging immediately...</comment>', OutputInterface::VERBOSITY_QUIET );
+			// Check if auto-merge failed and we should retry without --auto.
+			// This happens when:
+			// - PR is already in clean status (ready to merge immediately)
+			// - Branch protection rules not configured (auto-merge not available)
+			$error_output = $process->getErrorOutput();
+			$should_retry = str_contains( $error_output, 'is in clean status' ) ||
+				str_contains( $error_output, 'Protected branch rules not configured' ) ||
+				str_contains( $error_output, 'enablePullRequestAutoMerge' );
+
+			if ( 0 !== $process->getExitCode() && $should_retry ) {
+				// Retry without --auto flag.
+				$output->writeln( '<comment>Auto-merge not available, merging directly...</comment>', OutputInterface::VERBOSITY_QUIET );
 				$process = \run_system_command(
 					array(
 						'gh',
@@ -943,12 +1041,13 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 						'--repo',
 						'a8cteam51/' . $this->gh_repository->name,
 					),
-					$this->repo_dir
+					$this->repo_dir,
+					false
 				);
 			} elseif ( 0 !== $process->getExitCode() ) {
 				// Some other error occurred, output it and exit.
 				$output->writeln( '<error>Failed to merge PR:</error>', OutputInterface::VERBOSITY_QUIET );
-				$output->writeln( $process->getErrorOutput(), OutputInterface::VERBOSITY_QUIET );
+				$output->writeln( $error_output, OutputInterface::VERBOSITY_QUIET );
 				exit( 1 );
 			}
 
@@ -1061,9 +1160,9 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 	 *
 	 * @param   OutputInterface $output The output object.
 	 *
-	 * @return  void
+	 * @return  bool True if plugin was installed and activated successfully, false otherwise.
 	 */
-	private function install_atlantis_plugin( OutputInterface $output ): void {
+	private function install_atlantis_plugin( OutputInterface $output ): bool {
 		$plugin_url      = 'https://github.com/a8cteam51/a8csp-atlantis/releases/download/v1.0.2/a8csp-atlantis.zip';
 		$site_identifier = 'atomic' === $this->host ? $this->site->ID : $this->site->id;
 
@@ -1076,9 +1175,15 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 			$this->write_output( $output, "  Running: wp {$install_command}" );
 
 			if ( 'pressable' === $this->host ) {
-				run_pressable_site_wp_cli_command( $site_identifier, $install_command, $this->quiet );
+				$install_result = run_pressable_site_wp_cli_command( $site_identifier, $install_command, $this->quiet );
 			} else {
-				run_wpcom_site_wp_cli_command( $site_identifier, $install_command, $this->quiet );
+				$install_result = run_wpcom_site_wp_cli_command( $site_identifier, $install_command, $this->quiet );
+			}
+
+			// Check if installation was successful.
+			if ( Command::SUCCESS !== $install_result ) {
+				$this->write_output( $output, '  <error>Plugin installation failed.</error>' );
+				return false;
 			}
 
 			$this->write_output( $output, '  <info>✓ Plugin installed successfully</info>' );
@@ -1088,16 +1193,23 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 			$this->write_output( $output, "  Running: wp {$activate_command}" );
 
 			if ( 'pressable' === $this->host ) {
-				run_pressable_site_wp_cli_command( $site_identifier, $activate_command, $this->quiet );
+				$activate_result = run_pressable_site_wp_cli_command( $site_identifier, $activate_command, $this->quiet );
 			} else {
-				run_wpcom_site_wp_cli_command( $site_identifier, $activate_command, $this->quiet );
+				$activate_result = run_wpcom_site_wp_cli_command( $site_identifier, $activate_command, $this->quiet );
+			}
+
+			// Check if activation was successful.
+			if ( Command::SUCCESS !== $activate_result ) {
+				$this->write_output( $output, '  <error>Plugin activation failed.</error>' );
+				return false;
 			}
 
 			$this->write_output( $output, '  <info>✓ Plugin activated successfully</info>' );
+			return true;
 
 		} catch ( \Exception $e ) {
 			$this->write_output( $output, "  <error>Failed to install/activate Atlantis plugin: {$e->getMessage()}</error>" );
-			$this->write_output( $output, '  <comment>Continuing with legacy module removal...</comment>' );
+			return false;
 		}
 	}
 
@@ -1126,13 +1238,20 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 			$list_command = 'plugin list --format=json';
 
 			if ( 'pressable' === $this->host ) {
-				$result = run_pressable_site_wp_cli_command( $site_identifier, $list_command, true );
+				run_pressable_site_wp_cli_command( $site_identifier, $list_command, true );
 			} else {
-				$result = run_wpcom_site_wp_cli_command( $site_identifier, $list_command, true );
+				run_wpcom_site_wp_cli_command( $site_identifier, $list_command, true );
 			}
 
-			// Parse the JSON output.
-			$plugins = json_decode( $result, true );
+			// Get the output from the global variable.
+			$wp_cli_output = $GLOBALS['wp_cli_output'] ?? '';
+
+			// Extract JSON array from output (may contain warnings before JSON).
+			$plugins = null;
+			if ( preg_match( '/\[.*\]/s', $wp_cli_output, $matches ) ) {
+				$plugins = json_decode( $matches[0], true );
+			}
+
 			if ( ! is_array( $plugins ) ) {
 				$this->write_output( $output, '  <comment>Could not parse plugin list.</comment>' );
 				return;
@@ -1166,8 +1285,8 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 			if ( ! $any_active ) {
 				$this->write_output( $output, '  <comment>Plugin found but not active. Disabling Atlantis autoupdates module...</comment>' );
 
-				// Set option to disable the autoupdates module: a:1:{s:7:"enabled";s:1:"0";}
-				$option_command = "option update a8csp_module_autoupdates 'a:1:{s:7:\"enabled\";s:1:\"0\";}'";
+				// Use wp eval to set the option as an array directly (avoids shell escaping issues).
+				$option_command = 'eval "update_option( \'a8csp_module_autoupdates\', array( \'enabled\' => \'0\' ) );"';
 
 				if ( 'pressable' === $this->host ) {
 					run_pressable_site_wp_cli_command( $site_identifier, $option_command, $this->quiet );
@@ -1216,6 +1335,67 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 			$this->write_output( $output, "  <error>Failed to uninstall plugins from WordPress: {$e->getMessage()}</error>" );
 			$this->write_output( $output, '  <comment>This is usually fine if the plugins were not installed on the site.</comment>' );
 		}
+	}
+
+	/**
+	 * Check the PHP version of the current site.
+	 *
+	 * @param   OutputInterface $output The output object.
+	 *
+	 * @return  string|null The PHP version string, or null on error.
+	 */
+	private function check_php_version( OutputInterface $output ): ?string {
+		$this->write_output( $output, '' );
+		$this->write_output( $output, '<fg=cyan;options=bold>Checking PHP version...</>' );
+
+		// For Pressable sites, try to get PHP version from the API response first.
+		if ( 'pressable' === $this->host && isset( $this->site->phpVersion ) ) {
+			$this->php_version = $this->site->phpVersion;
+			$this->write_output( $output, "  <info>PHP version: {$this->php_version} (from API)</info>" );
+			return $this->php_version;
+		}
+
+		// Fall back to WP-CLI for Atomic sites or if API doesn't have PHP version.
+		$site_identifier = 'atomic' === $this->host ? $this->site->ID : $this->site->id;
+
+		try {
+			$command = "eval 'echo phpversion();'";
+
+			if ( 'pressable' === $this->host ) {
+				run_pressable_site_wp_cli_command( $site_identifier, $command, true );
+			} else {
+				run_wpcom_site_wp_cli_command( $site_identifier, $command, true );
+			}
+
+			// Get the output from the global variable.
+			$wp_cli_output = $GLOBALS['wp_cli_output'] ?? '';
+
+			// Parse the version from output (should be something like "8.3.0" or "8.2.30").
+			if ( preg_match( '/(\d+\.\d+(\.\d+)?)/', $wp_cli_output, $matches ) ) {
+				$this->php_version = $matches[1];
+				$this->write_output( $output, "  <info>PHP version: {$this->php_version}</info>" );
+				return $this->php_version;
+			}
+
+			$this->write_output( $output, '  <comment>Could not determine PHP version from output.</comment>' );
+			return null;
+		} catch ( \Exception $e ) {
+			$this->write_output( $output, "  <error>Failed to check PHP version: {$e->getMessage()}</error>" );
+			return null;
+		}
+	}
+
+	/**
+	 * Check if the site meets the minimum PHP version requirement.
+	 *
+	 * @return  bool True if PHP version is sufficient, false otherwise.
+	 */
+	private function meets_php_requirement(): bool {
+		if ( null === $this->php_version ) {
+			return false;
+		}
+
+		return version_compare( $this->php_version, $this->min_php_version, '>=' );
 	}
 
 	/**
@@ -1377,6 +1557,9 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 		$this->repo_dir         = null;
 		$this->removed_modules  = array();
 		$this->git_base_branch  = 'develop';
+		$this->php_version      = null;
+		$this->skip_note        = null;
+		$this->csv_url          = null;
 	}
 
 	// endregion
