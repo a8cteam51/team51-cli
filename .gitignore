@@ -243,6 +243,9 @@ dist
 # *.iml
 # *.ipr
 
+# WP-Content
+wp-content
+
 # CMake
 cmake-build-*/
 
