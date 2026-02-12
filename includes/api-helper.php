@@ -123,7 +123,7 @@ final class API_Helper {
 		if ( ! str_starts_with( (string) $result['headers']['http_code'], '2' ) ) {
 			if ( 500 === $result['headers']['http_code'] && str_contains( $result['body'], 'site_already_exists' ) ) {
 				console_writeln( "❌ API error ({$result['headers']['http_code']} $endpoint): " . $result['body'] );
-				return (object) array( 'code' => 'site_already_exists', 'message' => 'A site with that name already exists.' );
+				return (object) array( 'code' => 'site_already_exists', 'message' => 'A site with this name already exists' );
 			}
 
 			console_writeln( "❌ API error ({$result['headers']['http_code']} $endpoint): " . $result['body'] );
