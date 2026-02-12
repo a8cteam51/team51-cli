@@ -10,14 +10,15 @@
  * using JSON-RPC. All debug output MUST go to STDERR.
  *
  * Usage:
+ *   team51 --mcp
  *   php mcp-server.php
  *
- * Configuration (in .cursor/mcp.json):
+ * Configuration (in .cursor/mcp.json or .mcp.json):
  *   {
  *     "mcpServers": {
  *       "team51": {
- *         "command": "php",
- *         "args": ["/path/to/team51-cli/mcp-server.php"]
+ *         "command": "team51",
+ *         "args": ["--mcp"]
  *       }
  *     }
  *   }
@@ -25,12 +26,16 @@
 
 use PhpMcp\Server\Server;
 use PhpMcp\Server\Transports\StdioServerTransport;
-use Symfony\Component\Console\Output\ConsoleOutput;
 use Symfony\Component\Console\Output\StreamOutput;
 
 // Set up constants needed by the CLI environment.
-const TEAM51_CLI_ROOT_DIR = __DIR__;
-const TEAM51_CLI_FILE     = __FILE__;
+// When invoked via `team51 --mcp`, these are already defined by team51-cli.php.
+if ( ! defined( 'TEAM51_CLI_ROOT_DIR' ) ) {
+	define( 'TEAM51_CLI_ROOT_DIR', __DIR__ );
+}
+if ( ! defined( 'TEAM51_CLI_FILE' ) ) {
+	define( 'TEAM51_CLI_FILE', __FILE__ );
+}
 
 // Load Composer autoloader (skip self-update.php — we don't want update checks or ASCII art in MCP mode).
 require_once TEAM51_CLI_ROOT_DIR . '/vendor/autoload.php';

@@ -58,6 +58,63 @@ The CLI tool automatically updates itself. It does a hard reset to the latest ve
 - Run the tool with the `--force-update` flag to force an update check regardless of when the last check was performed.
 - Add a `.dev` file to the root folder containing your current timestamp to disable updates for a week.
 
+## MCP Server (AI Assistant Integration)
+
+The CLI includes a built-in [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that exposes Team51 operations as tools for AI assistants like Cursor and Claude Code. This allows you to query WPCOM sites, check Pressable PHP errors, list GitHub repos, and more — directly from your AI-powered editor.
+
+### Setup
+
+Start the MCP server with:
+
+```
+team51 --mcp
+```
+
+#### Cursor
+
+Add the following to `.cursor/mcp.json` in any project (or in the team51-cli repo):
+
+```json
+{
+  "mcpServers": {
+    "team51": {
+      "command": "team51",
+      "args": ["--mcp"]
+    }
+  }
+}
+```
+
+Then restart Cursor and verify "team51" appears under **Cursor Settings > MCP**.
+
+#### Claude Code
+
+Add it globally so the tools are available in every project:
+
+```bash
+claude mcp add team51 -- team51 --mcp
+```
+
+### Available Tools
+
+The MCP server exposes 39 tools across all services:
+
+| Service | Read Tools | Write Tools |
+|---------|-----------|-------------|
+| **WPCOM** | `wpcom_list_sites`, `wpcom_get_site`, `wpcom_list_site_plugins`, `wpcom_list_site_stickers`, `wpcom_list_sites_with_sticker`, `wpcom_get_site_stats`, `wpcom_list_site_users` | `wpcom_add_sticker`, `wpcom_remove_sticker`, `wpcom_update_site`, `wpcom_rotate_sftp_password` |
+| **Pressable** | `pressable_list_sites`, `pressable_get_site`, `pressable_get_php_errors`, `pressable_list_collaborators`, `pressable_list_sftp_users`, `pressable_list_site_domains` | `pressable_create_site_note`, `pressable_add_collaborator`, `pressable_remove_collaborator`, `pressable_add_domain`, `pressable_rotate_sftp_password` |
+| **GitHub** | `github_list_repositories`, `github_get_repository`, `github_list_branches`, `github_list_secrets`, `github_list_workflow_runs` | `github_set_topics`, `github_create_branch`, `github_set_secret`, `github_create_issue` |
+| **Jetpack** | `jetpack_list_modules`, `jetpack_list_site_modules` | `jetpack_update_module_settings` |
+| **DeployHQ** | `deployhq_list_projects`, `deployhq_get_project`, `deployhq_list_project_servers` | `deployhq_rotate_private_key`, `deployhq_connect_repository` |
+
+Write tools are annotated with MCP `ToolAnnotations` (`destructiveHint`, `readOnlyHint`, etc.) so clients prompt for confirmation before executing destructive actions.
+
+High-risk operations (site creation, user deletion, WP-CLI execution, deployments) are intentionally excluded.
+
+### Extending
+
+To add a new tool, add a method with `#[McpTool]` to `mcp/Team51McpTools.php`. The server auto-discovers it — no registration needed.
+
 ## Usage
 
 This CLI tool is self-documenting. You can view a list of available commands with `team51 list`.

@@ -3,13 +3,17 @@
 namespace WPCOMSpecialProjects\CLI\Mcp;
 
 use PhpMcp\Server\Attributes\McpTool;
+use PhpMcp\Schema\ToolAnnotations;
 
 /**
  * MCP Tool definitions for the Team51 CLI.
  *
- * These tools expose read-only (and select write) operations from the Team51 CLI
- * as MCP tools, allowing AI assistants to interact with WPCOM, Pressable,
- * GitHub, Jetpack, and DeployHQ services.
+ * These tools expose read-only and low/medium-risk write operations from the
+ * Team51 CLI as MCP tools, allowing AI assistants to interact with WPCOM,
+ * Pressable, GitHub, Jetpack, and DeployHQ services.
+ *
+ * High-risk operations (site creation, user deletion, WP-CLI execution,
+ * deployments) are intentionally excluded. See the README for details.
  *
  * IMPORTANT: When adding new tools, keep in mind that STDOUT is reserved for
  * JSON-RPC communication. Use STDERR for any debug output.
@@ -182,6 +186,126 @@ final class Team51McpTools {
 		);
 	}
 
+	/**
+	 * Add a sticker (tag/label) to a WordPress.com site.
+	 *
+	 * @param string $site_id_or_domain The domain name or WPCOM site ID.
+	 * @param string $sticker           The sticker name to add.
+	 */
+	#[McpTool(
+		name: 'wpcom_add_sticker',
+		annotations: new ToolAnnotations(
+			title: 'Add WPCOM Site Sticker',
+			readOnlyHint: false,
+			destructiveHint: false,
+			idempotentHint: true,
+			openWorldHint: true,
+		)
+	)]
+	public function wpcom_add_sticker( string $site_id_or_domain, string $sticker ): array {
+		$result = add_wpcom_site_sticker( $site_id_or_domain, $sticker );
+		if ( null === $result ) {
+			return array( 'error' => "Failed to add sticker '$sticker' to site: $site_id_or_domain" );
+		}
+
+		return array(
+			'success' => true,
+			'site'    => $site_id_or_domain,
+			'sticker' => $sticker,
+			'action'  => 'added',
+		);
+	}
+
+	/**
+	 * Remove a sticker (tag/label) from a WordPress.com site.
+	 *
+	 * @param string $site_id_or_domain The domain name or WPCOM site ID.
+	 * @param string $sticker           The sticker name to remove.
+	 */
+	#[McpTool(
+		name: 'wpcom_remove_sticker',
+		annotations: new ToolAnnotations(
+			title: 'Remove WPCOM Site Sticker',
+			readOnlyHint: false,
+			destructiveHint: false,
+			idempotentHint: true,
+			openWorldHint: true,
+		)
+	)]
+	public function wpcom_remove_sticker( string $site_id_or_domain, string $sticker ): array {
+		$result = remove_wpcom_site_sticker( $site_id_or_domain, $sticker );
+		if ( null === $result ) {
+			return array( 'error' => "Failed to remove sticker '$sticker' from site: $site_id_or_domain" );
+		}
+
+		return array(
+			'success' => true,
+			'site'    => $site_id_or_domain,
+			'sticker' => $sticker,
+			'action'  => 'removed',
+		);
+	}
+
+	/**
+	 * Update settings for a WordPress.com site.
+	 *
+	 * @param string $site_id_or_url The domain name or WPCOM site ID.
+	 * @param string $settings_json  JSON object of settings to update (e.g. {"blogname": "New Name"}).
+	 */
+	#[McpTool(
+		name: 'wpcom_update_site',
+		annotations: new ToolAnnotations(
+			title: 'Update WPCOM Site Settings',
+			readOnlyHint: false,
+			destructiveHint: false,
+			idempotentHint: true,
+			openWorldHint: true,
+		)
+	)]
+	public function wpcom_update_site( string $site_id_or_url, string $settings_json ): array {
+		$settings = json_decode( $settings_json, true );
+		if ( null === $settings || ! is_array( $settings ) ) {
+			return array( 'error' => 'Invalid settings_json. Must be a valid JSON object.' );
+		}
+
+		$result = update_wpcom_site( $site_id_or_url, $settings );
+		if ( null === $result ) {
+			return array( 'error' => "Failed to update site settings for: $site_id_or_url" );
+		}
+
+		return array(
+			'success'          => true,
+			'site'             => $site_id_or_url,
+			'updated_settings' => $settings,
+		);
+	}
+
+	/**
+	 * Rotate the SFTP user password for a WordPress.com site.
+	 * Returns the new credentials.
+	 *
+	 * @param string $site_id_or_url The domain name or WPCOM site ID.
+	 * @param string $username       The SFTP username to rotate the password for.
+	 */
+	#[McpTool(
+		name: 'wpcom_rotate_sftp_password',
+		annotations: new ToolAnnotations(
+			title: 'Rotate WPCOM SFTP Password',
+			readOnlyHint: false,
+			destructiveHint: true,
+			idempotentHint: false,
+			openWorldHint: true,
+		)
+	)]
+	public function wpcom_rotate_sftp_password( string $site_id_or_url, string $username ): array {
+		$result = rotate_wpcom_site_sftp_user_password( $site_id_or_url, $username );
+		if ( null === $result ) {
+			return array( 'error' => "Failed to rotate SFTP password for user '$username' on site: $site_id_or_url" );
+		}
+
+		return (array) $result;
+	}
+
 	// endregion
 
 	// region PRESSABLE TOOLS
@@ -308,6 +432,144 @@ final class Team51McpTools {
 		);
 	}
 
+	/**
+	 * Create a note on a Pressable site. Useful for documenting changes or issues.
+	 *
+	 * @param string $site_id_or_url The Pressable site ID or URL.
+	 * @param string $subject        The note subject/title.
+	 * @param string $content        The note content/body.
+	 */
+	#[McpTool(
+		name: 'pressable_create_site_note',
+		annotations: new ToolAnnotations(
+			title: 'Create Pressable Site Note',
+			readOnlyHint: false,
+			destructiveHint: false,
+			idempotentHint: false,
+			openWorldHint: true,
+		)
+	)]
+	public function pressable_create_site_note( string $site_id_or_url, string $subject, string $content ): array {
+		$result = create_pressable_site_note( $site_id_or_url, $subject, $content );
+		if ( null === $result ) {
+			return array( 'error' => "Failed to create note on Pressable site: $site_id_or_url" );
+		}
+
+		return (array) $result;
+	}
+
+	/**
+	 * Add a collaborator to a Pressable site by email address.
+	 *
+	 * @param string $site_id_or_url    The Pressable site ID or URL.
+	 * @param string $collaborator_email The email address of the collaborator to add.
+	 */
+	#[McpTool(
+		name: 'pressable_add_collaborator',
+		annotations: new ToolAnnotations(
+			title: 'Add Pressable Site Collaborator',
+			readOnlyHint: false,
+			destructiveHint: false,
+			idempotentHint: true,
+			openWorldHint: true,
+		)
+	)]
+	public function pressable_add_collaborator( string $site_id_or_url, string $collaborator_email ): array {
+		$result = create_pressable_site_collaborator( $site_id_or_url, $collaborator_email );
+		if ( null === $result ) {
+			return array( 'error' => "Failed to add collaborator '$collaborator_email' to site: $site_id_or_url" );
+		}
+
+		return (array) $result;
+	}
+
+	/**
+	 * Remove a collaborator from a Pressable site.
+	 *
+	 * @param string $site_id_or_url The Pressable site ID or URL.
+	 * @param string $collaborator   The collaborator ID or email to remove.
+	 * @param bool   $delete_wp_user Whether to also delete the collaborator's WordPress user account.
+	 */
+	#[McpTool(
+		name: 'pressable_remove_collaborator',
+		annotations: new ToolAnnotations(
+			title: 'Remove Pressable Site Collaborator',
+			readOnlyHint: false,
+			destructiveHint: true,
+			idempotentHint: true,
+			openWorldHint: true,
+		)
+	)]
+	public function pressable_remove_collaborator( string $site_id_or_url, string $collaborator, bool $delete_wp_user = false ): array {
+		$result = delete_pressable_site_collaborator( $site_id_or_url, $collaborator, $delete_wp_user );
+		if ( null === $result ) {
+			return array( 'error' => "Failed to remove collaborator '$collaborator' from site: $site_id_or_url" );
+		}
+
+		return array(
+			'success'        => true,
+			'site'           => $site_id_or_url,
+			'collaborator'   => $collaborator,
+			'wp_user_deleted' => $delete_wp_user,
+		);
+	}
+
+	/**
+	 * Add a domain to a Pressable site.
+	 *
+	 * @param string $site_id_or_url The Pressable site ID or URL.
+	 * @param string $domain         The domain name to add (e.g., 'example.com').
+	 */
+	#[McpTool(
+		name: 'pressable_add_domain',
+		annotations: new ToolAnnotations(
+			title: 'Add Domain to Pressable Site',
+			readOnlyHint: false,
+			destructiveHint: false,
+			idempotentHint: true,
+			openWorldHint: true,
+		)
+	)]
+	public function pressable_add_domain( string $site_id_or_url, string $domain ): array {
+		$result = add_pressable_site_domain( $site_id_or_url, $domain );
+		if ( null === $result ) {
+			return array( 'error' => "Failed to add domain '$domain' to site: $site_id_or_url" );
+		}
+
+		return array(
+			'success' => true,
+			'site'    => $site_id_or_url,
+			'domain'  => $domain,
+			'domains' => $result,
+		);
+	}
+
+	/**
+	 * Rotate the SFTP user password for a Pressable site.
+	 * Returns the new credentials.
+	 *
+	 * @param string $site_id_or_url The Pressable site ID or URL.
+	 * @param string $username       The SFTP username to rotate the password for.
+	 */
+	#[McpTool(
+		name: 'pressable_rotate_sftp_password',
+		annotations: new ToolAnnotations(
+			title: 'Rotate Pressable SFTP Password',
+			readOnlyHint: false,
+			destructiveHint: true,
+			idempotentHint: false,
+			openWorldHint: true,
+		)
+	)]
+	public function pressable_rotate_sftp_password( string $site_id_or_url, string $username ): array {
+		$result = rotate_pressable_site_sftp_user_password( $site_id_or_url, $username );
+		if ( null === $result ) {
+			return array( 'error' => "Failed to rotate SFTP password for user '$username' on site: $site_id_or_url" );
+		}
+
+		return (array) $result;
+	}
+
 	// endregion
 
 	// region GITHUB TOOLS
@@ -418,6 +680,129 @@ final class Team51McpTools {
 		);
 	}
 
+	/**
+	 * Set topics/tags for a GitHub repository. Replaces all existing topics.
+	 *
+	 * @param string $repository  The repository name.
+	 * @param string $topics_json JSON array of topic strings (e.g., ["wordpress", "plugin"]).
+	 */
+	#[McpTool(
+		name: 'github_set_topics',
+		annotations: new ToolAnnotations(
+			title: 'Set GitHub Repository Topics',
+			readOnlyHint: false,
+			destructiveHint: false,
+			idempotentHint: true,
+			openWorldHint: true,
+		)
+	)]
+	public function github_set_topics( string $repository, string $topics_json ): array {
+		$topics = json_decode( $topics_json, true );
+		if ( null === $topics || ! is_array( $topics ) ) {
+			return array( 'error' => 'Invalid topics_json. Must be a JSON array of strings.' );
+		}
+
+		$result = set_github_repository_topics( $repository, $topics );
+		if ( null === $result ) {
+			return array( 'error' => "Failed to set topics for repository: $repository" );
+		}
+
+		return array(
+			'success'    => true,
+			'repository' => $repository,
+			'topics'     => $result,
+		);
+	}
+
+	/**
+	 * Create a new branch in a GitHub repository.
+	 *
+	 * @param string $repository The repository name.
+	 * @param string $name       The name for the new branch.
+	 * @param string $source     The source branch to create from (e.g., 'trunk').
+	 */
+	#[McpTool(
+		name: 'github_create_branch',
+		annotations: new ToolAnnotations(
+			title: 'Create GitHub Branch',
+			readOnlyHint: false,
+			destructiveHint: false,
+			idempotentHint: false,
+			openWorldHint: true,
+		)
+	)]
+	public function github_create_branch( string $repository, string $name, string $source = 'trunk' ): array {
+		$result = create_github_repository_branch( $repository, $name, $source );
+		if ( null === $result ) {
+			return array( 'error' => "Failed to create branch '$name' in repository: $repository" );
+		}
+
+		return (array) $result;
+	}
+
+	/**
+	 * Create or update a secret in a GitHub repository.
+	 *
+	 * @param string $repository   The repository name.
+	 * @param string $secret_name  The name of the secret.
+	 * @param string $secret_value The value to set for the secret.
+	 */
+	#[McpTool(
+		name: 'github_set_secret',
+		annotations: new ToolAnnotations(
+			title: 'Set GitHub Repository Secret',
+			readOnlyHint: false,
+			destructiveHint: false,
+			idempotentHint: true,
+			openWorldHint: true,
+		)
+	)]
+	public function github_set_secret( string $repository, string $secret_name, string $secret_value ): array {
+		$result = set_github_repository_secret( $repository, $secret_name, $secret_value );
+		if ( null === $result ) {
+			return array( 'error' => "Failed to set secret '$secret_name' in repository: $repository" );
+		}
+
+		return array(
+			'success'    => true,
+			'repository' => $repository,
+			'secret'     => $secret_name,
+			'action'     => 'set',
+		);
+	}
+
+	/**
+	 * Create a new issue in a GitHub repository.
+	 *
+	 * @param string $repository The repository name.
+	 * @param string $title      The issue title.
+	 * @param string $body       The issue body/description (supports Markdown).
+	 * @param string $labels_json JSON array of label strings (e.g., ["bug", "urgent"]). Optional, defaults to [].
+	 */
+	#[McpTool(
+		name: 'github_create_issue',
+		annotations: new ToolAnnotations(
+			title: 'Create GitHub Issue',
+			readOnlyHint: false,
+			destructiveHint: false,
+			idempotentHint: false,
+			openWorldHint: true,
+		)
+	)]
+	public function github_create_issue( string $repository, string $title, string $body, string $labels_json = '[]' ): array {
+		$labels = json_decode( $labels_json, true );
+		if ( null === $labels || ! is_array( $labels ) ) {
+			$labels = array();
+		}
+
+		$result = create_github_issue( $repository, $title, $body, $labels );
+		if ( null === $result ) {
+			return array( 'error' => "Failed to create issue in repository: $repository" );
+		}
+
+		return (array) $result;
+	}
+
 	// endregion
 
 	// region JETPACK TOOLS
@@ -459,6 +844,41 @@ final class Team51McpTools {
 				static fn( $m ) => (array) $m,
 				$modules
 			),
+		);
+	}
+
+	/**
+	 * Update Jetpack module settings for a site. Use this to enable or disable
+	 * specific Jetpack modules.
+	 *
+	 * @param string $site_id_or_url The WPCOM site ID or domain.
+	 * @param string $settings_json  JSON object of module settings (e.g., {"module-name": true} to enable, false to disable).
+	 */
+	#[McpTool(
+		name: 'jetpack_update_module_settings',
+		annotations: new ToolAnnotations(
+			title: 'Update Jetpack Module Settings',
+			readOnlyHint: false,
+			destructiveHint: false,
+			idempotentHint: true,
+			openWorldHint: true,
+		)
+	)]
+	public function jetpack_update_module_settings( string $site_id_or_url, string $settings_json ): array {
+		$settings = json_decode( $settings_json, true );
+		if ( null === $settings || ! is_array( $settings ) ) {
+			return array( 'error' => 'Invalid settings_json. Must be a valid JSON object (e.g., {"module-name": true}).' );
+		}
+
+		$result = update_jetpack_site_modules_settings( $site_id_or_url, $settings );
+		if ( null === $result ) {
+			return array( 'error' => "Failed to update Jetpack module settings for site: $site_id_or_url" );
+		}
+
+		return array(
+			'success'          => $result,
+			'site'             => $site_id_or_url,
+			'updated_settings' => $settings,
 		);
 	}
 
@@ -519,6 +939,55 @@ final class Team51McpTools {
 				$servers
 			),
 		);
+	}
+
+	/**
+	 * Rotate the SSH private key for a DeployHQ project.
+	 *
+	 * @param string $project The DeployHQ project permalink/slug.
+	 */
+	#[McpTool(
+		name: 'deployhq_rotate_private_key',
+		annotations: new ToolAnnotations(
+			title: 'Rotate DeployHQ Project Private Key',
+			readOnlyHint: false,
+			destructiveHint: true,
+			idempotentHint: false,
+			openWorldHint: true,
+		)
+	)]
+	public function deployhq_rotate_private_key( string $project ): array {
+		$result = rotate_deployhq_project_private_key( $project );
+		if ( null === $result ) {
+			return array( 'error' => "Failed to rotate private key for DeployHQ project: $project" );
+		}
+
+		return (array) $result;
+	}
+
+	/**
+	 * Update the connected GitHub repository for a DeployHQ project.
+	 *
+	 * @param string $project    The DeployHQ project permalink/slug.
+	 * @param string $repository The SSH URL of the GitHub repository to connect.
+	 */
+	#[McpTool(
+		name: 'deployhq_connect_repository',
+		annotations: new ToolAnnotations(
+			title: 'Connect Repository to DeployHQ Project',
+			readOnlyHint: false,
+			destructiveHint: false,
+			idempotentHint: true,
+			openWorldHint: true,
+		)
+	)]
+	public function deployhq_connect_repository( string $project, string $repository ): array {
+		$result = update_deployhq_project_repository( $project, $repository );
+		if ( null === $result ) {
+			return array( 'error' => "Failed to connect repository to DeployHQ project: $project" );
+		}
+
+		return (array) $result;
 	}
 
 	// endregion

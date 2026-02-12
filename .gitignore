@@ -243,6 +243,9 @@ dist
 # *.iml
 # *.ipr
 
+# SQLLite
+wp-content
+
 # CMake
 cmake-build-*/
 
