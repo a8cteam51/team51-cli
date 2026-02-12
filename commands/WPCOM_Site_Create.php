@@ -116,6 +116,11 @@ final class WPCOM_Site_Create extends Command {
 			return Command::FAILURE;
 		}
 
+		if ( isset( $agency_site->code ) && 'site_already_exists' === $agency_site->code ) {
+			$output->writeln( "<error>Failed to create the site. {$agency_site->message}.</error>" );
+			return Command::FAILURE;
+		}
+
 		$agency_site = wait_until_wpcom_agency_site_state( $agency_site->id, 'active', $output );
 		if ( \is_null( $agency_site ) ) {
 			$output->writeln( '<error>Failed to check on site deployment status.</error>' );
