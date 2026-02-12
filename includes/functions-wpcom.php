@@ -215,7 +215,13 @@ function get_wpcom_site_users( string $site_id_or_url, array $params = array() )
 		$endpoint .= '?' . http_build_query( $params );
 	}
 
-	return API_Helper::make_wpcom_request( $endpoint )->records ?? API_Helper::make_wpcom_request( $endpoint );
+	$response = API_Helper::make_wpcom_request( $endpoint );
+	if ( null === $response ) {
+		return null;
+	}
+
+	$users = $response->users ?? ( is_array( $response ) ? ( $response['users'] ?? null ) : null );
+	return is_array( $users ) ? $users : null;
 }
 
 /**

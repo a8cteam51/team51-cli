@@ -371,6 +371,10 @@ final class Team51McpTools {
 	 */
 	#[McpTool( name: 'pressable_get_php_errors' )]
 	public function pressable_get_php_errors( string $site_id, int $max_entries = 200 ): array {
+		if ( $max_entries < 1 ) {
+			return array( 'error' => 'max_entries must be a positive integer' );
+		}
+
 		$errors = get_pressable_site_php_logs( $site_id, null, $max_entries );
 		if ( null === $errors ) {
 			return array( 'error' => "Failed to fetch PHP errors for Pressable site: $site_id" );
