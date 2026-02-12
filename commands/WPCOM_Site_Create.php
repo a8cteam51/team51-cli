@@ -111,8 +111,8 @@ final class WPCOM_Site_Create extends Command {
 
 		// Create the site and wait for it to be provisioned.
 		$agency_site = create_wpcom_site( $this->name );
-		if ( \is_null( $agency_site ) ) {
-			$output->writeln( '<error>Failed to create the site.</error>' );
+		if ( \is_null( $agency_site ) || isset( $agency_site->code ) && 'site_already_exists' === $agency_site->code ) {
+			$output->writeln( '<error>Failed to create the site.' . ( isset( $agency_site->message ) ? ' ' . $agency_site->message : '' ) . '</error>' );
 			return Command::FAILURE;
 		}
 
