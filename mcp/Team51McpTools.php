@@ -90,10 +90,15 @@ final class Team51McpTools {
 			'count'   => count( $plugins ),
 			'plugins' => array_map(
 				static function ( string $plugin_file, $plugin_data ) {
+					$plugin_dir = dirname( $plugin_file );
+					$slug       = ( '.' === $plugin_dir || '' === $plugin_dir )
+						? basename( $plugin_file, '.php' )
+						: $plugin_dir;
+
 					return array(
 						'file'        => $plugin_file,
 						'name'        => $plugin_data->Name, // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
-						'slug'        => dirname( $plugin_file ),
+						'slug'        => $slug,
 						'version'     => $plugin_data->Version, // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 						'active'      => $plugin_data->active,
 						'text_domain' => $plugin_data->TextDomain ?? null, // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
