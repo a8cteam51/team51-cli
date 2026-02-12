@@ -66,7 +66,7 @@ The CLI includes a built-in [Model Context Protocol (MCP)](https://modelcontextp
 
 Start the MCP server with:
 
-```
+```bash
 team51 --mcp
 ```
 

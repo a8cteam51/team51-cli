@@ -181,6 +181,12 @@ final class Team51McpTools {
 		if ( null === $users ) {
 			return array( 'error' => "Failed to fetch users for site: $site_id_or_url" );
 		}
+		if ( ! is_array( $users ) ) {
+			return array(
+				'error'   => 'Unexpected response from get_wpcom_site_users',
+				'details' => $users,
+			);
+		}
 
 		return array(
 			'count' => count( $users ),
