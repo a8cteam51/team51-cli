@@ -13,7 +13,8 @@
     "phpseclib/phpseclib": "^3.0",
     "symfony/console": "^v7.0",
     "symfony/event-dispatcher": "^v7.0",
-    "symfony/process": "^v7.0"
+    "symfony/process": "^v7.0",
+    "php-mcp/server": "^3.3"
   },
   "require-dev": {
     "a8cteam51/team51-configs": "dev-trunk",
@@ -26,7 +27,8 @@
 
   "autoload": {
     "psr-4": {
-      "WPCOMSpecialProjects\\CLI\\Command\\": "commands/"
+      "WPCOMSpecialProjects\\CLI\\Command\\": "commands/",
+      "WPCOMSpecialProjects\\CLI\\Mcp\\": "mcp/"
     },
     "files": [
       "includes/api-helper.php",
