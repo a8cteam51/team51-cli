@@ -20,6 +20,41 @@ use PhpMcp\Schema\ToolAnnotations;
  */
 final class Team51McpTools {
 
+	// region IDENTITY
+
+	/**
+	 * Whether the 1Password identity has been loaded.
+	 *
+	 * @var bool
+	 */
+	private static bool $identity_loaded = false;
+
+	/**
+	 * Ensures the Team51 identity (1Password credentials) is loaded.
+	 *
+	 * This is called lazily on the first tool invocation rather than at server
+	 * startup, so that Cursor does not prompt for 1Password unlock just by
+	 * opening a project.
+	 *
+	 * @return array|null Returns an error array if identity loading fails, null on success.
+	 */
+	private static function ensure_identity(): ?array {
+		if ( self::$identity_loaded ) {
+			return null;
+		}
+
+		try {
+			require_once TEAM51_CLI_ROOT_DIR . '/load-identity.php';
+			self::$identity_loaded = true;
+			fwrite( STDERR, "[MCP] Identity loaded successfully.\n" ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite
+			return null;
+		} catch ( \Throwable $e ) {
+			return array( 'error' => 'Failed to load Team51 identity (1Password): ' . $e->getMessage() );
+		}
+	}
+
+	// endregion
+
 	// region WPCOM TOOLS
 
 	/**
@@ -30,6 +65,11 @@ final class Team51McpTools {
 	 */
 	#[McpTool( name: 'wpcom_list_sites' )]
 	public function wpcom_list_sites( string $type = 'all' ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$params = array();
 		if ( 'all' !== $type ) {
 			$params['type'] = $type;
@@ -66,6 +106,11 @@ final class Team51McpTools {
 	 */
 	#[McpTool( name: 'wpcom_get_site' )]
 	public function wpcom_get_site( string $site_id_or_url ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$site = get_wpcom_site( $site_id_or_url );
 		if ( null === $site ) {
 			return array( 'error' => "Failed to fetch WPCOM site: $site_id_or_url" );
@@ -81,6 +126,11 @@ final class Team51McpTools {
 	 */
 	#[McpTool( name: 'wpcom_list_site_plugins' )]
 	public function wpcom_list_site_plugins( string $site_id_or_domain ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$plugins = get_wpcom_site_plugins( $site_id_or_domain );
 		if ( null === $plugins ) {
 			return array( 'error' => "Failed to fetch plugins for site: $site_id_or_domain" );
@@ -117,6 +167,11 @@ final class Team51McpTools {
 	 */
 	#[McpTool( name: 'wpcom_list_site_stickers' )]
 	public function wpcom_list_site_stickers( string $site_id_or_domain ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$stickers = get_wpcom_site_stickers( $site_id_or_domain );
 		if ( null === $stickers ) {
 			return array( 'error' => "Failed to fetch stickers for site: $site_id_or_domain" );
@@ -135,6 +190,11 @@ final class Team51McpTools {
 	 */
 	#[McpTool( name: 'wpcom_list_sites_with_sticker' )]
 	public function wpcom_list_sites_with_sticker( string $sticker ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$sites = get_wpcom_sites_with_sticker( $sticker );
 		if ( null === $sites ) {
 			return array( 'error' => "Failed to fetch sites with sticker: $sticker" );
@@ -162,6 +222,11 @@ final class Team51McpTools {
 	 */
 	#[McpTool( name: 'wpcom_get_site_stats' )]
 	public function wpcom_get_site_stats( string $site_id_or_url ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$stats = get_wpcom_site_stats( $site_id_or_url );
 		if ( null === $stats ) {
 			return array( 'error' => "Failed to fetch stats for site: $site_id_or_url" );
@@ -177,6 +242,11 @@ final class Team51McpTools {
 	 */
 	#[McpTool( name: 'wpcom_list_site_users' )]
 	public function wpcom_list_site_users( string $site_id_or_url ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$users = get_wpcom_site_users( $site_id_or_url );
 		if ( null === $users ) {
 			return array( 'error' => "Failed to fetch users for site: $site_id_or_url" );
@@ -214,6 +284,11 @@ final class Team51McpTools {
 		)
 	)]
 	public function wpcom_add_sticker( string $site_id_or_domain, string $sticker ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$result = add_wpcom_site_sticker( $site_id_or_domain, $sticker );
 		if ( null === $result ) {
 			return array( 'error' => "Failed to add sticker '$sticker' to site: $site_id_or_domain" );
@@ -244,6 +319,11 @@ final class Team51McpTools {
 		)
 	)]
 	public function wpcom_remove_sticker( string $site_id_or_domain, string $sticker ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$result = remove_wpcom_site_sticker( $site_id_or_domain, $sticker );
 		if ( null === $result ) {
 			return array( 'error' => "Failed to remove sticker '$sticker' from site: $site_id_or_domain" );
@@ -274,6 +354,11 @@ final class Team51McpTools {
 		)
 	)]
 	public function wpcom_update_site( string $site_id_or_url, string $settings_json ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$settings = json_decode( $settings_json, true );
 		if ( null === $settings || ! is_array( $settings ) ) {
 			return array( 'error' => 'Invalid settings_json. Must be a valid JSON object.' );
@@ -309,6 +394,11 @@ final class Team51McpTools {
 		)
 	)]
 	public function wpcom_rotate_sftp_password( string $site_id_or_url, string $username ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$result = rotate_wpcom_site_sftp_user_password( $site_id_or_url, $username );
 		if ( null === $result ) {
 			return array( 'error' => "Failed to rotate SFTP password for user '$username' on site: $site_id_or_url" );
@@ -326,6 +416,11 @@ final class Team51McpTools {
 	 */
 	#[McpTool( name: 'pressable_list_sites' )]
 	public function pressable_list_sites(): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$sites = get_pressable_sites();
 		if ( null === $sites ) {
 			return array( 'error' => 'Failed to fetch Pressable sites.' );
@@ -355,6 +450,11 @@ final class Team51McpTools {
 	 */
 	#[McpTool( name: 'pressable_get_site' )]
 	public function pressable_get_site( string $site_id_or_url ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$site = get_pressable_site( $site_id_or_url );
 		if ( null === $site ) {
 			return array( 'error' => "Failed to fetch Pressable site: $site_id_or_url" );
@@ -371,6 +471,11 @@ final class Team51McpTools {
 	 */
 	#[McpTool( name: 'pressable_get_php_errors' )]
 	public function pressable_get_php_errors( string $site_id, int $max_entries = 200 ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		if ( $max_entries < 1 ) {
 			return array( 'error' => 'max_entries must be a positive integer' );
 		}
@@ -391,6 +496,11 @@ final class Team51McpTools {
 	 */
 	#[McpTool( name: 'pressable_list_collaborators' )]
 	public function pressable_list_collaborators(): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$collaborators = get_pressable_collaborators();
 		if ( null === $collaborators ) {
 			return array( 'error' => 'Failed to fetch Pressable collaborators.' );
@@ -412,6 +522,11 @@ final class Team51McpTools {
 	 */
 	#[McpTool( name: 'pressable_list_sftp_users' )]
 	public function pressable_list_sftp_users( string $site_id_or_url ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$users = get_pressable_site_sftp_users( $site_id_or_url );
 		if ( null === $users ) {
 			return array( 'error' => "Failed to fetch SFTP users for site: $site_id_or_url" );
@@ -433,6 +548,11 @@ final class Team51McpTools {
 	 */
 	#[McpTool( name: 'pressable_list_site_domains' )]
 	public function pressable_list_site_domains( string $site_id_or_url ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$domains = get_pressable_site_domains( $site_id_or_url );
 		if ( null === $domains ) {
 			return array( 'error' => "Failed to fetch domains for site: $site_id_or_url" );
@@ -465,6 +585,11 @@ final class Team51McpTools {
 		)
 	)]
 	public function pressable_create_site_note( string $site_id_or_url, string $subject, string $content ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$result = create_pressable_site_note( $site_id_or_url, $subject, $content );
 		if ( null === $result ) {
 			return array( 'error' => "Failed to create note on Pressable site: $site_id_or_url" );
@@ -490,6 +615,11 @@ final class Team51McpTools {
 		)
 	)]
 	public function pressable_add_collaborator( string $site_id_or_url, string $collaborator_email ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$result = create_pressable_site_collaborator( $site_id_or_url, $collaborator_email );
 		if ( null === $result ) {
 			return array( 'error' => "Failed to add collaborator '$collaborator_email' to site: $site_id_or_url" );
@@ -516,6 +646,11 @@ final class Team51McpTools {
 		)
 	)]
 	public function pressable_remove_collaborator( string $site_id_or_url, string $collaborator, bool $delete_wp_user = false ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$result = delete_pressable_site_collaborator( $site_id_or_url, $collaborator, $delete_wp_user );
 		if ( null === $result ) {
 			return array( 'error' => "Failed to remove collaborator '$collaborator' from site: $site_id_or_url" );
@@ -546,6 +681,11 @@ final class Team51McpTools {
 		)
 	)]
 	public function pressable_add_domain( string $site_id_or_url, string $domain ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$result = add_pressable_site_domain( $site_id_or_url, $domain );
 		if ( null === $result ) {
 			return array( 'error' => "Failed to add domain '$domain' to site: $site_id_or_url" );
@@ -577,6 +717,11 @@ final class Team51McpTools {
 		)
 	)]
 	public function pressable_rotate_sftp_password( string $site_id_or_url, string $username ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$result = rotate_pressable_site_sftp_user_password( $site_id_or_url, $username );
 		if ( null === $result ) {
 			return array( 'error' => "Failed to rotate SFTP password for user '$username' on site: $site_id_or_url" );
@@ -594,6 +739,11 @@ final class Team51McpTools {
 	 */
 	#[McpTool( name: 'github_list_repositories' )]
 	public function github_list_repositories(): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$repos = get_github_repositories();
 		if ( null === $repos ) {
 			return array( 'error' => 'Failed to fetch GitHub repositories.' );
@@ -624,6 +774,11 @@ final class Team51McpTools {
 	 */
 	#[McpTool( name: 'github_get_repository' )]
 	public function github_get_repository( string $repository ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$repo = get_github_repository( $repository );
 		if ( null === $repo ) {
 			return array( 'error' => "Failed to fetch GitHub repository: $repository" );
@@ -639,6 +794,11 @@ final class Team51McpTools {
 	 */
 	#[McpTool( name: 'github_list_branches' )]
 	public function github_list_branches( string $repository ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$branches = get_github_repository_branches( $repository );
 		if ( null === $branches ) {
 			return array( 'error' => "Failed to fetch branches for repository: $repository" );
@@ -660,6 +820,11 @@ final class Team51McpTools {
 	 */
 	#[McpTool( name: 'github_list_secrets' )]
 	public function github_list_secrets( string $repository ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$secrets = get_github_repository_secrets( $repository );
 		if ( null === $secrets ) {
 			return array( 'error' => "Failed to fetch secrets for repository: $repository" );
@@ -681,6 +846,11 @@ final class Team51McpTools {
 	 */
 	#[McpTool( name: 'github_list_workflow_runs' )]
 	public function github_list_workflow_runs( string $repository ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$runs = get_github_repository_workflow_runs( $repository );
 		if ( null === $runs ) {
 			return array( 'error' => "Failed to fetch workflow runs for repository: $repository" );
@@ -712,6 +882,11 @@ final class Team51McpTools {
 		)
 	)]
 	public function github_set_topics( string $repository, string $topics_json ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$topics = json_decode( $topics_json, true );
 		if ( null === $topics || ! is_array( $topics ) ) {
 			return array( 'error' => 'Invalid topics_json. Must be a JSON array of strings.' );
@@ -747,6 +922,11 @@ final class Team51McpTools {
 		)
 	)]
 	public function github_create_branch( string $repository, string $name, string $source = 'trunk' ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$result = create_github_repository_branch( $repository, $name, $source );
 		if ( null === $result ) {
 			return array( 'error' => "Failed to create branch '$name' in repository: $repository" );
@@ -773,6 +953,11 @@ final class Team51McpTools {
 		)
 	)]
 	public function github_set_secret( string $repository, string $secret_name, string $secret_value ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$result = set_github_repository_secret( $repository, $secret_name, $secret_value );
 		if ( null === $result ) {
 			return array( 'error' => "Failed to set secret '$secret_name' in repository: $repository" );
@@ -805,6 +990,11 @@ final class Team51McpTools {
 		)
 	)]
 	public function github_create_issue( string $repository, string $title, string $body, string $labels_json = '[]' ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$labels = json_decode( $labels_json, true );
 		if ( null === $labels || ! is_array( $labels ) ) {
 			$labels = array();
@@ -827,6 +1017,11 @@ final class Team51McpTools {
 	 */
 	#[McpTool( name: 'jetpack_list_modules' )]
 	public function jetpack_list_modules(): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$modules = get_jetpack_modules();
 		if ( null === $modules ) {
 			return array( 'error' => 'Failed to fetch Jetpack modules.' );
@@ -848,6 +1043,11 @@ final class Team51McpTools {
 	 */
 	#[McpTool( name: 'jetpack_list_site_modules' )]
 	public function jetpack_list_site_modules( string $site_id_or_url ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$modules = get_jetpack_site_modules( $site_id_or_url );
 		if ( null === $modules ) {
 			return array( 'error' => "Failed to fetch Jetpack modules for site: $site_id_or_url" );
@@ -880,6 +1080,11 @@ final class Team51McpTools {
 		)
 	)]
 	public function jetpack_update_module_settings( string $site_id_or_url, string $settings_json ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$settings = json_decode( $settings_json, true );
 		if ( null === $settings || ! is_array( $settings ) ) {
 			return array( 'error' => 'Invalid settings_json. Must be a valid JSON object (e.g., {"module-name": true}).' );
@@ -906,6 +1111,11 @@ final class Team51McpTools {
 	 */
 	#[McpTool( name: 'deployhq_list_projects' )]
 	public function deployhq_list_projects(): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$projects = get_deployhq_projects();
 		if ( null === $projects ) {
 			return array( 'error' => 'Failed to fetch DeployHQ projects.' );
@@ -927,6 +1137,11 @@ final class Team51McpTools {
 	 */
 	#[McpTool( name: 'deployhq_get_project' )]
 	public function deployhq_get_project( string $project ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$proj = get_deployhq_project( $project );
 		if ( null === $proj ) {
 			return array( 'error' => "Failed to fetch DeployHQ project: $project" );
@@ -942,6 +1157,11 @@ final class Team51McpTools {
 	 */
 	#[McpTool( name: 'deployhq_list_project_servers' )]
 	public function deployhq_list_project_servers( string $project ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$servers = get_deployhq_project_servers( $project );
 		if ( null === $servers ) {
 			return array( 'error' => "Failed to fetch servers for project: $project" );
@@ -972,6 +1192,11 @@ final class Team51McpTools {
 		)
 	)]
 	public function deployhq_rotate_private_key( string $project ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$result = rotate_deployhq_project_private_key( $project );
 		if ( null === $result ) {
 			return array( 'error' => "Failed to rotate private key for DeployHQ project: $project" );
@@ -997,6 +1222,11 @@ final class Team51McpTools {
 		)
 	)]
 	public function deployhq_connect_repository( string $project, string $repository ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
 		$result = update_deployhq_project_repository( $project, $repository );
 		if ( null === $result ) {
 			return array( 'error' => "Failed to connect repository to DeployHQ project: $project" );

@@ -44,19 +44,14 @@ require_once TEAM51_CLI_ROOT_DIR . '/vendor/autoload.php';
 // don't pollute STDOUT, which is reserved for JSON-RPC communication.
 $team51_cli_output = new StreamOutput( fopen( 'php://stderr', 'w' ) );
 
-// Mark as non-autocomplete so that identity loading proceeds.
+// Mark as non-autocomplete so that identity loading proceeds when needed.
 $GLOBALS['team51_is_autocomplete'] = false;
 
-// Load the Team51 identity (1Password credentials).
-// This is required for all API calls to work.
-try {
-	require_once TEAM51_CLI_ROOT_DIR . '/load-identity.php';
-} catch ( \Throwable $e ) {
-	fwrite( STDERR, "[MCP] Failed to load identity: {$e->getMessage()}\n" );
-	exit( 1 );
-}
+// Identity (1Password credentials) is loaded lazily on first tool call,
+// not at startup. This prevents Cursor from prompting for 1Password unlock
+// every time a project is opened. See Team51McpTools::ensure_identity().
 
-fwrite( STDERR, "[MCP] Identity loaded. Starting MCP server...\n" );
+fwrite( STDERR, "[MCP] Starting MCP server (identity will load on first tool call)...\n" );
 
 // Build and start the MCP server.
 try {
