@@ -144,6 +144,21 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 	private bool $uninstall_plugins = false;
 
 	/**
+	 * Whether to skip repository operations and only perform site operations.
+	 *
+	 * @var bool
+	 */
+	private bool $skip_repository = false;
+
+	/**
+	 * Whether the current site had no deployment found (used to gracefully
+	 * fall back to site-only if branch checkout fails for a manually entered repo).
+	 *
+	 * @var bool
+	 */
+	private bool $deployment_not_found = false;
+
+	/**
 	 * Path to the CSV file with sites to process.
 	 *
 	 * @var string|null
@@ -431,41 +446,74 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 						|| str_contains( $e->getMessage(), 'GitHub repository' )
 						|| str_contains( $e->getMessage(), 'DeployHQ' );
 
-					if ( $is_deployment_error ) {
-						$deployment_type = ( 'pressable' === $site_host ) ? 'DeployHQ' : 'WPCOM GitHub';
-						$note            = "Unable to find a {$deployment_type} deployment for the site";
+					if ( ! $is_deployment_error ) {
+						// Re-throw if it's a different error.
+						throw $e;
+					}
+
+					$deployment_type = ( 'pressable' === $host ) ? 'DeployHQ' : 'WPCOM GitHub';
+					$output->writeln( "<comment>⚠ {$site_name}: Unable to find a {$deployment_type} deployment for the site.</comment>" );
+
+					// Present the user with choices for how to proceed.
+					$choices = array(
+						'enter_repo' => 'Enter a repository URL or slug manually',
+						'site_only'  => 'Skip repository, process site only (install Atlantis, handle plugins)',
+						'skip'       => 'Skip this site entirely',
+					);
+
+					$question          = new ChoiceQuestion( '<question>How would you like to proceed?</question> ', $choices, 'skip' );
+					$deployment_choice = $this->getHelper( 'question' )->ask( $input, $output, $question );
+
+					if ( 'skip' === $deployment_choice ) {
+						$note = "No {$deployment_type} deployment for the site - skipped by user";
 						$this->update_csv_row( $index, '', '', $note );
 						$output->writeln( "<comment>⚠ {$site_name}: {$note}</comment>" );
 						++$skipped;
 						continue;
 					}
-					// Re-throw if it's a different error.
-					throw $e;
+
+					$this->deployment_not_found = true;
+
+					if ( 'enter_repo' === $deployment_choice ) {
+						$repo = $this->prompt_and_resolve_repository( $input, $output );
+						if ( null === $repo ) {
+							$note = "No {$deployment_type} deployment - manual repo entry failed";
+							$this->update_csv_row( $index, '', '', $note );
+							$output->writeln( "<comment>⚠ {$site_name}: {$note}</comment>" );
+							++$skipped;
+							continue;
+						}
+						$this->gh_repository = $repo;
+					} elseif ( 'site_only' === $deployment_choice ) {
+						$this->skip_repository = true;
+					}
 				}
 
-				$this->initialize_paths_and_branch( $input );
+				if ( ! $this->skip_repository ) {
+					$this->initialize_paths_and_branch( $input );
 
-				// Determine environment and base branch.
-				$environment = $this->get_site_environment( $output );
-				if ( 'production' === $environment ) {
-					$this->git_base_branch = 'trunk';
-				}
+					// Determine environment and base branch.
+					$environment = $this->get_site_environment( $output );
+					if ( 'production' === $environment ) {
+						$this->git_base_branch = 'trunk';
+					}
 
-				// Safety check: If CSV URL indicates staging, never use trunk/master.
-				// This prevents accidentally processing production when staging was intended.
-				$csv_url_lower  = strtolower( $site_url );
-				$is_staging_url = str_contains( $csv_url_lower, 'staging' ) ||
-					str_contains( $csv_url_lower, 'mystagingwebsite' ) ||
-					str_contains( $csv_url_lower, 'wpcomstaging' ) ||
-					str_contains( $csv_url_lower, '-dev' ) ||
-					str_contains( $csv_url_lower, '-development' );
+					// Safety check: If CSV URL indicates staging, never use trunk/master.
+					// This prevents accidentally processing production when staging was intended.
+					$csv_url_lower  = strtolower( $site_url );
+					$is_staging_url = str_contains( $csv_url_lower, 'staging' ) ||
+						str_contains( $csv_url_lower, 'mystagingwebsite' ) ||
+						str_contains( $csv_url_lower, 'wpcomstaging' ) ||
+						str_contains( $csv_url_lower, '-dev' ) ||
+						str_contains( $csv_url_lower, '-development' );
 
-				if ( $is_staging_url && in_array( $this->git_base_branch, array( 'trunk', 'master' ), true ) ) {
-					$note = "Staging URL but would use {$this->git_base_branch} branch - skipping for safety";
-					$this->update_csv_row( $index, '', '', $note );
-					$output->writeln( "<error>⚠ {$site_name}: {$note}</error>" );
-					++$skipped;
-					continue;
+					if ( $is_staging_url && in_array( $this->git_base_branch, array( 'trunk', 'master' ), true ) ) {
+						$note = "Staging URL but would use {$this->git_base_branch} branch - skipping for safety";
+						$this->update_csv_row( $index, '', '', $note );
+						$output->writeln( "<error>⚠ {$site_name}: {$note}</error>" );
+						++$skipped;
+						continue;
+					}
 				}
 
 				// Process the site.
@@ -478,7 +526,14 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 					$output->writeln( "<comment>⚠ {$site_name}: {$note}</comment>" );
 					++$skipped;
 				} elseif ( Command::SUCCESS === $result ) {
-					if ( $this->pr_url ) {
+					if ( $this->skip_repository ) {
+						// Site-only processing: Atlantis installed and plugins handled, no repo operations.
+						$note = $this->skip_note
+							? "Site-only: Atlantis installed, {$this->skip_note}"
+							: 'Site-only: Atlantis installed, no deployment found (repo skipped)';
+						$this->update_csv_row( $index, '', 'Y', $note );
+						$output->writeln( "<info>✓ {$site_name} completed (site-only, no repository)</info>" );
+					} elseif ( $this->pr_url ) {
 						// Update CSV with PR URL and Merged status.
 						// Mark as 'Y' only if --merge-pr was used.
 						$merged_status = $this->merge_pr ? 'Y' : '';
@@ -527,10 +582,19 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 	 * @return  int
 	 */
 	private function process_single_site( InputInterface $input, OutputInterface $output ): int {
-		$this->write_output( $output, "<fg=magenta;options=bold>Processing repository for site {$this->site->url} (base branch: {$this->git_base_branch}).</>" );
+		if ( $this->skip_repository ) {
+			$this->write_output( $output, "<fg=magenta;options=bold>Processing site-only operations for {$this->site->url} (no repository).</>" );
+		} else {
+			$this->write_output( $output, "<fg=magenta;options=bold>Processing repository for site {$this->site->url} (base branch: {$this->git_base_branch}).</>" );
+		}
 
 		// Check PHP version first - Atlantis plugin requires PHP 8.3+.
 		$this->check_php_version( $output );
+		if ( null === $this->php_version ) {
+			$this->skip_note = 'Unable to connect to site (SSH may be disabled)';
+			$this->write_output( $output, "<error>{$this->skip_note}. Skipping site.</error>" );
+			return Command::INVALID;
+		}
 		if ( ! $this->meets_php_requirement() ) {
 			$this->skip_note = "PHP version {$this->php_version} < {$this->min_php_version} required";
 			$this->write_output( $output, "<error>{$this->skip_note}. Skipping Atlantis plugin installation.</error>" );
@@ -538,34 +602,46 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 			return Command::INVALID;
 		}
 
-		$this->clone_repo( $output );
-
-		// Checkout the base branch - handle failure gracefully.
-		$checkout_process = \run_system_command( array( 'git', 'checkout', $this->git_base_branch ), $this->repo_dir, false );
-		if ( ! $checkout_process->isSuccessful() ) {
-			$this->skip_note = "Branch '{$this->git_base_branch}' not found";
-			$this->write_output( $output, "<error>{$this->skip_note}. Skipping site.</error>" );
-			// Clean up the cloned repo folder.
-			if ( $this->repo_dir && $this->repos_dir && str_starts_with( $this->repo_dir, $this->repos_dir ) ) {
-				\run_system_command( array( 'rm', '-rf', $this->repo_dir ), $this->repo_dir, false );
-			}
-			// Return a special status to indicate branch issue (caller will handle CSV update).
-			return Command::INVALID;
-		}
-
-		// Checkout the branch 'remove/atlantis-legacy-modules'.
-		$this->git_checkout_branch( 'remove/atlantis-legacy-modules', $output );
-
-		// Check for legacy modules and delete them if they exist.
-		$this->write_output( $output, '' );
-		$this->write_output( $output, '<fg=cyan;options=bold>Searching for legacy modules to remove...</>' );
-
-		// First, find which legacy modules exist.
 		$found_modules = array();
-		foreach ( $this->legacy_modules as $plugin_name ) {
-			$plugin_info = $this->find_plugin( $plugin_name, $output );
-			if ( null !== $plugin_info ) {
-				$found_modules[ $plugin_name ] = $plugin_info;
+
+		if ( ! $this->skip_repository ) {
+			$this->clone_repo( $output );
+
+			// Checkout the base branch - handle failure gracefully.
+			$checkout_process = \run_system_command( array( 'git', 'checkout', $this->git_base_branch ), $this->repo_dir, false );
+			if ( ! $checkout_process->isSuccessful() ) {
+				// Clean up the cloned repo folder.
+				if ( $this->repo_dir && $this->repos_dir && str_starts_with( $this->repo_dir, $this->repos_dir ) ) {
+					\run_system_command( array( 'rm', '-rf', $this->repo_dir ), $this->repo_dir, false );
+				}
+
+				if ( $this->deployment_not_found ) {
+					// Repo was manually entered due to missing deployment — fall back to site-only.
+					$this->skip_repository = true;
+					$this->skip_note       = "Repo specified but branch '{$this->git_base_branch}' not found";
+					$this->write_output( $output, "<comment>{$this->skip_note}. Continuing with site-only operations.</comment>" );
+				} else {
+					$this->skip_note = "Branch '{$this->git_base_branch}' not found";
+					$this->write_output( $output, "<error>{$this->skip_note}. Skipping site.</error>" );
+					return Command::INVALID;
+				}
+			}
+
+			if ( ! $this->skip_repository ) {
+				// Checkout the branch 'remove/atlantis-legacy-modules'.
+				$this->git_checkout_branch( 'remove/atlantis-legacy-modules', $output );
+
+				// Check for legacy modules and delete them if they exist.
+				$this->write_output( $output, '' );
+				$this->write_output( $output, '<fg=cyan;options=bold>Searching for legacy modules to remove...</>' );
+
+				// First, find which legacy modules exist.
+				foreach ( $this->legacy_modules as $plugin_name ) {
+					$plugin_info = $this->find_plugin( $plugin_name, $output );
+					if ( null !== $plugin_info ) {
+						$found_modules[ $plugin_name ] = $plugin_info;
+					}
+				}
 			}
 		}
 
@@ -576,7 +652,7 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 		// Always install the Atlantis plugin.
 		$plugin_installed = $this->install_atlantis_plugin( $output );
 
-		if ( $plugin_installed && ! empty( $found_modules ) ) {
+		if ( ! $this->skip_repository && $plugin_installed && ! empty( $found_modules ) ) {
 			// Delete the found modules from the repository.
 			foreach ( $found_modules as $plugin_name => $plugin_info ) {
 				$this->delete_plugin( $plugin_name, $plugin_info['location'], $plugin_info['path'], $output );
@@ -590,7 +666,7 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 			$this->uninstall_plugins_from_wordpress( $output );
 		}
 
-		if ( count( $this->removed_modules ) > 0 ) {
+		if ( ! $this->skip_repository && count( $this->removed_modules ) > 0 ) {
 			$this->stage_commit_push_pr_and_merge( $input, $output );
 
 			// Delete the repository folder (with safety check).
@@ -785,6 +861,56 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+	}
+
+	/**
+	 * Prompts the user for a GitHub repository URL or slug and resolves it via the GitHub API.
+	 *
+	 * Accepts a plain slug ("my-repo"), org/slug ("a8cteam51/my-repo"),
+	 * a full HTTPS URL ("https://github.com/a8cteam51/my-repo"), or
+	 * an SSH clone URL ("git@github.com:a8cteam51/my-repo.git").
+	 *
+	 * @param   InputInterface  $input  The input object.
+	 * @param   OutputInterface $output The output object.
+	 *
+	 * @return  \stdClass|null The resolved GitHub repository object, or null on failure.
+	 */
+	private function prompt_and_resolve_repository( InputInterface $input, OutputInterface $output ): ?\stdClass {
+		$question   = new Question( '<question>Enter the GitHub repository URL or slug (e.g. "my-repo" or "https://github.com/a8cteam51/my-repo"):</question> ' );
+		$repo_input = $this->getHelper( 'question' )->ask( $input, $output, $question );
+
+		if ( empty( $repo_input ) ) {
+			$output->writeln( '<error>No repository provided.</error>' );
+			return null;
+		}
+
+		$repo_input = trim( $repo_input );
+
+		// Try to parse as a full URL (HTTPS or SSH).
+		$git_url = str_ends_with( $repo_input, '.git' ) ? $repo_input : $repo_input . '.git';
+		$parsed  = parse_github_remote_repository_url( $git_url );
+
+		if ( null !== $parsed && ! empty( $parsed->repo ) ) {
+			$repo_slug = $parsed->repo;
+		} elseif ( str_contains( $repo_input, '/' ) ) {
+			// Handle "org/repo" format — extract the repo part.
+			$parts     = explode( '/', rtrim( $repo_input, '/' ) );
+			$repo_slug = end( $parts );
+		} else {
+			// Plain slug.
+			$repo_slug = $repo_input;
+		}
+
+		$output->writeln( "<comment>Resolving repository: {$repo_slug}...</comment>" );
+
+		$repository = get_github_repository( $repo_slug );
+		if ( null === $repository || empty( $repository->name ) ) {
+			$output->writeln( "<error>Could not find GitHub repository: {$repo_slug}</error>" );
+			return null;
+		}
+
+		$output->writeln( "<info>Found repository: {$repository->name} ({$repository->clone_url})</info>" );
+		return $repository;
 	}
 
 	/**
@@ -1550,16 +1676,18 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 	 * @return  void
 	 */
 	private function reset_site_state(): void {
-		$this->site             = null;
-		$this->deployhq_project = null;
-		$this->gh_repository    = null;
-		$this->gh_repo_branch   = null;
-		$this->repo_dir         = null;
-		$this->removed_modules  = array();
-		$this->git_base_branch  = 'develop';
-		$this->php_version      = null;
-		$this->skip_note        = null;
-		$this->csv_url          = null;
+		$this->site                 = null;
+		$this->deployhq_project     = null;
+		$this->gh_repository        = null;
+		$this->gh_repo_branch       = null;
+		$this->repo_dir             = null;
+		$this->removed_modules      = array();
+		$this->git_base_branch      = 'develop';
+		$this->php_version          = null;
+		$this->skip_note            = null;
+		$this->csv_url              = null;
+		$this->skip_repository      = false;
+		$this->deployment_not_found = false;
 	}
 
 	// endregion
