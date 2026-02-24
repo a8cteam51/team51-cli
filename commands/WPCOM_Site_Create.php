@@ -155,7 +155,7 @@ final class WPCOM_Site_Create extends Command {
 		);
 		run_wpcom_site_wp_cli_command(
 			$transfer->blog_id,
-			'plugin install https://github.com/a8cteam51/plugin-autoupdate-filter/releases/latest/download/plugin-autoupdate-filter.zip --activate',
+			'plugin install https://github.com/a8cteam51/a8csp-atlantis/releases/latest/download/a8csp-atlantis.zip --activate',
 		);
 
 		// Create a GitHub Deployment project for the site.
