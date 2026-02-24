@@ -547,8 +547,10 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 					}
 					++$processed;
 				} else {
+					$note = $this->skip_note ?? 'Processing failed';
+					$this->update_csv_row( $index, '', '', $note );
 					++$failed;
-					$output->writeln( "<error>✗ {$site_name} failed</error>" );
+					$output->writeln( "<error>✗ {$site_name} failed: {$note}</error>" );
 				}
 			} catch ( \Exception $e ) {
 				$note = 'Error: ' . $e->getMessage();
@@ -651,6 +653,11 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 
 		// Always install the Atlantis plugin.
 		$plugin_installed = $this->install_atlantis_plugin( $output );
+
+		if ( ! $plugin_installed ) {
+			$this->skip_note = 'Atlantis plugin installation failed (site has a critical error)';
+			return Command::FAILURE;
+		}
 
 		if ( ! $this->skip_repository && $plugin_installed && ! empty( $found_modules ) ) {
 			// Delete the found modules from the repository.
@@ -1289,7 +1296,7 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 	 * @return  bool True if plugin was installed and activated successfully, false otherwise.
 	 */
 	private function install_atlantis_plugin( OutputInterface $output ): bool {
-		$plugin_url      = 'https://github.com/a8cteam51/a8csp-atlantis/releases/download/v1.0.2/a8csp-atlantis.zip';
+		$plugin_url      = 'https://github.com/a8cteam51/a8csp-atlantis/releases/download/v1.0.3/a8csp-atlantis.zip';
 		$site_identifier = 'atomic' === $this->host ? $this->site->ID : $this->site->id;
 
 		$this->write_output( $output, '' );
@@ -1306,9 +1313,9 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 				$install_result = run_wpcom_site_wp_cli_command( $site_identifier, $install_command, $this->quiet );
 			}
 
-			// Check if installation was successful.
-			if ( Command::SUCCESS !== $install_result ) {
-				$this->write_output( $output, '  <error>Plugin installation failed.</error>' );
+			// Check if installation was successful (check both return code and WP-CLI output).
+			if ( Command::SUCCESS !== $install_result || $this->wp_cli_output_has_errors() ) {
+				$this->write_output( $output, '  <error>Plugin installation failed (site has a critical error).</error>' );
 				return false;
 			}
 
@@ -1324,9 +1331,9 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 				$activate_result = run_wpcom_site_wp_cli_command( $site_identifier, $activate_command, $this->quiet );
 			}
 
-			// Check if activation was successful.
-			if ( Command::SUCCESS !== $activate_result ) {
-				$this->write_output( $output, '  <error>Plugin activation failed.</error>' );
+			// Check if activation was successful (check both return code and WP-CLI output).
+			if ( Command::SUCCESS !== $activate_result || $this->wp_cli_output_has_errors() ) {
+				$this->write_output( $output, '  <error>Plugin activation failed (site has a critical error).</error>' );
 				return false;
 			}
 
@@ -1367,6 +1374,12 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 				run_pressable_site_wp_cli_command( $site_identifier, $list_command, true );
 			} else {
 				run_wpcom_site_wp_cli_command( $site_identifier, $list_command, true );
+			}
+
+			// Check for critical errors in WP-CLI output before parsing.
+			if ( $this->wp_cli_output_has_errors() ) {
+				$this->write_output( $output, '  <comment>Could not parse plugin list (site has a critical error).</comment>' );
+				return;
 			}
 
 			// Get the output from the global variable.
@@ -1454,6 +1467,12 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 				run_pressable_site_wp_cli_command( $site_identifier, $command, $this->quiet );
 			} else {
 				run_wpcom_site_wp_cli_command( $site_identifier, $command, $this->quiet );
+			}
+
+			// Check for critical errors in WP-CLI output.
+			if ( $this->wp_cli_output_has_errors() ) {
+				$this->write_output( $output, '  <error>Plugin uninstall may have failed (site has a critical error).</error>' );
+				return;
 			}
 
 			$this->write_output( $output, '  <info>✓ Plugins deactivated and uninstalled from WordPress</info>' );
@@ -1668,6 +1687,27 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 		}
 
 		fclose( $handle );
+	}
+
+	/**
+	 * Checks whether the last WP-CLI command output contains fatal/critical error indicators.
+	 *
+	 * The underlying WP-CLI command runners always return Command::SUCCESS as long as
+	 * the SSH connection succeeds, even when WP-CLI itself encounters a fatal PHP error.
+	 * This method inspects the captured output to detect such failures.
+	 *
+	 * @return  bool True if the output contains error indicators, false otherwise.
+	 */
+	private function wp_cli_output_has_errors(): bool {
+		$wp_cli_output = $GLOBALS['wp_cli_output'] ?? '';
+
+		if ( empty( $wp_cli_output ) ) {
+			return false;
+		}
+
+		// Check for common WP-CLI / PHP fatal error patterns.
+		return str_contains( $wp_cli_output, 'Fatal error:' )
+			|| str_contains( $wp_cli_output, 'critical error on this website' );
 	}
 
 	/**
