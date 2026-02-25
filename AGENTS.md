@@ -188,8 +188,6 @@ These are intentional; do not "fix" them without team discussion.
 
 7. **team51-configs as dev dependency** — PHPCS extends `vendor/a8cteam51/team51-configs/...`. Run `composer install` with dev dependencies.
 
-8. **ulimit** — Some commands (e.g. `remove-user` with many workers) need `ulimit -n 8192` to avoid "too many open files".
-
 ---
 
 ## Where to Find More
