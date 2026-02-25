@@ -154,11 +154,6 @@ If you get the error `./install-osx: line 2: composer: command not found`, you c
 
 If you don't have [brew](https://brew.sh/) yet, install it by executing this from your Terminal: `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"` — Tip: you can use brew to install all sort of apps on your Mac. Give it [a try](https://formulae.brew.sh/cask/zoom)
 
-### `failed to open stream: Too many open files`
-
-For certain commands involving the use of PHP workers threads, you might need to increase the `ulimit` on your local computer. To increase this number, you can run on the terminal: `ulimit -n 8192`.
-
-A particular case where this might be needed is when using the `remove-user` command. If you get a `PHP Warning:` `failed to open stream: Too many open files...` try upgrading the ulimit as described above.
 
 ### `env: php: No such file or directory`
 
