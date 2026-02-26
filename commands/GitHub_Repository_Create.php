@@ -193,6 +193,13 @@ final class GitHub_Repository_Create extends Command {
 			$this->wait_for_fill_in_scaffold_placeholders_action_to_complete( $output, $repository->name );
 		}
 
+		if ( in_array( $this->type, array( 'no-code-project', 'project' ), true ) ) {
+			if ( ! $this->sync_agent_context_files( $output, $repository ) ) {
+				$output->writeln( '<error>Failed to sync agent context files to the new repository.</error>' );
+				return Command::FAILURE;
+			}
+		}
+
 		$output->writeln( "<fg=green;options=bold>Repository $this->name created successfully.</>" );
 		return Command::SUCCESS;
 	}
@@ -421,6 +428,208 @@ final class GitHub_Repository_Create extends Command {
 		}
 
 		$output->writeln( '<fg=green>Theme files added and pushed successfully.</>' );
+		return true;
+	}
+
+	/**
+	 * Syncs shared AI agent context files into the newly created repository.
+	 *
+	 * @param   OutputInterface $output     The output interface.
+	 * @param   stdClass        $repository The repository object.
+	 *
+	 * @return  boolean
+	 */
+	private function sync_agent_context_files( OutputInterface $output, stdClass $repository ): bool {
+		$output->writeln( '<fg=magenta;options=bold>Syncing agent context files into the new repository...</>' );
+
+		$temp_root       = sys_get_temp_dir() . '/' . uniqid( 'github-repo-context-sync-' );
+		$destination_dir = $temp_root . '/destination';
+		$source_dir      = $temp_root . '/agent-context';
+
+		if ( ! mkdir( $temp_root ) && ! is_dir( $temp_root ) ) {
+			$output->writeln( '<error>Failed to create temporary directory for agent context sync.</error>' );
+			return false;
+		}
+
+		try {
+			$destination_clone_process = run_system_command(
+				array( 'git', 'clone', $repository->ssh_url, $destination_dir ),
+				'.',
+				false
+			);
+
+			if ( ! $destination_clone_process->isSuccessful() ) {
+				$output->writeln( '<error>Failed to clone the destination repository.</error>' );
+				return false;
+			}
+
+			$context_clone_process = run_system_command(
+				array( 'git', 'clone', '--recurse-submodules', 'git@github.com:a8cteam51/a8csp-agent-context.git', $source_dir ),
+				'.',
+				false
+			);
+
+			if ( ! $context_clone_process->isSuccessful() ) {
+				$output->writeln( '<error>Failed to clone `a8csp-agent-context` with submodules.</error>' );
+				return false;
+			}
+
+			$this->remove_path( $destination_dir . '/.agents' );
+			$this->remove_path( $destination_dir . '/AGENTS.md' );
+			$this->remove_path( $destination_dir . '/CLAUDE.md' );
+
+			if ( ! $this->copy_path( $source_dir . '/.agents', $destination_dir . '/.agents' ) ) {
+				$output->writeln( '<error>Failed to copy `.agents` into destination repository.</error>' );
+				return false;
+			}
+
+			if ( ! $this->copy_path( $source_dir . '/AGENTS.md', $destination_dir . '/AGENTS.md' ) ) {
+				$output->writeln( '<error>Failed to copy `AGENTS.md` into destination repository.</error>' );
+				return false;
+			}
+
+			if ( ! $this->copy_path( $source_dir . '/CLAUDE.md', $destination_dir . '/CLAUDE.md' ) ) {
+				$output->writeln( '<error>Failed to copy `CLAUDE.md` into destination repository.</error>' );
+				return false;
+			}
+
+			// Vendored mode requires normal files, not a submodule gitlink/metadata.
+			$this->remove_path( $destination_dir . '/.agents/skills/wordpress/.git' );
+			$this->remove_path( $destination_dir . '/.gitmodules' );
+
+			$git_add_process = run_system_command(
+				array( 'git', 'add', '--all' ),
+				$destination_dir,
+				false
+			);
+
+			if ( ! $git_add_process->isSuccessful() ) {
+				$output->writeln( '<error>Failed to stage synced agent context files.</error>' );
+				return false;
+			}
+
+			$git_status_process = run_system_command(
+				array( 'git', 'status', '--porcelain' ),
+				$destination_dir,
+				false
+			);
+
+			if ( ! $git_status_process->isSuccessful() ) {
+				$output->writeln( '<error>Failed to determine whether synced files changed.</error>' );
+				return false;
+			}
+
+			if ( '' === trim( $git_status_process->getOutput() ) ) {
+				$output->writeln( '<comment>Agent context files are already up to date. Skipping sync commit.</comment>' );
+				return true;
+			}
+
+			$git_commit_process = run_system_command(
+				array( 'git', 'commit', '-m', 'Sync agent context files from a8csp-agent-context' ),
+				$destination_dir,
+				false
+			);
+
+			if ( ! $git_commit_process->isSuccessful() ) {
+				$output->writeln( '<error>Failed to commit synced agent context files.</error>' );
+				return false;
+			}
+
+			$git_push_process = run_system_command(
+				array( 'git', 'push', 'origin', 'trunk' ),
+				$destination_dir,
+				false
+			);
+
+			if ( ! $git_push_process->isSuccessful() ) {
+				$output->writeln( '<error>Failed to push synced agent context files to `trunk`.</error>' );
+				return false;
+			}
+		} finally {
+			$this->remove_path( $temp_root );
+		}
+
+		$output->writeln( '<fg=green;options=bold>Agent context files synced successfully.</>' );
+		return true;
+	}
+
+	/**
+	 * Removes a file or directory path recursively when it exists.
+	 *
+	 * @param   string $path The absolute path to remove.
+	 *
+	 * @return  boolean
+	 */
+	private function remove_path( string $path ): bool {
+		if ( ! file_exists( $path ) && ! is_link( $path ) ) {
+			return true;
+		}
+
+		if ( is_file( $path ) || is_link( $path ) ) {
+			return unlink( $path );
+		}
+
+		$items = scandir( $path );
+		if ( false === $items ) {
+			return false;
+		}
+
+		foreach ( $items as $item ) {
+			if ( '.' === $item || '..' === $item ) {
+				continue;
+			}
+
+			if ( ! $this->remove_path( $path . '/' . $item ) ) {
+				return false;
+			}
+		}
+
+		return rmdir( $path );
+	}
+
+	/**
+	 * Copies a file or directory recursively.
+	 *
+	 * @param   string $source      The source path.
+	 * @param   string $destination The destination path.
+	 *
+	 * @return  boolean
+	 */
+	private function copy_path( string $source, string $destination ): bool {
+		if ( is_file( $source ) ) {
+			$destination_dir = dirname( $destination );
+			if ( ! is_dir( $destination_dir ) && ! mkdir( $destination_dir, 0777, true ) && ! is_dir( $destination_dir ) ) {
+				return false;
+			}
+
+			return copy( $source, $destination );
+		}
+
+		if ( ! is_dir( $source ) ) {
+			return false;
+		}
+
+		if ( ! is_dir( $destination ) && ! mkdir( $destination, 0777, true ) && ! is_dir( $destination ) ) {
+			return false;
+		}
+
+		$items = scandir( $source );
+		if ( false === $items ) {
+			return false;
+		}
+
+		foreach ( $items as $item ) {
+			if ( '.' === $item || '..' === $item ) {
+				continue;
+			}
+
+			$source_path      = $source . '/' . $item;
+			$destination_path = $destination . '/' . $item;
+			if ( ! $this->copy_path( $source_path, $destination_path ) ) {
+				return false;
+			}
+		}
+
 		return true;
 	}
 
