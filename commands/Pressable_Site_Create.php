@@ -233,30 +233,7 @@ final class Pressable_Site_Create extends Command {
 	 * @return  string|null
 	 */
 	private function prompt_no_code_theme_input( InputInterface $input, OutputInterface $output, array $themes ): ?string {
-		$theme_slugs  = array_map( fn( $theme ) => $theme->slug, $themes );
-		$theme_names  = array_map( fn( $theme ) => $theme->name, $themes );
-		$name_to_slug = array_combine( $theme_names, $theme_slugs );
-
-		$autocompleter_values = array_merge( $theme_slugs, $theme_names );
-
-		$question = new Question(
-			'<question>Please start typing the slug or name of the no-code theme to use. Choose "wpcom-theme" for internal or unlisted themes:</question> '
-		);
-		$question->setAutocompleterValues( $autocompleter_values );
-
-		$selected = $this->getHelper( 'question' )->ask( $input, $output, $question );
-
-		// Normalize input: if it's a name, convert to slug
-		if ( in_array( $selected, $theme_slugs, true ) ) {
-			return $selected;
-		}
-
-		if ( isset( $name_to_slug[ $selected ] ) ) {
-			return $name_to_slug[ $selected ];
-		}
-
-		$output->writeln( '<error>Invalid theme slug or name selected.</error>' );
-		return null;
+		return prompt_wporg_theme_input( $input, $output, $this->getHelper( 'question' ), $themes );
 	}
 
 	/**
