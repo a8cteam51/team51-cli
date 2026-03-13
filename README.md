@@ -97,11 +97,11 @@ claude mcp add team51 -- team51 --mcp
 
 ### Available Tools
 
-The MCP server exposes 39 tools across all services:
+The MCP server exposes 43 tools across all services:
 
 | Service | Read Tools | Write Tools |
 |---------|-----------|-------------|
-| **WPCOM** | `wpcom_list_sites`, `wpcom_get_site`, `wpcom_list_site_plugins`, `wpcom_list_site_stickers`, `wpcom_list_sites_with_sticker`, `wpcom_get_site_stats`, `wpcom_list_site_users` | `wpcom_add_sticker`, `wpcom_remove_sticker`, `wpcom_update_site`, `wpcom_rotate_sftp_password` |
+| **WPCOM** | `wpcom_list_sites`, `wpcom_get_site`, `wpcom_list_site_plugins`, `wpcom_list_site_stickers`, `wpcom_list_sites_with_sticker`, `wpcom_get_site_stats`, `wpcom_list_site_users`, `wpcom_list_deployment_webhooks` | `wpcom_add_sticker`, `wpcom_remove_sticker`, `wpcom_update_site`, `wpcom_rotate_sftp_password`, `wpcom_create_deployment_webhook`, `wpcom_delete_deployment_webhook`, `wpcom_sync_deployment_webhook_secret` |
 | **Pressable** | `pressable_list_sites`, `pressable_get_site`, `pressable_get_php_errors`, `pressable_list_collaborators`, `pressable_list_sftp_users`, `pressable_list_site_domains` | `pressable_create_site_note`, `pressable_add_collaborator`, `pressable_remove_collaborator`, `pressable_add_domain`, `pressable_rotate_sftp_password` |
 | **GitHub** | `github_list_repositories`, `github_get_repository`, `github_list_branches`, `github_list_secrets`, `github_list_workflow_runs` | `github_set_topics`, `github_create_branch`, `github_set_secret`, `github_create_issue` |
 | **Jetpack** | `jetpack_list_modules`, `jetpack_list_site_modules` | `jetpack_update_module_settings` |
@@ -121,6 +121,29 @@ This CLI tool is self-documenting. You can view a list of available commands wit
 You can then do `team51 <command-name> --help`.
 
 A copy of that documentation is also available on the [Github Wiki for this repository](https://github.com/a8cteam51/team51-cli/wiki). When developing, if you add any new commands or update any descriptions, help, or arguments, [follow these instructions to update the documentation](https://github.com/a8cteam51/team51-cli/wiki/Updating-the-CLI-command-documentation).
+
+### WPCOM GitHub Deployment webhooks
+
+When running `wpcom:connect-site-repository`, Team51 CLI now also creates a WordPress.com deployment webhook and attempts to sync the one-time webhook secret to OpsOasis so signature verification works on:
+
+- `https://opsoasis.wpspecialprojects.com/wp-json/wpcomsp/webhooks/v1/wpcom-deployments`
+
+Standalone webhook commands are also available:
+
+```bash
+# Create and sync a deployment webhook secret to OpsOasis (default behavior)
+team51 wpcom:site:deployment:webhook:create <site> [deployment_id]
+
+# Skip automatic secret sync (prints structured payload for manual sync)
+team51 wpcom:site:deployment:webhook:create <site> [deployment_id] --no-sync-secret
+
+# Optional management commands
+team51 wpcom:site:deployment:webhook:list <site> [deployment_id]
+team51 wpcom:site:deployment:webhook:delete <site> [deployment_id] <webhook_id>
+
+# Manual secret sync fallback (if automatic sync fails)
+team51 wpcom:site:deployment:webhook:sync-secret <site> <deployment_id> <webhook_id> <secret> --url="https://opsoasis.wpspecialprojects.com/wp-json/wpcomsp/webhooks/v1/wpcom-deployments" --events="building,queued,started,completed,failed,cancelled"
+```
 
 ### Conventions around defaults
 

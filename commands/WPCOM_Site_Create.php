@@ -160,7 +160,7 @@ final class WPCOM_Site_Create extends Command {
 
 		// Create a GitHub Deployment project for the site.
 		if ( ! \is_null( $this->gh_repository ) ) {
-			run_app_command(
+			$status = run_app_command(
 				WPCOM_Site_Repository_Connect::getDefaultName(),
 				array(
 					'site'         => $transfer->blog_id,
@@ -170,6 +170,10 @@ final class WPCOM_Site_Create extends Command {
 					'--deploy'     => true,
 				)
 			);
+			if ( Command::SUCCESS !== $status ) {
+				$output->writeln( '<error>Site was created, but connecting the GitHub deployment (including webhook setup) failed.</error>' );
+				return Command::FAILURE;
+			}
 		}
 
 		$output->writeln( "<fg=green;options=bold>Site $this->name created successfully.</>" );

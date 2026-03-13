@@ -64,8 +64,8 @@ final class WPCOM_Site_Repository_Connect extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function configure(): void {
-		$this->setDescription( 'Connects a WordPress.com site to a GitHub repository for deployments.' )
-			->setHelp( 'Use this command to connect a WordPress.com site to a GitHub repository for deployments.' );
+		$this->setDescription( 'Connects a WordPress.com site to a GitHub repository for deployments and configures deployment webhooks.' )
+			->setHelp( 'Use this command to connect a WordPress.com site to a GitHub repository for deployments, create a deployment webhook, and sync the webhook secret to OpsOasis.' );
 
 		$this->addArgument( 'site', InputArgument::REQUIRED, 'Domain or WPCOM ID of the site to connect the repository to.' )
 			->addArgument( 'repository', InputArgument::REQUIRED, 'The slug of the GitHub repository to connect.' );
@@ -99,7 +99,7 @@ final class WPCOM_Site_Repository_Connect extends Command {
 	 */
 	protected function interact( InputInterface $input, OutputInterface $output ): void {
 		$question = new ConfirmationQuestion( "<question>Are you sure you want to connect the WPCOM site `{$this->site->name}` (ID {$this->site->ID}, URL {$this->site->URL}) to the GitHub repository `{$this->gh_repository->full_name}`? [y/N]</question> ", false );
-		if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
+		if ( true !== $this->ask_question( $input, $output, $question ) ) {
 			$output->writeln( '<comment>Command aborted by user.</comment>' );
 			exit( 2 );
 		}
@@ -116,6 +116,80 @@ final class WPCOM_Site_Repository_Connect extends Command {
 			$output->writeln( '<error>Failed to connect the site with the repository.</error>' );
 			return Command::FAILURE;
 		}
+
+		$webhook_url        = get_wpcom_site_code_deployment_webhook_default_url();
+		$webhook_events_csv = get_wpcom_site_code_deployment_webhook_default_events();
+		$webhook_response   = create_wpcom_site_code_deployment_webhook(
+			(string) $this->site->ID,
+			(string) $code_deployment->id,
+			$webhook_url,
+			$webhook_events_csv
+		);
+		if ( \is_null( $webhook_response ) ) {
+			$output->writeln( '<error>Failed to create the WordPress.com deployment webhook.</error>' );
+			return Command::FAILURE;
+		}
+
+		$webhook = get_wpcom_site_code_deployment_webhook_from_response( $webhook_response );
+		$secret  = get_wpcom_site_code_deployment_webhook_secret_from_response( $webhook_response );
+		if ( \is_null( $secret ) || '' === trim( $secret ) ) {
+			$output->writeln( '<error>Webhook was created but no secret was returned. Cannot configure OpsOasis verification.</error>' );
+			return Command::FAILURE;
+		}
+
+		$webhook_events = normalize_wpcom_site_code_deployment_webhook_events( $webhook->events ?? $webhook_events_csv );
+
+		$secret_sync_succeeded = true === sync_wpcom_site_code_deployment_webhook_secret(
+			(string) $this->site->ID,
+			(string) $code_deployment->id,
+			(string) $webhook->id,
+			$webhook->url ?? $webhook_url,
+			$webhook_events,
+			$secret
+		);
+		if ( ! $secret_sync_succeeded ) {
+			$output->writeln( '<error>Deployment webhook was created, but syncing the webhook secret to OpsOasis failed.</error>' );
+			$output->writeln( '<comment>Store this secret immediately in OpsOasis to avoid signature verification failures:</comment>' );
+			$output->writeln(
+				encode_json_content(
+					array(
+						'site_id'       => (int) $this->site->ID,
+						'deployment_id' => (string) $code_deployment->id,
+						'webhook_id'    => (string) $webhook->id,
+						'url'           => $webhook->url ?? $webhook_url,
+						'events'        => $webhook_events,
+						'secret'        => $secret,
+					)
+				)
+			);
+			$sync_secret_command = sprintf(
+				'team51 --dev %s %s %s %s %s --url=%s --events=%s',
+				WPCOM_Site_Deployment_Webhook_Secret_Sync::getDefaultName(),
+				escapeshellarg( (string) $this->site->ID ),
+				escapeshellarg( (string) $code_deployment->id ),
+				escapeshellarg( (string) $webhook->id ),
+				escapeshellarg( $secret ),
+				escapeshellarg( (string) ( $webhook->url ?? $webhook_url ) ),
+				escapeshellarg( implode( ',', $webhook_events ) )
+			);
+			$output->writeln( "<comment>Copy/paste to retry sync:</comment>\n$sync_secret_command" );
+			return Command::FAILURE;
+		}
+
+		output_table(
+			$output,
+			array(
+				array(
+					(string) $this->site->ID,
+					(string) $code_deployment->id,
+					(string) $webhook->id,
+					is_array( $webhook->events ?? null ) ? implode( ',', $webhook->events ) : ( $webhook->events ?? $webhook_events_csv ),
+					$secret_sync_succeeded ? 'yes' : 'no',
+				),
+			),
+			array( 'Site ID', 'Deployment ID', 'Webhook ID', 'Events', 'Secret sync succeeded' ),
+			'WPCOM deployment webhook'
+		);
 
 		$output->writeln( "<fg=green;options=bold>Site `{$this->site->name}` connected to repository `{$this->gh_repository->full_name}` successfully.</>" );
 
@@ -163,7 +237,7 @@ final class WPCOM_Site_Repository_Connect extends Command {
 			);
 		}
 
-		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+		return $this->ask_question( $input, $output, $question );
 	}
 
 	/**
@@ -180,7 +254,7 @@ final class WPCOM_Site_Repository_Connect extends Command {
 			$question->setAutocompleterValues( array_column( get_github_repositories() ?? array(), 'name' ) );
 		}
 
-		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+		return $this->ask_question( $input, $output, $question );
 	}
 
 	/**
@@ -197,7 +271,7 @@ final class WPCOM_Site_Repository_Connect extends Command {
 			$question->setAutocompleterValues( array_column( get_github_repository_branches( $this->gh_repository->name ) ?? array(), 'name' ) );
 		}
 
-		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+		return $this->ask_question( $input, $output, $question );
 	}
 
 	/**
@@ -210,7 +284,27 @@ final class WPCOM_Site_Repository_Connect extends Command {
 	 */
 	private function prompt_target_dir_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Enter the target directory to deploy to [/wp-content/]:</question> ', '/wp-content/' );
-		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+		return $this->ask_question( $input, $output, $question );
+	}
+
+	/**
+	 * Asks a Symfony console question with the question helper.
+	 *
+	 * @param   InputInterface  $input    The input object.
+	 * @param   OutputInterface $output   The output object.
+	 * @param   Question        $question The question to ask.
+	 *
+	 * @throws  \RuntimeException If the Symfony question helper is unavailable.
+	 *
+	 * @return  mixed
+	 */
+	private function ask_question( InputInterface $input, OutputInterface $output, Question $question ): mixed {
+		$question_helper = $this->getHelper( 'question' );
+		if ( ! $question_helper instanceof \Symfony\Component\Console\Helper\QuestionHelper ) {
+			throw new \RuntimeException( 'Question helper is unavailable.' );
+		}
+
+		return $question_helper->ask( $input, $output, $question );
 	}
 
 	// endregion
