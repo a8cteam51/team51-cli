@@ -81,8 +81,9 @@ final class API_Helper {
 	 * @return  stdClass|stdClass[]|true|null
 	 */
 	public static function make_opsoasis_request( string $endpoint, string $method = 'GET', mixed $body = null ): stdClass|array|true|null {
+		$base_url = rtrim( self::get_request_base_url(), '/' ) . '/';
 		$endpoint = ltrim( $endpoint, '/' );
-		return self::make_request( self::get_request_base_url() . $endpoint, $method, $body );
+		return self::make_request( $base_url . $endpoint, $method, $body );
 	}
 
 	/**
@@ -109,7 +110,8 @@ final class API_Helper {
 	 * @return  string
 	 */
 	protected static function get_request_base_url(): string {
-		return getenv( 'TEAM51_OPSOASIS_BASE_URL' ) ?: 'https://opsoasis.wpspecialprojects.com/wp-json/wpcomsp/';
+		$base_url = getenv( 'TEAM51_OPSOASIS_BASE_URL' ) ?: 'https://opsoasis.wpspecialprojects.com/wp-json/wpcomsp/';
+		return rtrim( $base_url, '/' ) . '/';
 	}
 
 	/**

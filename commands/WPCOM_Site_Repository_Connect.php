@@ -133,6 +133,27 @@ final class WPCOM_Site_Repository_Connect extends Command {
 		$webhook = get_wpcom_site_code_deployment_webhook_from_response( $webhook_response );
 		$secret  = get_wpcom_site_code_deployment_webhook_secret_from_response( $webhook_response );
 		if ( \is_null( $secret ) || '' === trim( $secret ) ) {
+			$delete_response = null;
+			try {
+				$delete_result = delete_wpcom_site_code_deployment_webhook(
+					(string) $this->site->ID,
+					(string) $code_deployment->id,
+					(string) $webhook->id,
+					$delete_response
+				);
+				if ( true === $delete_result ) {
+					$output->writeln( "<comment>Deleted orphaned deployment webhook {$webhook->id} because WPCOM did not return a secret.</comment>" );
+				} else {
+					$output->writeln(
+						'<comment>Failed to delete orphaned deployment webhook after missing secret response: '
+						. ( is_null( $delete_response ) ? 'null' : encode_json_content( $delete_response ) )
+						. '</comment>'
+					);
+				}
+			} catch ( \Throwable $e ) {
+				$output->writeln( '<comment>Failed to delete orphaned deployment webhook after missing secret response: ' . $e->getMessage() . '</comment>' );
+			}
+
 			$output->writeln( '<error>Webhook was created but no secret was returned. Cannot configure OpsOasis verification.</error>' );
 			return Command::FAILURE;
 		}

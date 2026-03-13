@@ -6,7 +6,6 @@ use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
-use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\Question;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
@@ -47,20 +46,6 @@ final class WPCOM_Site_Deployment_Webhook_Secret_Sync extends Command {
 	private ?string $secret = null;
 
 	/**
-	 * Webhook URL.
-	 *
-	 * @var string|null
-	 */
-	private ?string $url = null;
-
-	/**
-	 * Comma-separated event list.
-	 *
-	 * @var string|null
-	 */
-	private ?string $events = null;
-
-	/**
 	 * {@inheritDoc}
 	 */
 	protected function configure(): void {
@@ -71,9 +56,6 @@ final class WPCOM_Site_Deployment_Webhook_Secret_Sync extends Command {
 			->addArgument( 'deployment_id', InputArgument::REQUIRED, 'The code deployment ID.' )
 			->addArgument( 'webhook_id', InputArgument::REQUIRED, 'The webhook ID.' )
 			->addArgument( 'secret', InputArgument::REQUIRED, 'The one-time webhook secret returned by WPCOM on create.' );
-
-		$this->addOption( 'url', null, InputOption::VALUE_REQUIRED, 'Webhook destination URL.', get_wpcom_site_code_deployment_webhook_default_url() )
-			->addOption( 'events', null, InputOption::VALUE_REQUIRED, 'Comma-separated webhook events.', get_wpcom_site_code_deployment_webhook_default_events() );
 	}
 
 	/**
@@ -91,25 +73,31 @@ final class WPCOM_Site_Deployment_Webhook_Secret_Sync extends Command {
 
 		$this->secret = get_string_input( $input, 'secret' );
 		$input->setArgument( 'secret', $this->secret );
-
-		$this->url = get_string_input( $input, 'url', fn() => $this->prompt_url_input( $input, $output ) );
-		$input->setOption( 'url', $this->url );
-
-		$this->events = get_string_input( $input, 'events', fn() => $this->prompt_events_input( $input, $output ) );
-		$input->setOption( 'events', $this->events );
 	}
 
 	/**
 	 * {@inheritDoc}
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
-		$events        = normalize_wpcom_site_code_deployment_webhook_events( $this->events );
+		$webhook = get_wpcom_site_code_deployment_webhook( (string) $this->site->ID, $this->deployment_id, $this->webhook_id );
+		if ( \is_null( $webhook ) ) {
+			$output->writeln( '<error>Failed to fetch the specified deployment webhook from WPCOM. Aborting secret sync.</error>' );
+			return Command::FAILURE;
+		}
+
+		$canonical_url    = $webhook->url ?? null;
+		$canonical_events = normalize_wpcom_site_code_deployment_webhook_events( $webhook->events ?? null );
+		if ( \is_null( $canonical_url ) || '' === trim( $canonical_url ) || empty( $canonical_events ) ) {
+			$output->writeln( '<error>Webhook metadata from WPCOM is incomplete. Aborting secret sync.</error>' );
+			return Command::FAILURE;
+		}
+
 		$sync_succeeds = true === sync_wpcom_site_code_deployment_webhook_secret(
 			(string) $this->site->ID,
 			$this->deployment_id,
 			$this->webhook_id,
-			$this->url,
-			$events,
+			$canonical_url,
+			$canonical_events,
 			$this->secret
 		);
 
@@ -118,6 +106,8 @@ final class WPCOM_Site_Deployment_Webhook_Secret_Sync extends Command {
 			return Command::FAILURE;
 		}
 
+		$output->writeln( "<comment>Using canonical WPCOM webhook URL: $canonical_url</comment>", OutputInterface::VERBOSITY_VERBOSE );
+		$output->writeln( '<comment>Using canonical WPCOM webhook events: ' . implode( ',', $canonical_events ) . '</comment>', OutputInterface::VERBOSITY_VERBOSE );
 		$output->writeln( '<fg=green;options=bold>Webhook secret synced to OpsOasis successfully.</>' );
 		return Command::SUCCESS;
 	}
@@ -141,38 +131,6 @@ final class WPCOM_Site_Deployment_Webhook_Secret_Sync extends Command {
 			);
 		}
 
-		return $this->ask_question( $input, $output, $question );
-	}
-
-	/**
-	 * Prompts for the webhook destination URL.
-	 *
-	 * @param   InputInterface  $input  The input object.
-	 * @param   OutputInterface $output The output object.
-	 *
-	 * @return  string|null
-	 */
-	private function prompt_url_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new Question(
-			'<question>Enter the webhook destination URL:</question> ',
-			get_wpcom_site_code_deployment_webhook_default_url()
-		);
-		return $this->ask_question( $input, $output, $question );
-	}
-
-	/**
-	 * Prompts for the events to subscribe to.
-	 *
-	 * @param   InputInterface  $input  The input object.
-	 * @param   OutputInterface $output The output object.
-	 *
-	 * @return  string|null
-	 */
-	private function prompt_events_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new Question(
-			'<question>Enter comma-separated webhook events:</question> ',
-			get_wpcom_site_code_deployment_webhook_default_events()
-		);
 		return $this->ask_question( $input, $output, $question );
 	}
 

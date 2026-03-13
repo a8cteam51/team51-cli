@@ -618,6 +618,12 @@ final class Team51McpTools {
 
 		$url             = '' !== trim( $url ) ? $url : get_wpcom_site_code_deployment_webhook_default_url();
 		$events          = '' !== trim( $events ) ? $events : get_wpcom_site_code_deployment_webhook_default_events();
+		$site            = get_wpcom_site( $site_id_or_url );
+		if ( null === $site || ! isset( $site->ID ) ) {
+			return array( 'error' => "Failed to fetch WPCOM site: $site_id_or_url" );
+		}
+
+		$site_id          = (string) $site->ID;
 		$webhook_response = create_wpcom_site_code_deployment_webhook( $site_id_or_url, $deployment_id, $url, $events );
 		if ( null === $webhook_response ) {
 			return array( 'error' => 'Failed to create WPCOM deployment webhook.' );
@@ -638,7 +644,7 @@ final class Team51McpTools {
 		$sync_succeeded = null;
 		if ( $sync_secret ) {
 			$sync_succeeded = true === sync_wpcom_site_code_deployment_webhook_secret(
-				(string) $site_id_or_url,
+				$site_id,
 				$deployment_id,
 				(string) $webhook->id,
 				$webhook_url,
@@ -656,7 +662,7 @@ final class Team51McpTools {
 			'secret_sync_attempted' => $sync_secret,
 			'secret_sync_succeeded' => $sync_succeeded,
 			'manual_sync_payload'   => array(
-				'site_id'       => is_numeric( (string) $site_id_or_url ) ? (int) $site_id_or_url : $site_id_or_url,
+				'site_id'       => (int) $site_id,
 				'deployment_id' => $deployment_id,
 				'webhook_id'    => (string) $webhook->id,
 				'url'           => $webhook_url,
@@ -1719,6 +1725,12 @@ final class Team51McpTools {
 			return array( 'error' => "GitHub repository not found: $repository" );
 		}
 
+		$site = get_wpcom_site( $site_id_or_url );
+		if ( null === $site || ! isset( $site->ID ) ) {
+			return array( 'error' => "Failed to fetch WPCOM site: $site_id_or_url" );
+		}
+
+		$site_id    = (string) $site->ID;
 		$deployment = create_wpcom_site_code_deployment( $site_id_or_url, $gh_repository->id, $branch, $target_dir );
 		if ( null === $deployment ) {
 			return array( 'error' => 'Failed to connect WPCOM site repository.' );
@@ -1750,7 +1762,7 @@ final class Team51McpTools {
 
 		$webhook_events        = normalize_wpcom_site_code_deployment_webhook_events( $webhook->events ?? $webhook_events_csv );
 		$secret_sync_succeeded = true === sync_wpcom_site_code_deployment_webhook_secret(
-			(string) $site_id_or_url,
+			$site_id,
 			(string) $deployment->id,
 			(string) $webhook->id,
 			$webhook->url ?? get_wpcom_site_code_deployment_webhook_default_url(),
@@ -1766,7 +1778,7 @@ final class Team51McpTools {
 		);
 		if ( ! $secret_sync_succeeded ) {
 			$result['manual_sync_payload'] = array(
-				'site_id'       => is_numeric( (string) $site_id_or_url ) ? (int) $site_id_or_url : $site_id_or_url,
+				'site_id'       => (int) $site_id,
 				'deployment_id' => (string) $deployment->id,
 				'webhook_id'    => (string) $webhook->id,
 				'url'           => $webhook->url ?? get_wpcom_site_code_deployment_webhook_default_url(),

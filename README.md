@@ -142,7 +142,7 @@ team51 wpcom:site:deployment:webhook:list <site> [deployment_id]
 team51 wpcom:site:deployment:webhook:delete <site> [deployment_id] <webhook_id>
 
 # Manual secret sync fallback (if automatic sync fails)
-team51 wpcom:site:deployment:webhook:sync-secret <site> <deployment_id> <webhook_id> <secret> --url="https://opsoasis.wpspecialprojects.com/wp-json/wpcomsp/webhooks/v1/wpcom-deployments" --events="building,queued,started,completed,failed,cancelled"
+team51 wpcom:site:deployment:webhook:sync-secret <site> <deployment_id> <webhook_id> <secret>
 ```
 
 ### Conventions around defaults

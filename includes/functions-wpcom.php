@@ -548,7 +548,21 @@ function wait_until_jetpack_token_regenerated( string $site_id_or_url, OutputInt
  * @return  string
  */
 function get_wpcom_site_code_deployment_webhook_default_url(): string {
-	return getenv( 'TEAM51_WPCOM_DEPLOYMENT_WEBHOOK_URL' ) ?: 'https://opsoasis.wpspecialprojects.com/wp-json/wpcomsp/webhooks/v1/wpcom-deployments';
+	$webhook_url_override = getenv( 'TEAM51_WPCOM_DEPLOYMENT_WEBHOOK_URL' );
+	if ( false !== $webhook_url_override && '' !== trim( $webhook_url_override ) ) {
+		return $webhook_url_override;
+	}
+
+	$opsoasis_base_url = getenv( 'TEAM51_OPSOASIS_BASE_URL' ) ?: getenv( 'OPSOASIS_BASE_URL' ) ?: 'https://opsoasis.wpspecialprojects.com/wp-json/wpcomsp/';
+	$components        = parse_url( $opsoasis_base_url );
+	$origin            = sprintf(
+		'%s://%s%s',
+		$components['scheme'] ?? 'https',
+		$components['host'] ?? 'opsoasis.wpspecialprojects.com',
+		isset( $components['port'] ) ? ':' . $components['port'] : ''
+	);
+
+	return rtrim( $origin, '/' ) . '/wp-json/wpcomsp/webhooks/v1/wpcom-deployments';
 }
 
 /**
@@ -622,6 +636,30 @@ function create_wpcom_site_code_deployment_webhook( string $site_id_or_url, stri
  */
 function get_wpcom_site_code_deployment_webhooks( string $site_id_or_url, string $deployment_id ): ?array {
 	return API_Helper::make_wpcom_request( "sites/$site_id_or_url/code-deployments/$deployment_id/webhooks" )?->records;
+}
+
+/**
+ * Returns a deployment webhook for a WordPress.com code deployment by webhook ID.
+ *
+ * @param   string $site_id_or_url The ID or URL of the WordPress.com site.
+ * @param   string $deployment_id  The ID of the code deployment.
+ * @param   string $webhook_id     The ID of the webhook.
+ *
+ * @return  stdClass|null
+ */
+function get_wpcom_site_code_deployment_webhook( string $site_id_or_url, string $deployment_id, string $webhook_id ): ?stdClass {
+	$webhooks = get_wpcom_site_code_deployment_webhooks( $site_id_or_url, $deployment_id );
+	if ( is_null( $webhooks ) ) {
+		return null;
+	}
+
+	foreach ( $webhooks as $webhook ) {
+		if ( isset( $webhook->id ) && (string) $webhook->id === $webhook_id ) {
+			return $webhook;
+		}
+	}
+
+	return null;
 }
 
 /**
@@ -736,8 +774,26 @@ function sync_wpcom_site_code_deployment_webhook_secret( string $site_id, string
 		)
 	);
 
+	if ( is_null( $sync_response ) ) {
+		return null;
+	}
+
 	// OpsOasis may return either an empty success body (true) or a success object.
-	return is_null( $sync_response ) ? null : true;
+	if ( true === $sync_response ) {
+		return true;
+	}
+
+	if ( is_object( $sync_response ) ) {
+		$success     = $sync_response->success ?? null;
+		$status_code = $sync_response->status_code ?? null;
+		$error       = $sync_response->error ?? null;
+
+		if ( true === $success && ( is_null( $status_code ) || ( (int) $status_code >= 200 && (int) $status_code < 300 ) ) && is_null( $error ) ) {
+			return true;
+		}
+	}
+
+	return null;
 }
 
 /**
