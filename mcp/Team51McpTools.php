@@ -584,6 +584,216 @@ final class Team51McpTools {
 		return (array) $result;
 	}
 
+	/**
+	 * Create a deployment webhook for a WordPress.com code deployment and optionally
+	 * sync its one-time secret to OpsOasis.
+	 *
+	 * @param string $site_id_or_url The domain name or WPCOM site ID.
+	 * @param string $deployment_id  The code deployment ID.
+	 * @param string $url            Optional webhook destination URL.
+	 * @param string $events         Optional comma-separated webhook events.
+	 * @param bool   $sync_secret    Whether to immediately sync the webhook secret to OpsOasis.
+	 */
+	#[McpTool(
+		name: 'wpcom_create_deployment_webhook',
+		annotations: new ToolAnnotations(
+			title: 'Create WPCOM Deployment Webhook',
+			readOnlyHint: false,
+			destructiveHint: false,
+			idempotentHint: false,
+			openWorldHint: true,
+		)
+	)]
+	public function wpcom_create_deployment_webhook(
+		string $site_id_or_url,
+		string $deployment_id,
+		string $url = '',
+		string $events = '',
+		bool $sync_secret = true
+	): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
+		$url             = '' !== trim( $url ) ? $url : get_wpcom_site_code_deployment_webhook_default_url();
+		$events          = '' !== trim( $events ) ? $events : get_wpcom_site_code_deployment_webhook_default_events();
+		$site            = get_wpcom_site( $site_id_or_url );
+		if ( null === $site || ! isset( $site->ID ) ) {
+			return array( 'error' => "Failed to fetch WPCOM site: $site_id_or_url" );
+		}
+
+		$site_id          = (string) $site->ID;
+		$webhook_response = create_wpcom_site_code_deployment_webhook( $site_id_or_url, $deployment_id, $url, $events );
+		if ( null === $webhook_response ) {
+			return array( 'error' => 'Failed to create WPCOM deployment webhook.' );
+		}
+
+		$webhook = get_wpcom_site_code_deployment_webhook_from_response( $webhook_response );
+		$secret  = get_wpcom_site_code_deployment_webhook_secret_from_response( $webhook_response );
+		if ( null === $secret || '' === trim( $secret ) ) {
+			return array(
+				'error'    => 'Webhook was created but no secret was returned by WPCOM.',
+				'webhook'  => (array) $webhook,
+				'response' => (array) $webhook_response,
+			);
+		}
+
+		$webhook_url    = $webhook->url ?? $url;
+		$webhook_events = normalize_wpcom_site_code_deployment_webhook_events( $webhook->events ?? $events );
+		$sync_succeeded = null;
+		if ( $sync_secret ) {
+			$sync_succeeded = true === sync_wpcom_site_code_deployment_webhook_secret(
+				$site_id,
+				$deployment_id,
+				(string) $webhook->id,
+				$webhook_url,
+				$webhook_events,
+				$secret
+			);
+		}
+
+		$result = array(
+			'success'               => true,
+			'site_id_or_url'        => $site_id_or_url,
+			'deployment_id'         => $deployment_id,
+			'webhook'               => (array) $webhook,
+			'events'                => $webhook_events,
+			'secret_sync_attempted' => $sync_secret,
+			'secret_sync_succeeded' => $sync_succeeded,
+		);
+
+		if ( ! $sync_secret || true !== $sync_succeeded ) {
+			$result['manual_sync_payload'] = array(
+				'site_id'       => (int) $site_id,
+				'deployment_id' => $deployment_id,
+				'webhook_id'    => (string) $webhook->id,
+				'url'           => $webhook_url,
+				'events'        => $webhook_events,
+				'secret'        => $secret,
+			);
+		}
+
+		return $result;
+	}
+
+	/**
+	 * List deployment webhooks configured for a WordPress.com code deployment.
+	 *
+	 * @param string $site_id_or_url The domain name or WPCOM site ID.
+	 * @param string $deployment_id  The code deployment ID.
+	 */
+	#[McpTool( name: 'wpcom_list_deployment_webhooks' )]
+	public function wpcom_list_deployment_webhooks( string $site_id_or_url, string $deployment_id ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
+		$webhooks = get_wpcom_site_code_deployment_webhooks( $site_id_or_url, $deployment_id );
+		if ( null === $webhooks ) {
+			return array( 'error' => 'Failed to list WPCOM deployment webhooks.' );
+		}
+
+		return array(
+			'count'    => count( $webhooks ),
+			'webhooks' => array_map(
+				static fn( $w ) => (array) $w,
+				$webhooks
+			),
+		);
+	}
+
+	/**
+	 * Delete a deployment webhook from a WordPress.com code deployment.
+	 *
+	 * @param string $site_id_or_url The domain name or WPCOM site ID.
+	 * @param string $deployment_id  The code deployment ID.
+	 * @param string $webhook_id     The webhook ID.
+	 */
+	#[McpTool(
+		name: 'wpcom_delete_deployment_webhook',
+		annotations: new ToolAnnotations(
+			title: 'Delete WPCOM Deployment Webhook',
+			readOnlyHint: false,
+			destructiveHint: true,
+			idempotentHint: true,
+			openWorldHint: true,
+		)
+	)]
+	public function wpcom_delete_deployment_webhook( string $site_id_or_url, string $deployment_id, string $webhook_id ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
+		$raw_response = null;
+		$result       = delete_wpcom_site_code_deployment_webhook( $site_id_or_url, $deployment_id, $webhook_id, $raw_response );
+		if ( true !== $result ) {
+			return array(
+				'error'        => 'Failed to delete WPCOM deployment webhook.',
+				'raw_response' => is_object( $raw_response ) ? (array) $raw_response : $raw_response,
+			);
+		}
+
+		return array(
+			'success'      => true,
+			'webhook_id'   => $webhook_id,
+			'raw_response' => is_object( $raw_response ) ? (array) $raw_response : $raw_response,
+		);
+	}
+
+	/**
+	 * Persist a WPCOM deployment webhook secret in OpsOasis.
+	 *
+	 * @param string $site_id       The WPCOM site ID.
+	 * @param string $deployment_id The code deployment ID.
+	 * @param string $webhook_id    The webhook ID.
+	 * @param string $secret        The one-time webhook secret returned by WPCOM.
+	 * @param string $url           Optional webhook destination URL.
+	 * @param string $events        Optional comma-separated webhook events.
+	 */
+	#[McpTool(
+		name: 'wpcom_sync_deployment_webhook_secret',
+		annotations: new ToolAnnotations(
+			title: 'Sync WPCOM Deployment Webhook Secret',
+			readOnlyHint: false,
+			destructiveHint: false,
+			idempotentHint: true,
+			openWorldHint: true,
+		)
+	)]
+	public function wpcom_sync_deployment_webhook_secret(
+		string $site_id,
+		string $deployment_id,
+		string $webhook_id,
+		string $secret,
+		string $url = '',
+		string $events = ''
+	): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
+		$url            = '' !== trim( $url ) ? $url : get_wpcom_site_code_deployment_webhook_default_url();
+		$events         = '' !== trim( $events ) ? $events : get_wpcom_site_code_deployment_webhook_default_events();
+		$events_list    = normalize_wpcom_site_code_deployment_webhook_events( $events );
+		$sync_succeeded = true === sync_wpcom_site_code_deployment_webhook_secret( $site_id, $deployment_id, $webhook_id, $url, $events_list, $secret );
+		if ( ! $sync_succeeded ) {
+			return array( 'error' => 'Failed to sync WPCOM deployment webhook secret to OpsOasis.' );
+		}
+
+		return array(
+			'success'       => true,
+			'site_id'       => is_numeric( $site_id ) ? (int) $site_id : $site_id,
+			'deployment_id' => $deployment_id,
+			'webhook_id'    => $webhook_id,
+			'url'           => $url,
+			'events'        => $events_list,
+		);
+	}
+
 	// endregion
 
 	// region PRESSABLE TOOLS
@@ -1520,12 +1730,67 @@ final class Team51McpTools {
 			return array( 'error' => "GitHub repository not found: $repository" );
 		}
 
+		$site = get_wpcom_site( $site_id_or_url );
+		if ( null === $site || ! isset( $site->ID ) ) {
+			return array( 'error' => "Failed to fetch WPCOM site: $site_id_or_url" );
+		}
+
+		$site_id    = (string) $site->ID;
 		$deployment = create_wpcom_site_code_deployment( $site_id_or_url, $gh_repository->id, $branch, $target_dir );
 		if ( null === $deployment ) {
 			return array( 'error' => 'Failed to connect WPCOM site repository.' );
 		}
 
-		$result = array( 'deployment' => (array) $deployment );
+		$webhook_events_csv = get_wpcom_site_code_deployment_webhook_default_events();
+		$webhook_response   = create_wpcom_site_code_deployment_webhook(
+			(string) $site_id_or_url,
+			(string) $deployment->id,
+			get_wpcom_site_code_deployment_webhook_default_url(),
+			$webhook_events_csv
+		);
+		if ( null === $webhook_response ) {
+			return array(
+				'error'      => 'Repository was connected but deployment webhook creation failed.',
+				'deployment' => (array) $deployment,
+			);
+		}
+
+		$webhook = get_wpcom_site_code_deployment_webhook_from_response( $webhook_response );
+		$secret  = get_wpcom_site_code_deployment_webhook_secret_from_response( $webhook_response );
+		if ( null === $secret || '' === trim( $secret ) ) {
+			return array(
+				'error'      => 'Deployment webhook was created but no secret was returned by WPCOM.',
+				'deployment' => (array) $deployment,
+				'webhook'    => (array) $webhook,
+			);
+		}
+
+		$webhook_events        = normalize_wpcom_site_code_deployment_webhook_events( $webhook->events ?? $webhook_events_csv );
+		$secret_sync_succeeded = true === sync_wpcom_site_code_deployment_webhook_secret(
+			$site_id,
+			(string) $deployment->id,
+			(string) $webhook->id,
+			$webhook->url ?? get_wpcom_site_code_deployment_webhook_default_url(),
+			$webhook_events,
+			$secret
+		);
+
+		$result = array(
+			'deployment'            => (array) $deployment,
+			'webhook'               => (array) $webhook,
+			'webhook_events'        => $webhook_events,
+			'secret_sync_succeeded' => $secret_sync_succeeded,
+		);
+		if ( ! $secret_sync_succeeded ) {
+			$result['manual_sync_payload'] = array(
+				'site_id'       => (int) $site_id,
+				'deployment_id' => (string) $deployment->id,
+				'webhook_id'    => (string) $webhook->id,
+				'url'           => $webhook->url ?? get_wpcom_site_code_deployment_webhook_default_url(),
+				'events'        => $webhook_events,
+				'secret'        => $secret,
+			);
+		}
 		if ( $deploy ) {
 			$run = create_wpcom_site_code_deployment_run( $site_id_or_url, $deployment->id );
 			$result['deployment_run'] = $run ? (array) $run : array( 'error' => 'Failed to trigger deployment run.' );

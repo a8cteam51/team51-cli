@@ -72,6 +72,21 @@ final class API_Helper {
 	}
 
 	/**
+	 * Calls a given OpsOasis endpoint and returns the response.
+	 *
+	 * @param   string $endpoint The endpoint to call relative to /wp-json/wpcomsp/.
+	 * @param   string $method   The HTTP method to use. One of 'GET', 'POST', 'PUT', 'DELETE'.
+	 * @param   mixed  $body     The body to send with the request.
+	 *
+	 * @return  stdClass|stdClass[]|true|null
+	 */
+	public static function make_opsoasis_request( string $endpoint, string $method = 'GET', mixed $body = null ): stdClass|array|true|null {
+		$base_url = rtrim( self::get_request_base_url(), '/' ) . '/';
+		$endpoint = ltrim( $endpoint, '/' );
+		return self::make_request( $base_url . $endpoint, $method, $body );
+	}
+
+	/**
 	 * Calls a given WordPress.org endpoint and returns the response.
 	 *
 	 * @param   string $endpoint The endpoint to call.
@@ -95,7 +110,8 @@ final class API_Helper {
 	 * @return  string
 	 */
 	protected static function get_request_base_url(): string {
-		return getenv( 'TEAM51_OPSOASIS_BASE_URL' ) ?: 'https://opsoasis.wpspecialprojects.com/wp-json/wpcomsp/';
+		$base_url = getenv( 'TEAM51_OPSOASIS_BASE_URL' ) ?: 'https://opsoasis.wpspecialprojects.com/wp-json/wpcomsp/';
+		return rtrim( $base_url, '/' ) . '/';
 	}
 
 	/**
@@ -123,7 +139,10 @@ final class API_Helper {
 		if ( ! str_starts_with( (string) $result['headers']['http_code'], '2' ) ) {
 			if ( 500 === $result['headers']['http_code'] && str_contains( $result['body'], 'site_already_exists' ) ) {
 				console_writeln( "❌ API error ({$result['headers']['http_code']} $endpoint): " . $result['body'] );
-				return (object) array( 'code' => 'site_already_exists', 'message' => 'A site with this name already exists' );
+				return (object) array(
+					'code'    => 'site_already_exists',
+					'message' => 'A site with this name already exists',
+				);
 			}
 
 			console_writeln( "❌ API error ({$result['headers']['http_code']} $endpoint): " . $result['body'] );

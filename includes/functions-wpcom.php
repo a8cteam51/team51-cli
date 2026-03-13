@@ -543,6 +543,283 @@ function wait_until_jetpack_token_regenerated( string $site_id_or_url, OutputInt
 }
 
 /**
+ * Returns the default OpsOasis webhook receiver URL for WPCOM deployment status updates.
+ *
+ * @return  string
+ */
+function get_wpcom_site_code_deployment_webhook_default_url(): string {
+	$webhook_url_override = getenv( 'TEAM51_WPCOM_DEPLOYMENT_WEBHOOK_URL' );
+	if ( false !== $webhook_url_override && '' !== trim( $webhook_url_override ) ) {
+		return $webhook_url_override;
+	}
+
+	$opsoasis_base_url = getenv( 'TEAM51_OPSOASIS_BASE_URL' ) ?: getenv( 'OPSOASIS_BASE_URL' ) ?: 'https://opsoasis.wpspecialprojects.com/wp-json/wpcomsp/';
+	$components        = parse_url( $opsoasis_base_url );
+	$origin            = sprintf(
+		'%s://%s%s',
+		$components['scheme'] ?? 'https',
+		$components['host'] ?? 'opsoasis.wpspecialprojects.com',
+		isset( $components['port'] ) ? ':' . $components['port'] : ''
+	);
+
+	return rtrim( $origin, '/' ) . '/wp-json/wpcomsp/webhooks/v1/wpcom-deployments';
+}
+
+/**
+ * Returns the default lifecycle events used when creating WPCOM deployment webhooks.
+ *
+ * @return  string
+ */
+function get_wpcom_site_code_deployment_webhook_default_events(): string {
+	return 'completed,failed,cancelled';
+}
+
+/**
+ * Normalizes webhook events input into a string array.
+ *
+ * @param   string|array|null $events Events as CSV string or an array.
+ *
+ * @return  string[]
+ */
+function normalize_wpcom_site_code_deployment_webhook_events( string|array|null $events ): array {
+	if ( is_array( $events ) ) {
+		return array_values( array_filter( array_map( static fn( mixed $event ) => trim( (string) $event ), $events ) ) );
+	}
+
+	$events_csv = trim( (string) $events );
+	if ( '' === $events_csv ) {
+		$events_csv = get_wpcom_site_code_deployment_webhook_default_events();
+	}
+
+	return array_values( array_filter( array_map( 'trim', explode( ',', $events_csv ) ) ) );
+}
+
+/**
+ * Returns the default OpsOasis endpoint used to persist WPCOM deployment webhook secrets.
+ *
+ * @return  string
+ */
+function get_wpcom_site_code_deployment_webhook_secret_sync_endpoint(): string {
+	return getenv( 'TEAM51_WPCOM_DEPLOYMENT_WEBHOOK_SECRET_SYNC_ENDPOINT' ) ?: 'webhooks/v1/wpcom-deployments/secrets';
+}
+
+/**
+ * Creates a new deployment webhook for a WordPress.com code deployment.
+ *
+ * @param   string      $site_id_or_url The ID or URL of the WordPress.com site to create the webhook for.
+ * @param   string      $deployment_id  The ID of the code deployment.
+ * @param   string      $url            The webhook receiver URL.
+ * @param   string|null $events         Optional. Comma-separated deployment lifecycle events.
+ *
+ * @return  stdClass|null
+ */
+function create_wpcom_site_code_deployment_webhook( string $site_id_or_url, string $deployment_id, string $url, ?string $events = null ): ?stdClass {
+	return API_Helper::make_wpcom_request(
+		"sites/$site_id_or_url/code-deployments/$deployment_id/webhooks",
+		'POST',
+		array_filter(
+			array(
+				'url'    => $url,
+				'events' => $events,
+			)
+		)
+	);
+}
+
+/**
+ * Returns the list of deployment webhooks for a WordPress.com code deployment.
+ *
+ * @param   string $site_id_or_url The ID or URL of the WordPress.com site.
+ * @param   string $deployment_id  The ID of the code deployment.
+ *
+ * @return  stdClass[]|null
+ */
+function get_wpcom_site_code_deployment_webhooks( string $site_id_or_url, string $deployment_id ): ?array {
+	return API_Helper::make_wpcom_request( "sites/$site_id_or_url/code-deployments/$deployment_id/webhooks" )?->records;
+}
+
+/**
+ * Returns a deployment webhook for a WordPress.com code deployment by webhook ID.
+ *
+ * @param   string $site_id_or_url The ID or URL of the WordPress.com site.
+ * @param   string $deployment_id  The ID of the code deployment.
+ * @param   string $webhook_id     The ID of the webhook.
+ *
+ * @return  stdClass|null
+ */
+function get_wpcom_site_code_deployment_webhook( string $site_id_or_url, string $deployment_id, string $webhook_id ): ?stdClass {
+	$webhooks = get_wpcom_site_code_deployment_webhooks( $site_id_or_url, $deployment_id );
+	if ( is_null( $webhooks ) ) {
+		return null;
+	}
+
+	foreach ( $webhooks as $webhook ) {
+		if ( isset( $webhook->id ) && (string) $webhook->id === $webhook_id ) {
+			return $webhook;
+		}
+	}
+
+	return null;
+}
+
+/**
+ * Updates a deployment webhook for a WordPress.com code deployment.
+ *
+ * @param   string      $site_id_or_url The ID or URL of the WordPress.com site.
+ * @param   string      $deployment_id  The ID of the code deployment.
+ * @param   string      $webhook_id     The ID of the webhook to update.
+ * @param   string      $url            The webhook receiver URL.
+ * @param   string|null $events         Optional. Comma-separated deployment lifecycle events.
+ *
+ * @return  stdClass|null
+ */
+function update_wpcom_site_code_deployment_webhook( string $site_id_or_url, string $deployment_id, string $webhook_id, string $url, ?string $events = null ): ?stdClass {
+	return API_Helper::make_wpcom_request(
+		"sites/$site_id_or_url/code-deployments/$deployment_id/webhooks/$webhook_id",
+		'PUT',
+		array_filter(
+			array(
+				'url'    => $url,
+				'events' => $events,
+			)
+		)
+	);
+}
+
+/**
+ * Deletes a deployment webhook for a WordPress.com code deployment.
+ *
+ * @param   string $site_id_or_url The ID or URL of the WordPress.com site.
+ * @param   string $deployment_id  The ID of the code deployment.
+ * @param   string $webhook_id     The ID of the webhook to delete.
+ * @param   mixed  $raw_response   Optional. The raw API response payload.
+ *
+ * @return  true|null
+ */
+function delete_wpcom_site_code_deployment_webhook( string $site_id_or_url, string $deployment_id, string $webhook_id, mixed &$raw_response = null ): ?true {
+	$delete_response = API_Helper::make_wpcom_request( "sites/$site_id_or_url/code-deployments/$deployment_id/webhooks/$webhook_id", 'DELETE' );
+	$raw_response    = $delete_response;
+
+	if ( is_null( $delete_response ) ) {
+		return null;
+	}
+
+	// WPCOM proxy can return either an empty success body (true) or a success object.
+	if ( true === $delete_response ) {
+		return true;
+	}
+
+	if ( is_object( $delete_response ) ) {
+		$success     = $delete_response->success ?? null;
+		$status_code = $delete_response->status_code ?? null;
+		$error       = $delete_response->error ?? null;
+
+		if ( true === $success && ( is_null( $status_code ) || ( (int) $status_code >= 200 && (int) $status_code < 300 ) ) && is_null( $error ) ) {
+			return true;
+		}
+	}
+
+	return null;
+}
+
+/**
+ * Triggers a test delivery for a deployment webhook.
+ *
+ * @param   string $site_id_or_url The ID or URL of the WordPress.com site.
+ * @param   string $deployment_id  The ID of the code deployment.
+ * @param   string $webhook_id     The ID of the webhook to test.
+ *
+ * @return  stdClass|null
+ */
+function test_wpcom_site_code_deployment_webhook( string $site_id_or_url, string $deployment_id, string $webhook_id ): ?stdClass {
+	return API_Helper::make_wpcom_request( "sites/$site_id_or_url/code-deployments/$deployment_id/webhooks/$webhook_id/test", 'POST' );
+}
+
+/**
+ * Returns the deliveries of a deployment webhook.
+ *
+ * @param   string $site_id_or_url The ID or URL of the WordPress.com site.
+ * @param   string $deployment_id  The ID of the code deployment.
+ * @param   string $webhook_id     The ID of the webhook to inspect.
+ *
+ * @return  stdClass[]|null
+ */
+function get_wpcom_site_code_deployment_webhook_deliveries( string $site_id_or_url, string $deployment_id, string $webhook_id ): ?array {
+	return API_Helper::make_wpcom_request( "sites/$site_id_or_url/code-deployments/$deployment_id/webhooks/$webhook_id/deliveries" )?->records;
+}
+
+/**
+ * Attempts to persist a deployment webhook secret in OpsOasis so incoming webhook signatures can be verified.
+ *
+ * @param   string $site_id       The WPCOM site ID.
+ * @param   string $deployment_id The code deployment ID.
+ * @param   string $webhook_id    The webhook ID.
+ * @param   string $url           The webhook receiver URL.
+ * @param   array  $events        The webhook events subscribed for delivery.
+ * @param   string $secret        The webhook secret returned by WordPress.com.
+ *
+ * @return  true|null
+ */
+function sync_wpcom_site_code_deployment_webhook_secret( string $site_id, string $deployment_id, string $webhook_id, string $url, array $events, string $secret ): ?true {
+	$sync_response = API_Helper::make_opsoasis_request(
+		get_wpcom_site_code_deployment_webhook_secret_sync_endpoint(),
+		'POST',
+		array(
+			'site_id'       => is_numeric( $site_id ) ? (int) $site_id : $site_id,
+			'deployment_id' => $deployment_id,
+			'webhook_id'    => $webhook_id,
+			'url'           => $url,
+			'events'        => array_values( $events ),
+			'secret'        => $secret,
+		)
+	);
+
+	if ( is_null( $sync_response ) ) {
+		return null;
+	}
+
+	// OpsOasis may return either an empty success body (true) or a success object.
+	if ( true === $sync_response ) {
+		return true;
+	}
+
+	if ( is_object( $sync_response ) ) {
+		$success     = $sync_response->success ?? null;
+		$status_code = $sync_response->status_code ?? null;
+		$error       = $sync_response->error ?? null;
+
+		if ( true === $success && ( is_null( $status_code ) || ( (int) $status_code >= 200 && (int) $status_code < 300 ) ) && is_null( $error ) ) {
+			return true;
+		}
+	}
+
+	return null;
+}
+
+/**
+ * Extracts the deployment webhook object from a WPCOM deployment webhook API response.
+ *
+ * @param   stdClass $response The webhook response payload.
+ *
+ * @return  stdClass
+ */
+function get_wpcom_site_code_deployment_webhook_from_response( stdClass $response ): stdClass {
+	return $response->webhook ?? $response;
+}
+
+/**
+ * Extracts a deployment webhook secret from a WPCOM deployment webhook API response.
+ *
+ * @param   stdClass $response The webhook response payload.
+ *
+ * @return  string|null
+ */
+function get_wpcom_site_code_deployment_webhook_secret_from_response( stdClass $response ): ?string {
+	$webhook = get_wpcom_site_code_deployment_webhook_from_response( $response );
+	return $webhook->secret ?? $response->secret ?? null;
+}
+
+/**
  * Connects a WordPress.com site to a GitHub repository for code deployments.
  *
  * @param   string     $site_id_or_url         The ID or URL of the WordPress.com site to connect to the GitHub repository.
@@ -657,6 +934,8 @@ function run_wpcom_site_wp_cli_command( string $site_id_or_url, string $wp_cli_c
  * @param   InputInterface $input         The console input.
  * @param   callable|null  $no_input_func The function to call if no input is given.
  * @param   string         $name          The name of the value to grab.
+ *
+ * @throws  InvalidArgumentException If the provided site does not resolve to a valid WPCOM site.
  *
  * @return  stdClass
  */
