@@ -184,14 +184,12 @@ final class WPCOM_Site_Repository_Connect extends Command {
 				)
 			);
 			$sync_secret_command = sprintf(
-				'team51 --dev %s %s %s %s %s --url=%s --events=%s',
+				'team51 --dev %s %s %s %s %s',
 				WPCOM_Site_Deployment_Webhook_Secret_Sync::getDefaultName(),
 				escapeshellarg( (string) $this->site->ID ),
 				escapeshellarg( (string) $code_deployment->id ),
 				escapeshellarg( (string) $webhook->id ),
-				escapeshellarg( $secret ),
-				escapeshellarg( (string) ( $webhook->url ?? $webhook_url ) ),
-				escapeshellarg( implode( ',', $webhook_events ) )
+				escapeshellarg( $secret )
 			);
 			$output->writeln( "<comment>Copy/paste to retry sync:</comment>\n$sync_secret_command" );
 			return Command::FAILURE;

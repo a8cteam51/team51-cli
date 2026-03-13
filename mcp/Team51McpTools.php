@@ -653,7 +653,7 @@ final class Team51McpTools {
 			);
 		}
 
-		return array(
+		$result = array(
 			'success'               => true,
 			'site_id_or_url'        => $site_id_or_url,
 			'deployment_id'         => $deployment_id,
@@ -661,15 +661,20 @@ final class Team51McpTools {
 			'events'                => $webhook_events,
 			'secret_sync_attempted' => $sync_secret,
 			'secret_sync_succeeded' => $sync_succeeded,
-			'manual_sync_payload'   => array(
+		);
+
+		if ( ! $sync_secret || true !== $sync_succeeded ) {
+			$result['manual_sync_payload'] = array(
 				'site_id'       => (int) $site_id,
 				'deployment_id' => $deployment_id,
 				'webhook_id'    => (string) $webhook->id,
 				'url'           => $webhook_url,
 				'events'        => $webhook_events,
 				'secret'        => $secret,
-			),
-		);
+			);
+		}
+
+		return $result;
 	}
 
 	/**
