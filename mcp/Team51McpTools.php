@@ -99,6 +99,37 @@ final class Team51McpTools {
 			return false;
 		}
 
+		// Block known WP-CLI global flags, but allow command-specific flags.
+		$tokens = preg_split( '/\s+/', $command ) ?: array();
+		$blocked_global_flags = array(
+			'--path',
+			'--url',
+			'--ssh',
+			'--http',
+			'--user',
+			'--require',
+			'--exec',
+			'--context',
+			'--prompt',
+			'--quiet',
+			'--debug',
+			'--allow-root',
+			'--color',
+			'--no-color',
+		);
+
+		foreach ( $tokens as $token ) {
+			$token = trim( $token );
+			if ( ! str_starts_with( $token, '--' ) ) {
+				continue;
+			}
+
+			$token_name = explode( '=', $token )[0];
+			if ( in_array( strtolower( $token_name ), $blocked_global_flags, true ) ) {
+				return false;
+			}
+		}
+
 		$allowed_prefixes = array(
 			'option get ',
 			'plugin list',
@@ -158,8 +189,21 @@ final class Team51McpTools {
 		return array_filter(
 			$sites,
 			static function ( $site ) use ( $deny ) {
+				$site_url  = $site->URL ?? $site->siteurl ?? '';
+				$host      = parse_url( $site_url, PHP_URL_HOST );
+				if ( ! is_string( $host ) || '' === $host ) {
+					// Some site URLs are schemeless (e.g. example.com); add a default
+					// scheme so parse_url can reliably extract the host.
+					$host = parse_url( 'https://' . ltrim( (string) $site_url, '/' ), PHP_URL_HOST );
+				}
+				$host      = is_string( $host ) ? strtolower( $host ) : '';
+				if ( '' === $host ) {
+					return true;
+				}
+
 				foreach ( $deny as $item ) {
-					if ( str_contains( $site->siteurl, $item ) ) {
+					$item = strtolower( $item );
+					if ( $host === $item || str_ends_with( $host, '.' . $item ) ) {
 						return false;
 					}
 				}
@@ -1498,9 +1542,14 @@ final class Team51McpTools {
 		}
 
 		$date  = $date ?: gmdate( 'Y-m-d' );
+		$jetpack_sites = get_wpcom_jetpack_sites();
+		if ( null === $jetpack_sites ) {
+			return array( 'error' => 'Failed to fetch Jetpack sites from WPCOM.' );
+		}
+
 		$sites = self::index_sites_by_userblog_id(
 			self::filter_sites_by_deny_list(
-				get_wpcom_jetpack_sites() ?? array(),
+				$jetpack_sites,
 				array( 'mystagingwebsite.com', 'go-vip.co', 'wpcomstaging.com', 'wpengine.com', 'jurassic.ninja', 'woocommerce.com', 'atomicsites.blog', 'ninomihovilic.com', 'team51.blog' )
 			)
 		);
@@ -1551,9 +1600,14 @@ final class Team51McpTools {
 			'year' => 'Y',
 			default => 'Y-m-d',
 		} );
+		$jetpack_sites = get_wpcom_jetpack_sites();
+		if ( null === $jetpack_sites ) {
+			return array( 'error' => 'Failed to fetch Jetpack sites from WPCOM.' );
+		}
+
 		$sites = self::index_sites_by_userblog_id(
 			self::filter_sites_by_deny_list(
-				get_wpcom_jetpack_sites() ?? array(),
+				$jetpack_sites,
 				array( 'mystagingwebsite.com', 'go-vip.co', 'wpcomstaging.com', 'wpengine.com', 'jurassic.ninja', 'woocommerce.com', 'atomicsites.blog', 'ninomihovilic.com', 'team51.blog' )
 			)
 		);
@@ -1676,11 +1730,6 @@ final class Team51McpTools {
 
 	#[McpTool( name: 'pressable_open_site_shell' )]
 	public function pressable_open_site_shell( string $site_id_or_url, string $shell_type = 'ssh' ): array {
-		$identity_error = self::ensure_identity();
-		if ( $identity_error ) {
-			return $identity_error;
-		}
-
 		return array(
 			'error'      => 'Unsupported operation in MCP context: interactive shell sessions are not supported over JSON-RPC.',
 			'site'       => $site_id_or_url,
@@ -1916,8 +1965,13 @@ final class Team51McpTools {
 				);
 			}
 		} elseif ( 'all' === $multiple || null === $multiple ) {
+			$jetpack_sites = get_wpcom_jetpack_sites();
+			if ( null === $jetpack_sites ) {
+				return array( 'error' => 'Failed to fetch Jetpack sites from WPCOM.' );
+			}
+
 			$all_sites = self::filter_sites_by_deny_list(
-				get_wpcom_jetpack_sites() ?? array(),
+				$jetpack_sites,
 				array( 'mystagingwebsite.com', 'go-vip.co', 'wpcomstaging.com', 'wpengine.com', 'jurassic.ninja', 'atomicsites.blog', 'woocommerce.com', 'woo.com' )
 			);
 			$sites     = array();
