@@ -53,6 +53,38 @@ final class Team51McpTools {
 		}
 	}
 
+	/**
+	 * Runs a Team51 CLI command and returns a structured result.
+	 *
+	 * @param string $command_name The command name, e.g. wpcom:create-site.
+	 * @param array  $args         Positional/flag arguments as a flat list.
+	 *
+	 * @return array
+	 */
+	private static function run_cli_command( string $command_name, array $args = array() ): array {
+		$process = run_system_command(
+			array_merge(
+				array(
+					PHP_BINARY,
+					TEAM51_CLI_FILE,
+					$command_name,
+					'--no-interaction',
+					'--no-ansi',
+				),
+				$args
+			),
+			TEAM51_CLI_ROOT_DIR,
+			false
+		);
+
+		return array(
+			'ok'           => 0 === $process->getExitCode(),
+			'exit_code'    => $process->getExitCode(),
+			'output'       => trim( $process->getOutput() ),
+			'error_output' => trim( $process->getErrorOutput() ),
+		);
+	}
+
 	// endregion
 
 	// region WPCOM TOOLS
@@ -1233,6 +1265,484 @@ final class Team51McpTools {
 		}
 
 		return (array) $result;
+	}
+
+	// endregion
+
+	// region ADDITIONAL LEGACY COMMAND TOOLS
+
+	#[McpTool( name: 'wpcom_create_site' )]
+	public function wpcom_create_site( string $name ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
+		$site = create_wpcom_site( $name );
+		return $site ? (array) $site : array( 'error' => 'Failed to create WPCOM site.' );
+	}
+
+	#[McpTool( name: 'wpcom_clone_site' )]
+	public function wpcom_clone_site( string $site_id_or_url ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
+		$staging = create_wpcom_staging_site( $site_id_or_url );
+		return $staging ? (array) $staging : array( 'error' => 'Failed to create WPCOM staging site.' );
+	}
+
+	#[McpTool( name: 'wpcom_rotate_wp_user_password' )]
+	public function wpcom_rotate_wp_user_password( string $site_id_or_url, string $user = 'concierge@wordpress.com' ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
+		$credentials = rotate_wpcom_site_wp_user_password( $site_id_or_url, $user );
+		return $credentials ? (array) $credentials : array( 'error' => 'Failed to rotate WPCOM WP user password.' );
+	}
+
+	#[McpTool( name: 'wpcom_run_wp_cli_command' )]
+	public function wpcom_run_wp_cli_command( string $site_id_or_url, string $wp_cli_command ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
+		$exit_code = run_wpcom_site_wp_cli_command( $site_id_or_url, $wp_cli_command, true );
+		return array(
+			'exit_code' => $exit_code,
+			'output'    => $GLOBALS['wp_cli_output'] ?? '',
+		);
+	}
+
+	#[McpTool( name: 'wpcom_connect_site_repository' )]
+	public function wpcom_connect_site_repository( string $site_id_or_url, string $repository, string $branch = 'trunk', string $target_dir = '/wp-content/', bool $deploy = false ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
+		$gh_repository = get_github_repository( $repository );
+		if ( null === $gh_repository ) {
+			return array( 'error' => "GitHub repository not found: $repository" );
+		}
+
+		$deployment = create_wpcom_site_code_deployment( $site_id_or_url, $gh_repository->id, $branch, $target_dir );
+		if ( null === $deployment ) {
+			return array( 'error' => 'Failed to connect WPCOM site repository.' );
+		}
+
+		$result = array( 'deployment' => (array) $deployment );
+		if ( $deploy ) {
+			$run = create_wpcom_site_code_deployment_run( $site_id_or_url, $deployment->id );
+			$result['deployment_run'] = $run ? (array) $run : array( 'error' => 'Failed to trigger deployment run.' );
+		}
+
+		return $result;
+	}
+
+	#[McpTool( name: 'wpcom_list_sites_stats_summary' )]
+	public function wpcom_list_sites_stats_summary( int $num = 1, string $period = 'day', ?string $date = null ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
+		$date  = $date ?: gmdate( 'Y-m-d' );
+		$sites = get_wpcom_jetpack_sites() ?? array();
+		$sites = array_filter(
+			$sites,
+			static function ( $site ) {
+				$deny = array( 'mystagingwebsite.com', 'go-vip.co', 'wpcomstaging.com', 'wpengine.com', 'jurassic.ninja', 'woocommerce.com', 'atomicsites.blog', 'ninomihovilic.com', 'team51.blog' );
+				foreach ( $deny as $item ) {
+					if ( str_contains( $site->siteurl, $item ) ) {
+						return false;
+					}
+				}
+				return true;
+			}
+		);
+
+		$stats = get_wpcom_site_stats_batch(
+			array_column( $sites, 'userblog_id' ),
+			array_combine(
+				array_column( $sites, 'userblog_id' ),
+				array_fill(
+					0,
+					count( $sites ),
+					array(
+						'num'    => $num,
+						'period' => $period,
+						'date'   => $date,
+					)
+				)
+			),
+			'summary',
+			$errors
+		);
+		$stats = array_filter( $stats ?? array(), static fn( $s ) => 0 < ( $s->views ?? 0 ) );
+
+		return array(
+			'count'  => count( $stats ),
+			'sites'  => array_map( static fn( $s, $id ) => array(
+				'site_id'   => $id,
+				'site_url'  => $sites[ $id ]->siteurl ?? null,
+				'views'     => $s->views ?? 0,
+				'visitors'  => $s->visitors ?? 0,
+				'comments'  => $s->comments ?? 0,
+				'followers' => $s->followers ?? 0,
+			), $stats, array_keys( $stats ) ),
+			'errors' => array_map( static fn( $e ) => (array) $e, $errors ?? array() ),
+		);
+	}
+
+	#[McpTool( name: 'wpcom_list_sites_stats_orders' )]
+	public function wpcom_list_sites_stats_orders( string $unit = 'day', ?string $date = null ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
+		$date  = $date ?: gmdate( match ( $unit ) {
+			'week' => 'Y-\WW',
+			'month' => 'Y-m',
+			'year' => 'Y',
+			default => 'Y-m-d',
+		} );
+		$sites = get_wpcom_jetpack_sites() ?? array();
+		$sites = array_filter( $sites, static fn( $s ) => ! preg_match( '/mystagingwebsite\.com|go-vip\.co|wpcomstaging\.com|wpengine\.com|jurassic\.ninja|woocommerce\.com|atomicsites\.blog|ninomihovilic\.com|team51\.blog/', $s->siteurl ) );
+
+		$plugins = get_wpcom_site_plugins_batch( array_column( $sites, 'userblog_id' ), $plugin_errors ) ?? array();
+		$sites   = array_filter(
+			$sites,
+			static fn( $site ) => isset( $plugins[ $site->userblog_id ] ) && array_reduce(
+				$plugins[ $site->userblog_id ],
+				static fn( $carry, $plugin ) => $carry || ( 'woocommerce' === ( $plugin->TextDomain ?? '' ) && true === ( $plugin->active ?? false ) ),
+				false
+			)
+		);
+
+		$stats = get_wpcom_site_stats_batch(
+			array_column( $sites, 'userblog_id' ),
+			array_combine(
+				array_column( $sites, 'userblog_id' ),
+				array_fill( 0, count( $sites ), array( 'unit' => $unit, 'date' => $date, 'quantity' => 1 ) )
+			),
+			'orders',
+			$errors
+		);
+		$stats = array_filter( $stats ?? array(), static fn( $s ) => 0 < ( $s->total_gross_sales ?? 0 ) && 0 < ( $s->total_orders ?? 0 ) );
+
+		return array(
+			'count'  => count( $stats ),
+			'sites'  => array_map( static fn( $s, $id ) => array(
+				'site_id'           => $id,
+				'site_url'          => $sites[ $id ]->siteurl ?? null,
+				'total_gross_sales' => $s->total_gross_sales ?? 0,
+				'total_net_sales'   => $s->total_net_sales ?? 0,
+				'total_orders'      => $s->total_orders ?? 0,
+				'total_products'    => $s->total_products ?? 0,
+			), $stats, array_keys( $stats ) ),
+			'errors' => array_map( static fn( $e ) => (array) $e, array_merge( $errors ?? array(), $plugin_errors ?? array() ) ),
+		);
+	}
+
+	#[McpTool( name: 'pressable_create_site' )]
+	public function pressable_create_site( string $name, string $datacenter = 'DFW' ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+		$site = create_pressable_site( $name, $datacenter );
+		return $site ? (array) $site : array( 'error' => 'Failed to create Pressable site.' );
+	}
+
+	#[McpTool( name: 'pressable_clone_site' )]
+	public function pressable_clone_site( string $site_id_or_url, string $name, ?string $datacenter = null, bool $staging = true ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+		$site = create_pressable_site_clone( $site_id_or_url, $name, $datacenter, $staging );
+		return $site ? (array) $site : array( 'error' => 'Failed to clone Pressable site.' );
+	}
+
+	#[McpTool( name: 'pressable_rotate_wp_user_password' )]
+	public function pressable_rotate_wp_user_password( string $site_id_or_url, string $user = 'concierge@wordpress.com' ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+		$credentials = rotate_pressable_site_wp_user_password( $site_id_or_url, $user );
+		return $credentials ? (array) $credentials : array( 'error' => 'Failed to rotate Pressable WP user password.' );
+	}
+
+	#[McpTool( name: 'pressable_run_wp_cli_command' )]
+	public function pressable_run_wp_cli_command( string $site_id_or_url, string $wp_cli_command ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+		$exit_code = run_pressable_site_wp_cli_command( $site_id_or_url, $wp_cli_command, true );
+		return array(
+			'exit_code' => $exit_code,
+			'output'    => $GLOBALS['wp_cli_output'] ?? '',
+		);
+	}
+
+	#[McpTool( name: 'pressable_open_site_shell' )]
+	public function pressable_open_site_shell( string $site_id_or_url, string $shell_type = 'ssh' ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
+		return self::run_cli_command(
+			'pressable:open-site-shell',
+			array( $site_id_or_url, '--shell-type', $shell_type )
+		);
+	}
+
+	#[McpTool( name: 'pressable_upload_site_icon' )]
+	public function pressable_upload_site_icon( string $site_id_or_url ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
+		return self::run_cli_command(
+			'pressable:upload-site-icon',
+			array( $site_id_or_url )
+		);
+	}
+
+	#[McpTool( name: 'github_create_repository' )]
+	public function github_create_repository( string $name, ?string $type = null, ?string $homepage = null, ?string $description = null, string $custom_properties_json = '{}' ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
+		$custom_properties = decode_json_content( $custom_properties_json, true );
+		if ( ! is_array( $custom_properties ) ) {
+			return array( 'error' => 'Invalid custom_properties_json. Expected a JSON object.' );
+		}
+
+		$repository = create_github_repository( $name, $type, $homepage, $description, $custom_properties );
+		if ( null === $repository ) {
+			return array( 'error' => 'Failed to create GitHub repository.' );
+		}
+
+		set_github_repository_topics( $repository->name, array( 'team51-' . ( $type ?: 'empty' ) ) );
+		return (array) $repository;
+	}
+
+	#[McpTool( name: 'github_export_pattern_to_repo' )]
+	public function github_export_pattern_to_repo( string $site_id_or_url, string $pattern_name, string $category_slug, bool $preserve_images = false ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
+		$args = array( $site_id_or_url, $pattern_name, $category_slug );
+		if ( $preserve_images ) {
+			$args[] = '--preserve-images';
+		}
+		return self::run_cli_command( 'github:export-pattern-to-repo', $args );
+	}
+
+	#[McpTool( name: 'github_add_checklist' )]
+	public function github_add_checklist( string $checklist, string $repository, string $host = 'pressable', bool $skip_issue = false, string $conditional_tags_json = '{}' ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
+		$tags = decode_json_content( $conditional_tags_json, true );
+		if ( ! is_array( $tags ) ) {
+			return array( 'error' => 'Invalid conditional_tags_json. Expected a JSON object.' );
+		}
+
+		$args = array( $checklist, $repository, $host );
+		if ( $skip_issue ) {
+			$args[] = '--skip-issue';
+		}
+		foreach ( $tags as $tag => $enabled ) {
+			if ( true === $enabled ) {
+				$args[] = '--' . $tag;
+			}
+		}
+
+		return self::run_cli_command( 'github:add-checklist', $args );
+	}
+
+	#[McpTool( name: 'deployhq_create_project' )]
+	public function deployhq_create_project( string $name, int $zone_id = 6, string $template_id = 'pressable-included-integration', ?string $repository = null ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
+		$project = create_deployhq_project( $name, $zone_id, array( 'template_id' => $template_id ) );
+		if ( null === $project ) {
+			return array( 'error' => 'Failed to create DeployHQ project.' );
+		}
+
+		if ( $repository ) {
+			$connected = update_deployhq_project_repository( $project->permalink, "git@github.com:a8cteam51/$repository.git" );
+			return array(
+				'project'             => (array) $project,
+				'repository_connect'  => $connected ? (array) $connected : array( 'error' => 'Failed to connect repository.' ),
+			);
+		}
+
+		return (array) $project;
+	}
+
+	#[McpTool( name: 'deployhq_create_project_server' )]
+	public function deployhq_create_project_server( string $project, string $site_id_or_url, string $name, string $branch = 'trunk', string $branch_source = 'trunk' ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
+		$gh_repository = get_github_repository_from_deployhq_project( $project );
+		$site          = get_pressable_site( $site_id_or_url );
+		$sftp_owner    = $site ? get_pressable_site_sftp_owner( $site->id ) : null;
+
+		if ( ! $gh_repository || ! $site || ! $sftp_owner ) {
+			return array( 'error' => 'Failed to resolve DeployHQ project repository or Pressable site owner.' );
+		}
+
+		$branches = get_github_repository_branches( $gh_repository->name ) ?? array();
+		if ( ! in_array( $branch, array_column( $branches, 'name' ), true ) ) {
+			$created = create_github_repository_branch( $gh_repository->name, $branch, $branch_source );
+			if ( null === $created ) {
+				return array( 'error' => "Failed to create GitHub branch: $branch" );
+			}
+		}
+
+		$server = create_deployhq_project_server(
+			$project,
+			$name,
+			array(
+				'protocol_type'      => 'ssh',
+				'server_path'        => 'wp-content',
+				'email_notify_on'    => 'never',
+				'root_path'          => '',
+				'auto_deploy'        => true,
+				'notification_email' => '',
+				'branch'             => $branch,
+				'environment'        => 'trunk' === $branch ? 'production' : 'development',
+				'hostname'           => \Pressable_Connection_Helper::SSH_HOST,
+				'username'           => $sftp_owner->username,
+				'port'               => 22,
+				'use_ssh_keys'       => true,
+			)
+		);
+
+		return $server ? (array) $server : array( 'error' => 'Failed to create DeployHQ project server.' );
+	}
+
+	#[McpTool( name: 'jetpack_connection_triage' )]
+	public function jetpack_connection_triage( ?string $csv_path = null ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
+		$args = array();
+		if ( $csv_path ) {
+			$args[] = $csv_path;
+		}
+		return self::run_cli_command( 'jetpack:connection-triage', $args );
+	}
+
+	#[McpTool( name: 'jetpack_export_site_plugins' )]
+	public function jetpack_export_site_plugins( ?string $site_id_or_url = null, ?string $multiple = null ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
+		$sites = array();
+		if ( $site_id_or_url ) {
+			$site = get_wpcom_site( $site_id_or_url );
+			if ( $site ) {
+				$sites = array(
+					$site->ID => (object) array(
+						'userblog_id' => $site->ID,
+						'siteurl'     => $site->URL,
+					),
+				);
+			}
+		} elseif ( 'all' === $multiple || null === $multiple ) {
+			$sites = array_filter(
+				array_map(
+					static function ( $site ) {
+						$exclude = array( 'mystagingwebsite.com', 'go-vip.co', 'wpcomstaging.com', 'wpengine.com', 'jurassic.ninja', 'atomicsites.blog', 'woocommerce.com', 'woo.com' );
+						foreach ( $exclude as $domain ) {
+							if ( str_contains( $site->siteurl, $domain ) ) {
+								return null;
+							}
+						}
+						return $site;
+					},
+					get_wpcom_jetpack_sites() ?? array()
+				)
+			);
+		} else {
+			foreach ( array_map( 'trim', explode( ',', $multiple ) ) as $identifier ) {
+				$site = get_wpcom_site( $identifier );
+				if ( $site ) {
+					$sites[ $site->ID ] = (object) array(
+						'userblog_id' => $site->ID,
+						'siteurl'     => $site->URL,
+					);
+				}
+			}
+		}
+
+		$plugins = get_wpcom_site_plugins_batch( array_column( $sites, 'userblog_id' ), $errors ) ?? array();
+		$rows    = array();
+		foreach ( $plugins as $site_id => $site_plugins ) {
+			foreach ( $site_plugins as $plugin_file => $plugin_data ) {
+				$rows[] = array(
+					'site_id'   => $sites[ $site_id ]->userblog_id,
+					'site_url'  => $sites[ $site_id ]->siteurl,
+					'name'      => $plugin_data->Name,
+					'slug'      => dirname( $plugin_file ),
+					'version'   => $plugin_data->Version,
+					'status'    => ( $plugin_data->active ?? false ) ? 'Active' : 'Inactive',
+				);
+			}
+		}
+
+		return array(
+			'count'  => count( $rows ),
+			'sites'  => count( $sites ),
+			'rows'   => $rows,
+			'errors' => array_map( static fn( $e ) => (array) $e, $errors ?? array() ),
+		);
+	}
+
+	#[McpTool( name: 'cli_export_commands' )]
+	public function cli_export_commands( string $format = 'md', ?string $destination = null ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
+		$args = array( '--format', $format );
+		if ( $destination ) {
+			$args[] = '--destination';
+			$args[] = $destination;
+		}
+
+		return self::run_cli_command( 'export-commands', $args );
 	}
 
 	// endregion
