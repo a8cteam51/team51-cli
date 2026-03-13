@@ -12,8 +12,9 @@ use PhpMcp\Schema\ToolAnnotations;
  * Team51 CLI as MCP tools, allowing AI assistants to interact with WPCOM,
  * Pressable, GitHub, Jetpack, and DeployHQ services.
  *
- * High-risk operations (site creation, user deletion, WP-CLI execution,
- * deployments) are intentionally excluded. See the README for details.
+ * High-risk operations are exposed only when explicitly needed and are marked
+ * with ToolAnnotations so MCP clients can prompt/guard appropriately. This
+ * includes WP-CLI execution tools, which are allowlisted and audit-logged.
  *
  * IMPORTANT: When adding new tools, keep in mind that STDOUT is reserved for
  * JSON-RPC communication. Use STDERR for any debug output.
@@ -83,6 +84,150 @@ final class Team51McpTools {
 			'output'       => trim( $process->getOutput() ),
 			'error_output' => trim( $process->getErrorOutput() ),
 		);
+	}
+
+	/**
+	 * Restrictive allowlist for WP-CLI commands exposed through MCP.
+	 *
+	 * @param string $wp_cli_command Raw WP-CLI command (without leading `wp`).
+	 *
+	 * @return bool
+	 */
+	private static function is_allowed_wp_cli_command( string $wp_cli_command ): bool {
+		$command = trim( preg_replace( '/^wp\s+/', '', trim( $wp_cli_command ) ) ?? '' );
+		if ( '' === $command ) {
+			return false;
+		}
+
+		// Block known WP-CLI global flags, but allow command-specific flags.
+		$tokens = preg_split( '/\s+/', $command ) ?: array();
+		$blocked_global_flags = array(
+			'--path',
+			'--url',
+			'--ssh',
+			'--http',
+			'--user',
+			'--require',
+			'--exec',
+			'--context',
+			'--prompt',
+			'--quiet',
+			'--debug',
+			'--allow-root',
+			'--color',
+			'--no-color',
+		);
+
+		foreach ( $tokens as $token ) {
+			$token = trim( $token );
+			if ( ! str_starts_with( $token, '--' ) ) {
+				continue;
+			}
+
+			$token_name = explode( '=', $token )[0];
+			if ( in_array( strtolower( $token_name ), $blocked_global_flags, true ) ) {
+				return false;
+			}
+		}
+
+		$allowed_prefixes = array(
+			'option get ',
+			'plugin list',
+			'theme list',
+			'core version',
+			'site health',
+			'user list',
+			'post list',
+			'term list',
+			'comment list',
+			'transient get ',
+		);
+
+		foreach ( $allowed_prefixes as $prefix ) {
+			if ( str_starts_with( $command, $prefix ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Emits a structured audit entry for high-risk WP-CLI execution.
+	 *
+	 * @param string $provider       Either wpcom or pressable.
+	 * @param string $site_id_or_url Site identifier passed by caller.
+	 * @param string $wp_cli_command WP-CLI command.
+	 *
+	 * @return void
+	 */
+	private static function audit_wp_cli_command( string $provider, string $site_id_or_url, string $wp_cli_command ): void {
+		$actor = defined( 'OPSOASIS_WP_USERNAME' ) ? OPSOASIS_WP_USERNAME : 'unknown';
+
+		error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			'[MCP WP-CLI AUDIT] ' . ( encode_json_content(
+				array(
+					'provider'  => $provider,
+					'site'      => $site_id_or_url,
+					'command'   => trim( $wp_cli_command ),
+					'actor'     => $actor,
+					'timestamp' => gmdate( DATE_ATOM ),
+				)
+			) ?? '' )
+		);
+	}
+
+	/**
+	 * Filters sites by deny-list.
+	 *
+	 * @param array $sites The source sites array.
+	 * @param array $deny  Domain fragments to exclude.
+	 *
+	 * @return array
+	 */
+	private static function filter_sites_by_deny_list( array $sites, array $deny ): array {
+		return array_filter(
+			$sites,
+			static function ( $site ) use ( $deny ) {
+				$site_url  = $site->URL ?? $site->siteurl ?? '';
+				$host      = parse_url( $site_url, PHP_URL_HOST );
+				if ( ! is_string( $host ) || '' === $host ) {
+					// Some site URLs are schemeless (e.g. example.com); add a default
+					// scheme so parse_url can reliably extract the host.
+					$host = parse_url( 'https://' . ltrim( (string) $site_url, '/' ), PHP_URL_HOST );
+				}
+				$host      = is_string( $host ) ? strtolower( $host ) : '';
+				if ( '' === $host ) {
+					return true;
+				}
+
+				foreach ( $deny as $item ) {
+					$item = strtolower( $item );
+					if ( $host === $item || str_ends_with( $host, '.' . $item ) ) {
+						return false;
+					}
+				}
+				return true;
+			}
+		);
+	}
+
+	/**
+	 * Re-indexes site objects by `userblog_id`.
+	 *
+	 * @param array $sites List of site objects.
+	 *
+	 * @return array
+	 */
+	private static function index_sites_by_userblog_id( array $sites ): array {
+		$indexed = array();
+		foreach ( $sites as $site ) {
+			if ( isset( $site->userblog_id ) ) {
+				$indexed[ $site->userblog_id ] = $site;
+			}
+		}
+
+		return $indexed;
 	}
 
 	// endregion
@@ -1271,7 +1416,16 @@ final class Team51McpTools {
 
 	// region ADDITIONAL LEGACY COMMAND TOOLS
 
-	#[McpTool( name: 'wpcom_create_site' )]
+	#[McpTool(
+		name: 'wpcom_create_site',
+		annotations: new ToolAnnotations(
+			title: 'Create WPCOM Site',
+			readOnlyHint: false,
+			destructiveHint: true,
+			idempotentHint: false,
+			openWorldHint: true,
+		)
+	)]
 	public function wpcom_create_site( string $name ): array {
 		$identity_error = self::ensure_identity();
 		if ( $identity_error ) {
@@ -1282,7 +1436,16 @@ final class Team51McpTools {
 		return $site ? (array) $site : array( 'error' => 'Failed to create WPCOM site.' );
 	}
 
-	#[McpTool( name: 'wpcom_clone_site' )]
+	#[McpTool(
+		name: 'wpcom_clone_site',
+		annotations: new ToolAnnotations(
+			title: 'Clone WPCOM Site',
+			readOnlyHint: false,
+			destructiveHint: true,
+			idempotentHint: false,
+			openWorldHint: true,
+		)
+	)]
 	public function wpcom_clone_site( string $site_id_or_url ): array {
 		$identity_error = self::ensure_identity();
 		if ( $identity_error ) {
@@ -1293,7 +1456,16 @@ final class Team51McpTools {
 		return $staging ? (array) $staging : array( 'error' => 'Failed to create WPCOM staging site.' );
 	}
 
-	#[McpTool( name: 'wpcom_rotate_wp_user_password' )]
+	#[McpTool(
+		name: 'wpcom_rotate_wp_user_password',
+		annotations: new ToolAnnotations(
+			title: 'Rotate WPCOM WP User Password',
+			readOnlyHint: false,
+			destructiveHint: true,
+			idempotentHint: false,
+			openWorldHint: true,
+		)
+	)]
 	public function wpcom_rotate_wp_user_password( string $site_id_or_url, string $user = 'concierge@wordpress.com' ): array {
 		$identity_error = self::ensure_identity();
 		if ( $identity_error ) {
@@ -1304,12 +1476,30 @@ final class Team51McpTools {
 		return $credentials ? (array) $credentials : array( 'error' => 'Failed to rotate WPCOM WP user password.' );
 	}
 
-	#[McpTool( name: 'wpcom_run_wp_cli_command' )]
+	#[McpTool(
+		name: 'wpcom_run_wp_cli_command',
+		annotations: new ToolAnnotations(
+			title: 'Run WPCOM WP-CLI Command (High Risk)',
+			readOnlyHint: false,
+			destructiveHint: true,
+			idempotentHint: false,
+			openWorldHint: true,
+		)
+	)]
 	public function wpcom_run_wp_cli_command( string $site_id_or_url, string $wp_cli_command ): array {
 		$identity_error = self::ensure_identity();
 		if ( $identity_error ) {
 			return $identity_error;
 		}
+
+		if ( ! self::is_allowed_wp_cli_command( $wp_cli_command ) ) {
+			return array(
+				'error'          => 'Command is not allowed by MCP WP-CLI allowlist.',
+				'allowed_prefix' => array( 'option get', 'plugin list', 'theme list', 'core version', 'site health', 'user list', 'post list', 'term list', 'comment list', 'transient get' ),
+			);
+		}
+
+		self::audit_wp_cli_command( 'wpcom', $site_id_or_url, $wp_cli_command );
 
 		$exit_code = run_wpcom_site_wp_cli_command( $site_id_or_url, $wp_cli_command, true );
 		return array(
@@ -1352,18 +1542,16 @@ final class Team51McpTools {
 		}
 
 		$date  = $date ?: gmdate( 'Y-m-d' );
-		$sites = get_wpcom_jetpack_sites() ?? array();
-		$sites = array_filter(
-			$sites,
-			static function ( $site ) {
-				$deny = array( 'mystagingwebsite.com', 'go-vip.co', 'wpcomstaging.com', 'wpengine.com', 'jurassic.ninja', 'woocommerce.com', 'atomicsites.blog', 'ninomihovilic.com', 'team51.blog' );
-				foreach ( $deny as $item ) {
-					if ( str_contains( $site->siteurl, $item ) ) {
-						return false;
-					}
-				}
-				return true;
-			}
+		$jetpack_sites = get_wpcom_jetpack_sites();
+		if ( null === $jetpack_sites ) {
+			return array( 'error' => 'Failed to fetch Jetpack sites from WPCOM.' );
+		}
+
+		$sites = self::index_sites_by_userblog_id(
+			self::filter_sites_by_deny_list(
+				$jetpack_sites,
+				array( 'mystagingwebsite.com', 'go-vip.co', 'wpcomstaging.com', 'wpengine.com', 'jurassic.ninja', 'woocommerce.com', 'atomicsites.blog', 'ninomihovilic.com', 'team51.blog' )
+			)
 		);
 
 		$stats = get_wpcom_site_stats_batch(
@@ -1412,8 +1600,17 @@ final class Team51McpTools {
 			'year' => 'Y',
 			default => 'Y-m-d',
 		} );
-		$sites = get_wpcom_jetpack_sites() ?? array();
-		$sites = array_filter( $sites, static fn( $s ) => ! preg_match( '/mystagingwebsite\.com|go-vip\.co|wpcomstaging\.com|wpengine\.com|jurassic\.ninja|woocommerce\.com|atomicsites\.blog|ninomihovilic\.com|team51\.blog/', $s->siteurl ) );
+		$jetpack_sites = get_wpcom_jetpack_sites();
+		if ( null === $jetpack_sites ) {
+			return array( 'error' => 'Failed to fetch Jetpack sites from WPCOM.' );
+		}
+
+		$sites = self::index_sites_by_userblog_id(
+			self::filter_sites_by_deny_list(
+				$jetpack_sites,
+				array( 'mystagingwebsite.com', 'go-vip.co', 'wpcomstaging.com', 'wpengine.com', 'jurassic.ninja', 'woocommerce.com', 'atomicsites.blog', 'ninomihovilic.com', 'team51.blog' )
+			)
+		);
 
 		$plugins = get_wpcom_site_plugins_batch( array_column( $sites, 'userblog_id' ), $plugin_errors ) ?? array();
 		$sites   = array_filter(
@@ -1424,6 +1621,7 @@ final class Team51McpTools {
 				false
 			)
 		);
+		$sites = self::index_sites_by_userblog_id( $sites );
 
 		$stats = get_wpcom_site_stats_batch(
 			array_column( $sites, 'userblog_id' ),
@@ -1450,7 +1648,16 @@ final class Team51McpTools {
 		);
 	}
 
-	#[McpTool( name: 'pressable_create_site' )]
+	#[McpTool(
+		name: 'pressable_create_site',
+		annotations: new ToolAnnotations(
+			title: 'Create Pressable Site',
+			readOnlyHint: false,
+			destructiveHint: true,
+			idempotentHint: false,
+			openWorldHint: true,
+		)
+	)]
 	public function pressable_create_site( string $name, string $datacenter = 'DFW' ): array {
 		$identity_error = self::ensure_identity();
 		if ( $identity_error ) {
@@ -1460,7 +1667,16 @@ final class Team51McpTools {
 		return $site ? (array) $site : array( 'error' => 'Failed to create Pressable site.' );
 	}
 
-	#[McpTool( name: 'pressable_clone_site' )]
+	#[McpTool(
+		name: 'pressable_clone_site',
+		annotations: new ToolAnnotations(
+			title: 'Clone Pressable Site',
+			readOnlyHint: false,
+			destructiveHint: true,
+			idempotentHint: false,
+			openWorldHint: true,
+		)
+	)]
 	public function pressable_clone_site( string $site_id_or_url, string $name, ?string $datacenter = null, bool $staging = true ): array {
 		$identity_error = self::ensure_identity();
 		if ( $identity_error ) {
@@ -1480,12 +1696,31 @@ final class Team51McpTools {
 		return $credentials ? (array) $credentials : array( 'error' => 'Failed to rotate Pressable WP user password.' );
 	}
 
-	#[McpTool( name: 'pressable_run_wp_cli_command' )]
+	#[McpTool(
+		name: 'pressable_run_wp_cli_command',
+		annotations: new ToolAnnotations(
+			title: 'Run Pressable WP-CLI Command (High Risk)',
+			readOnlyHint: false,
+			destructiveHint: true,
+			idempotentHint: false,
+			openWorldHint: true,
+		)
+	)]
 	public function pressable_run_wp_cli_command( string $site_id_or_url, string $wp_cli_command ): array {
 		$identity_error = self::ensure_identity();
 		if ( $identity_error ) {
 			return $identity_error;
 		}
+
+		if ( ! self::is_allowed_wp_cli_command( $wp_cli_command ) ) {
+			return array(
+				'error'          => 'Command is not allowed by MCP WP-CLI allowlist.',
+				'allowed_prefix' => array( 'option get', 'plugin list', 'theme list', 'core version', 'site health', 'user list', 'post list', 'term list', 'comment list', 'transient get' ),
+			);
+		}
+
+		self::audit_wp_cli_command( 'pressable', $site_id_or_url, $wp_cli_command );
+
 		$exit_code = run_pressable_site_wp_cli_command( $site_id_or_url, $wp_cli_command, true );
 		return array(
 			'exit_code' => $exit_code,
@@ -1495,14 +1730,10 @@ final class Team51McpTools {
 
 	#[McpTool( name: 'pressable_open_site_shell' )]
 	public function pressable_open_site_shell( string $site_id_or_url, string $shell_type = 'ssh' ): array {
-		$identity_error = self::ensure_identity();
-		if ( $identity_error ) {
-			return $identity_error;
-		}
-
-		return self::run_cli_command(
-			'pressable:open-site-shell',
-			array( $site_id_or_url, '--shell-type', $shell_type )
+		return array(
+			'error'      => 'Unsupported operation in MCP context: interactive shell sessions are not supported over JSON-RPC.',
+			'site'       => $site_id_or_url,
+			'shell_type' => $shell_type,
 		);
 	}
 
@@ -1519,7 +1750,16 @@ final class Team51McpTools {
 		);
 	}
 
-	#[McpTool( name: 'github_create_repository' )]
+	#[McpTool(
+		name: 'github_create_repository',
+		annotations: new ToolAnnotations(
+			title: 'Create GitHub Repository',
+			readOnlyHint: false,
+			destructiveHint: true,
+			idempotentHint: false,
+			openWorldHint: true,
+		)
+	)]
 	public function github_create_repository( string $name, ?string $type = null, ?string $homepage = null, ?string $description = null, string $custom_properties_json = '{}' ): array {
 		$identity_error = self::ensure_identity();
 		if ( $identity_error ) {
@@ -1536,7 +1776,34 @@ final class Team51McpTools {
 			return array( 'error' => 'Failed to create GitHub repository.' );
 		}
 
-		set_github_repository_topics( $repository->name, array( 'team51-' . ( $type ?: 'empty' ) ) );
+		$topics        = array( 'team51-' . ( $type ?: 'empty' ) );
+		$topics_result = null;
+		try {
+			$topics_result = set_github_repository_topics( $repository->name, $topics );
+		} catch ( \Throwable $e ) {
+			error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+				'[MCP] Failed to set GitHub repository topics: ' . ( encode_json_content(
+					array(
+						'repository' => $repository->name,
+						'topics'     => $topics,
+						'error'      => $e->getMessage(),
+					)
+				) ?? '' )
+			);
+		}
+
+		if ( null === $topics_result ) {
+			error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+				'[MCP] GitHub topics not applied: ' . ( encode_json_content(
+					array(
+						'repository' => $repository->name,
+						'topics'     => $topics,
+						'result'     => $topics_result,
+					)
+				) ?? '' )
+			);
+		}
+
 		return (array) $repository;
 	}
 
@@ -1579,7 +1846,16 @@ final class Team51McpTools {
 		return self::run_cli_command( 'github:add-checklist', $args );
 	}
 
-	#[McpTool( name: 'deployhq_create_project' )]
+	#[McpTool(
+		name: 'deployhq_create_project',
+		annotations: new ToolAnnotations(
+			title: 'Create DeployHQ Project',
+			readOnlyHint: false,
+			destructiveHint: true,
+			idempotentHint: false,
+			openWorldHint: true,
+		)
+	)]
 	public function deployhq_create_project( string $name, int $zone_id = 6, string $template_id = 'pressable-included-integration', ?string $repository = null ): array {
 		$identity_error = self::ensure_identity();
 		if ( $identity_error ) {
@@ -1602,7 +1878,16 @@ final class Team51McpTools {
 		return (array) $project;
 	}
 
-	#[McpTool( name: 'deployhq_create_project_server' )]
+	#[McpTool(
+		name: 'deployhq_create_project_server',
+		annotations: new ToolAnnotations(
+			title: 'Create DeployHQ Project Server',
+			readOnlyHint: false,
+			destructiveHint: true,
+			idempotentHint: false,
+			openWorldHint: true,
+		)
+	)]
 	public function deployhq_create_project_server( string $project, string $site_id_or_url, string $name, string $branch = 'trunk', string $branch_source = 'trunk' ): array {
 		$identity_error = self::ensure_identity();
 		if ( $identity_error ) {
@@ -1680,20 +1965,22 @@ final class Team51McpTools {
 				);
 			}
 		} elseif ( 'all' === $multiple || null === $multiple ) {
-			$sites = array_filter(
-				array_map(
-					static function ( $site ) {
-						$exclude = array( 'mystagingwebsite.com', 'go-vip.co', 'wpcomstaging.com', 'wpengine.com', 'jurassic.ninja', 'atomicsites.blog', 'woocommerce.com', 'woo.com' );
-						foreach ( $exclude as $domain ) {
-							if ( str_contains( $site->siteurl, $domain ) ) {
-								return null;
-							}
-						}
-						return $site;
-					},
-					get_wpcom_jetpack_sites() ?? array()
-				)
+			$jetpack_sites = get_wpcom_jetpack_sites();
+			if ( null === $jetpack_sites ) {
+				return array( 'error' => 'Failed to fetch Jetpack sites from WPCOM.' );
+			}
+
+			$all_sites = self::filter_sites_by_deny_list(
+				$jetpack_sites,
+				array( 'mystagingwebsite.com', 'go-vip.co', 'wpcomstaging.com', 'wpengine.com', 'jurassic.ninja', 'atomicsites.blog', 'woocommerce.com', 'woo.com' )
 			);
+			$sites     = array();
+			foreach ( $all_sites as $site ) {
+				$sites[ $site->userblog_id ] = (object) array(
+					'userblog_id' => $site->userblog_id,
+					'siteurl'     => $site->siteurl,
+				);
+			}
 		} else {
 			foreach ( array_map( 'trim', explode( ',', $multiple ) ) as $identifier ) {
 				$site = get_wpcom_site( $identifier );
