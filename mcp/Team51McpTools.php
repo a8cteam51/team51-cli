@@ -2281,6 +2281,84 @@ final class Team51McpTools {
 		);
 	}
 
+	/**
+	 * Download all regular plugins (excluding mu-plugins) from a Pressable site.
+	 *
+	 * @param string      $site_id_or_url Pressable site ID or domain.
+	 * @param string|null $destination    Optional local destination path for the .tar.gz file.
+	 */
+	#[McpTool(
+		name: 'pressable_download_site_plugins',
+		annotations: new ToolAnnotations(
+			title: 'Download Pressable Site Plugins',
+			readOnlyHint: false,
+			destructiveHint: false,
+			idempotentHint: false,
+			openWorldHint: true,
+		)
+	)]
+	public function pressable_download_site_plugins( string $site_id_or_url, ?string $destination = null ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
+		if ( null === $destination ) {
+			$destination = get_user_folder_path( 'Downloads/pressable-plugins-' . slugify( $site_id_or_url ) . '-' . \gmdate( 'Y-m-d-H-i-s' ) . '.tar.gz' );
+		}
+
+		$result = self::run_cli_command(
+			'pressable:download-site-plugins',
+			array(
+				$site_id_or_url,
+				'--destination',
+				$destination,
+			)
+		);
+
+		$result['destination'] = $destination;
+		return $result;
+	}
+
+	/**
+	 * Download all regular plugins (excluding mu-plugins) from a WPCOM site.
+	 *
+	 * @param string      $site_id_or_url WPCOM site ID or domain.
+	 * @param string|null $destination    Optional local destination path for the .tar.gz file.
+	 */
+	#[McpTool(
+		name: 'wpcom_download_site_plugins',
+		annotations: new ToolAnnotations(
+			title: 'Download WPCOM Site Plugins',
+			readOnlyHint: false,
+			destructiveHint: false,
+			idempotentHint: false,
+			openWorldHint: true,
+		)
+	)]
+	public function wpcom_download_site_plugins( string $site_id_or_url, ?string $destination = null ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
+		if ( null === $destination ) {
+			$destination = get_user_folder_path( 'Downloads/wpcom-plugins-' . slugify( $site_id_or_url ) . '-' . \gmdate( 'Y-m-d-H-i-s' ) . '.tar.gz' );
+		}
+
+		$result = self::run_cli_command(
+			'wpcom:download-site-plugins',
+			array(
+				$site_id_or_url,
+				'--destination',
+				$destination,
+			)
+		);
+
+		$result['destination'] = $destination;
+		return $result;
+	}
+
 	#[McpTool( name: 'cli_export_commands' )]
 	public function cli_export_commands( string $format = 'md', ?string $destination = null ): array {
 		$identity_error = self::ensure_identity();

@@ -97,12 +97,12 @@ claude mcp add team51 -- team51 --mcp
 
 ### Available Tools
 
-The MCP server exposes 43 tools across all services:
+The MCP server exposes 45 tools across all services:
 
 | Service | Read Tools | Write Tools |
 |---------|-----------|-------------|
-| **WPCOM** | `wpcom_list_sites`, `wpcom_get_site`, `wpcom_list_site_plugins`, `wpcom_list_site_stickers`, `wpcom_list_sites_with_sticker`, `wpcom_get_site_stats`, `wpcom_list_site_users`, `wpcom_list_deployment_webhooks` | `wpcom_add_sticker`, `wpcom_remove_sticker`, `wpcom_update_site`, `wpcom_rotate_sftp_password`, `wpcom_create_deployment_webhook`, `wpcom_delete_deployment_webhook`, `wpcom_sync_deployment_webhook_secret` |
-| **Pressable** | `pressable_list_sites`, `pressable_get_site`, `pressable_get_php_errors`, `pressable_list_collaborators`, `pressable_list_sftp_users`, `pressable_list_site_domains` | `pressable_create_site_note`, `pressable_add_collaborator`, `pressable_remove_collaborator`, `pressable_add_domain`, `pressable_rotate_sftp_password` |
+| **WPCOM** | `wpcom_list_sites`, `wpcom_get_site`, `wpcom_list_site_plugins`, `wpcom_list_site_stickers`, `wpcom_list_sites_with_sticker`, `wpcom_get_site_stats`, `wpcom_list_site_users`, `wpcom_list_deployment_webhooks`, `wpcom_download_site_plugins` | `wpcom_add_sticker`, `wpcom_remove_sticker`, `wpcom_update_site`, `wpcom_rotate_sftp_password`, `wpcom_create_deployment_webhook`, `wpcom_delete_deployment_webhook`, `wpcom_sync_deployment_webhook_secret` |
+| **Pressable** | `pressable_list_sites`, `pressable_get_site`, `pressable_get_php_errors`, `pressable_list_collaborators`, `pressable_list_sftp_users`, `pressable_list_site_domains`, `pressable_download_site_plugins` | `pressable_create_site_note`, `pressable_add_collaborator`, `pressable_remove_collaborator`, `pressable_add_domain`, `pressable_rotate_sftp_password` |
 | **GitHub** | `github_list_repositories`, `github_get_repository`, `github_list_branches`, `github_list_secrets`, `github_list_workflow_runs` | `github_set_topics`, `github_create_branch`, `github_set_secret`, `github_create_issue` |
 | **Jetpack** | `jetpack_list_modules`, `jetpack_list_site_modules` | `jetpack_update_module_settings` |
 | **DeployHQ** | `deployhq_list_projects`, `deployhq_get_project`, `deployhq_list_project_servers` | `deployhq_rotate_private_key`, `deployhq_connect_repository` |
@@ -143,6 +143,18 @@ team51 wpcom:site:deployment:webhook:delete <site> [deployment_id] <webhook_id>
 
 # Manual secret sync fallback (if automatic sync fails)
 team51 wpcom:site:deployment:webhook:sync-secret <site> <deployment_id> <webhook_id> <secret>
+```
+
+### Download site plugins
+
+You can download installed plugins from a Pressable or WPCOM site as a `.tar.gz` archive:
+
+```bash
+# Downloads only wp-content/plugins (does not include mu-plugins)
+team51 pressable:download-site-plugins <site> [--destination=/path/to/plugins.tar.gz]
+
+# Downloads only wp-content/plugins (does not include mu-plugins)
+team51 wpcom:download-site-plugins <site> [--destination=/path/to/plugins.tar.gz]
 ```
 
 ### Conventions around defaults
