@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace WPCOMSpecialProjects\CLI\Command;
 
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -71,11 +73,13 @@ final class WPCOM_Site_Plugins_Download extends Command {
 		$timestamp            = \gmdate( 'Y-m-d-H-i-s' );
 		$archive_filename     = "team51-wpcom-plugins-$site_slug-$timestamp.tar.gz";
 		$remote_archive_paths = array(
-			"htdocs/wp-content/$archive_filename",
-			"/htdocs/wp-content/$archive_filename",
+			"/tmp/$archive_filename",
+			"tmp/$archive_filename",
 		);
 		$remote_cleanup_error = false;
 		$archive_created      = false;
+		$download_successful  = false;
+		$download_valid       = false;
 
 		$archive_ssh = \WPCOM_Connection_Helper::get_ssh_connection( (string) $this->site->ID );
 		if ( \is_null( $archive_ssh ) ) {
@@ -87,10 +91,10 @@ final class WPCOM_Site_Plugins_Download extends Command {
 			$archive_ssh->setTimeout( 0 );
 
 			$archive_command = 'if [ -d htdocs/wp-content/plugins ]; then '
-				. 'archive_path=' . escapeshellarg( "htdocs/wp-content/$archive_filename" ) . '; '
+				. 'if [ -d /tmp ]; then archive_path=' . escapeshellarg( "/tmp/$archive_filename" ) . '; else archive_path=' . escapeshellarg( "tmp/$archive_filename" ) . '; fi; '
 				. 'tar -czf "$archive_path" -C htdocs/wp-content plugins; '
 				. 'elif [ -d /htdocs/wp-content/plugins ]; then '
-				. 'archive_path=' . escapeshellarg( "/htdocs/wp-content/$archive_filename" ) . '; '
+				. 'if [ -d /tmp ]; then archive_path=' . escapeshellarg( "/tmp/$archive_filename" ) . '; else archive_path=' . escapeshellarg( "tmp/$archive_filename" ) . '; fi; '
 				. 'tar -czf "$archive_path" -C /htdocs/wp-content plugins; '
 				. 'else '
 				. 'false; '
@@ -108,36 +112,24 @@ final class WPCOM_Site_Plugins_Download extends Command {
 		$archive_created = true;
 
 		$sftp = \WPCOM_Connection_Helper::get_sftp_connection( (string) $this->site->ID );
-		if ( \is_null( $sftp ) ) {
-			$output->writeln( '<error>Failed to connect to the site via SFTP.</error>' );
-			return Command::FAILURE;
-		}
+		if ( ! \is_null( $sftp ) ) {
+			try {
+				$sftp->setTimeout( 0 );
 
-		try {
-			$sftp->setTimeout( 0 );
-
-			$download_successful = false;
-			foreach ( $remote_archive_paths as $sftp_path ) {
-				if ( $sftp->get( $sftp_path, $this->destination ) ) {
-					$download_successful = true;
-					break;
+				foreach ( $remote_archive_paths as $sftp_path ) {
+					if ( $sftp->get( $sftp_path, $this->destination ) ) {
+						$download_successful = true;
+						break;
+					}
 				}
-			}
 
-			if ( ! $download_successful ) {
-				$output->writeln( '<error>Failed to download the plugin archive via SFTP.</error>' );
-				return Command::FAILURE;
+				$download_valid = $download_successful && \is_file( $this->destination ) && 0 < \filesize( $this->destination );
+			} finally {
+				$sftp->disconnect();
 			}
-
-			if ( ! \is_file( $this->destination ) || 0 === \filesize( $this->destination ) ) {
-				$output->writeln( '<error>Downloaded archive appears invalid or empty.</error>' );
-				return Command::FAILURE;
-			}
-		} finally {
-			$sftp->disconnect();
 		}
 
-		if ( $archive_created ) {
+		if ( $archive_created ) { // Always cleanup after archive creation.
 			$cleanup_ssh = \WPCOM_Connection_Helper::get_ssh_connection( (string) $this->site->ID );
 			if ( \is_null( $cleanup_ssh ) ) {
 				$remote_cleanup_error = true;
@@ -159,8 +151,24 @@ final class WPCOM_Site_Plugins_Download extends Command {
 			}
 		}
 
+		if ( \is_null( $sftp ) ) {
+			$output->writeln( '<error>Failed to connect to the site via SFTP.</error>' );
+			return Command::FAILURE;
+		}
+
+		if ( ! $download_successful ) {
+			$output->writeln( '<error>Failed to download the plugin archive via SFTP.</error>' );
+			return Command::FAILURE;
+		}
+
+		if ( ! $download_valid ) {
+			$output->writeln( '<error>Downloaded archive appears invalid or empty.</error>' );
+			return Command::FAILURE;
+		}
+
 		if ( $remote_cleanup_error ) {
-			$output->writeln( '<comment>Plugin archive downloaded, but failed to clean up the temporary remote archive.</comment>' );
+			$output->writeln( '<error>Plugin archive downloaded, but failed to clean up the temporary remote archive.</error>' );
+			return Command::FAILURE;
 		}
 
 		$output->writeln( '<fg=green;options=bold>Plugins downloaded successfully.</>' );
