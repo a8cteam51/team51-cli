@@ -190,7 +190,10 @@ final class GitHub_Repository_Create extends Command {
 		}
 
 		if ( in_array( $this->type, array( 'no-code-project', 'project', 'plugin' ), true ) ) {
-			$this->wait_for_fill_in_scaffold_placeholders_action_to_complete( $output, $repository->name );
+			if ( ! $this->fill_scaffold_placeholders_locally( $output, $repository ) ) {
+				$output->writeln( '<error>Failed to fill scaffold placeholders in the new repository.</error>' );
+				return Command::FAILURE;
+			}
 		}
 
 		if ( in_array( $this->type, array( 'no-code-project', 'project' ), true ) ) {
@@ -432,6 +435,311 @@ final class GitHub_Repository_Create extends Command {
 	}
 
 	/**
+	 * Fills scaffold placeholders in the newly created repository locally.
+	 *
+	 * @param   OutputInterface $output     The output interface.
+	 * @param   stdClass        $repository The repository object.
+	 *
+	 * @return  boolean
+	 */
+	private function fill_scaffold_placeholders_locally( OutputInterface $output, stdClass $repository ): bool {
+		$output->writeln( '<fg=magenta;options=bold>Filling scaffold placeholders locally...</>' );
+
+		$temp_root       = sys_get_temp_dir() . '/' . uniqid( 'github-repo-scaffold-fill-' );
+		$destination_dir = $temp_root . '/destination';
+		$type            = $this->type ?? 'empty';
+
+		if ( ! mkdir( $temp_root ) && ! is_dir( $temp_root ) ) {
+			$output->writeln( '<error>Failed to create temporary directory for scaffold replacement.</error>' );
+			return false;
+		}
+
+		try {
+			$destination_clone_process = run_system_command(
+				array( 'git', 'clone', $repository->ssh_url, $destination_dir ),
+				'.',
+				false
+			);
+
+			if ( ! $destination_clone_process->isSuccessful() ) {
+				$output->writeln( '<error>Failed to clone the destination repository.</error>' );
+				return false;
+			}
+
+			if ( ! $this->rename_scaffold_paths( $destination_dir, $type ) ) {
+				$output->writeln( '<error>Failed to rename scaffold files and directories.</error>' );
+				return false;
+			}
+
+			if ( ! $this->replace_placeholders_in_repository_tree( $destination_dir, $type ) ) {
+				$output->writeln( '<error>Failed to replace scaffold placeholders in repository files.</error>' );
+				return false;
+			}
+
+			if ( ! $this->remove_scaffold_workflow_files( $destination_dir ) ) {
+				$output->writeln( '<error>Failed to remove scaffold workflow files.</error>' );
+				return false;
+			}
+
+			$git_add_process = run_system_command(
+				array( 'git', 'add', '--all' ),
+				$destination_dir,
+				false
+			);
+
+			if ( ! $git_add_process->isSuccessful() ) {
+				$output->writeln( '<error>Failed to stage scaffold placeholder changes.</error>' );
+				return false;
+			}
+
+			$git_status_process = run_system_command(
+				array( 'git', 'status', '--porcelain' ),
+				$destination_dir,
+				false
+			);
+
+			if ( ! $git_status_process->isSuccessful() ) {
+				$output->writeln( '<error>Failed to determine whether scaffold placeholder changes exist.</error>' );
+				return false;
+			}
+
+			if ( '' === trim( $git_status_process->getOutput() ) ) {
+				$output->writeln( '<comment>No local scaffold placeholder changes were needed.</comment>' );
+				return true;
+			}
+
+			$git_commit_process = run_system_command(
+				array( 'git', 'commit', '-m', 'chore -- fill in scaffolding placeholders locally' ),
+				$destination_dir,
+				false
+			);
+
+			if ( ! $git_commit_process->isSuccessful() ) {
+				$output->writeln( '<error>Failed to commit scaffold placeholder changes.</error>' );
+				return false;
+			}
+
+			$git_push_process = run_system_command(
+				array( 'git', 'push', 'origin', 'trunk' ),
+				$destination_dir,
+				false
+			);
+
+			if ( ! $git_push_process->isSuccessful() ) {
+				$output->writeln( '<error>Failed to push scaffold placeholder changes to `trunk`.</error>' );
+				return false;
+			}
+		} finally {
+			$this->remove_path( $temp_root );
+		}
+
+		$output->writeln( '<fg=green;options=bold>Scaffold placeholders filled successfully.</>' );
+		return true;
+	}
+
+	/**
+	 * Renames scaffold files and directories based on repository type.
+	 *
+	 * @param   string $repository_dir The cloned repository directory.
+	 * @param   string $type           The repository type.
+	 *
+	 * @return  boolean
+	 */
+	private function rename_scaffold_paths( string $repository_dir, string $type ): bool {
+		$rename_map = match ( $type ) {
+			'project' => array(
+				'README.scaffold.md' => 'README.md',
+				'themes/a8csp-project-scaffold' => 'themes/' . $this->name,
+				'mu-plugins/a8csp-project-scaffold-features' => 'mu-plugins/' . $this->name . '-features',
+				'mu-plugins/' . $this->name . '-features/a8csp-project-scaffold-features.php' => 'mu-plugins/' . $this->name . '-features/' . $this->name . '-features.php',
+			),
+			'plugin' => array(
+				'README.scaffold.md' => 'README.md',
+				'team51-plugin-scaffold.php' => $this->name . '.php',
+			),
+			'no-code-project' => array(
+				'README.scaffold.md' => 'README.md',
+				'themes/a8csp-no-code-project-scaffold' => 'themes/' . $this->name,
+			),
+			default => array(),
+		};
+
+		foreach ( $rename_map as $source => $destination ) {
+			$source_path = $repository_dir . '/' . $source;
+			if ( ! file_exists( $source_path ) && ! is_link( $source_path ) ) {
+				continue;
+			}
+
+			$move_process = run_system_command(
+				array( 'git', 'mv', '--force', $source, $destination ),
+				$repository_dir,
+				false
+			);
+
+			if ( ! $move_process->isSuccessful() ) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * Replaces scaffold placeholders in repository files.
+	 *
+	 * @param   string $repository_dir The cloned repository directory.
+	 * @param   string $type           The repository type.
+	 * @param   string $relative_dir   The current relative directory.
+	 *
+	 * @return  boolean
+	 */
+	private function replace_placeholders_in_repository_tree( string $repository_dir, string $type, string $relative_dir = '' ): bool {
+		$directory = '' === $relative_dir ? $repository_dir : $repository_dir . '/' . $relative_dir;
+		$items     = scandir( $directory );
+		if ( false === $items ) {
+			return false;
+		}
+
+		foreach ( $items as $item ) {
+			if ( '.' === $item || '..' === $item || '.git' === $item || '.github' === $item ) {
+				continue;
+			}
+
+			$relative_path = '' === $relative_dir ? $item : $relative_dir . '/' . $item;
+			$path          = $repository_dir . '/' . $relative_path;
+
+			if ( is_dir( $path ) ) {
+				if ( ! $this->replace_placeholders_in_repository_tree( $repository_dir, $type, $relative_path ) ) {
+					return false;
+				}
+				continue;
+			}
+
+			if ( $this->is_probably_binary_file( $path ) ) {
+				continue;
+			}
+
+			if ( ! $this->replace_placeholders_in_file( $path, $relative_path, $type ) ) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * Replaces scaffold placeholders in a file.
+	 *
+	 * @param   string $path          The absolute file path.
+	 * @param   string $relative_path The path relative to the repository root.
+	 * @param   string $type          The repository type.
+	 *
+	 * @return  boolean
+	 */
+	private function replace_placeholders_in_file( string $path, string $relative_path, string $type ): bool {
+		$contents = file_get_contents( $path );
+		if ( false === $contents ) {
+			return false;
+		}
+
+		$replacements = 'README.md' === $relative_path
+			? $this->build_scaffold_placeholder_replacements( $type, true )
+			: $this->build_scaffold_placeholder_replacements( $type, false );
+
+		$updated_contents = str_replace(
+			array_keys( $replacements ),
+			array_values( $replacements ),
+			$contents
+		);
+
+		if ( $updated_contents === $contents ) {
+			return true;
+		}
+
+		return false !== file_put_contents( $path, $updated_contents );
+	}
+
+	/**
+	 * Returns the scaffold placeholder replacements for a repository type.
+	 *
+	 * @param   string  $type      The repository type.
+	 * @param   boolean $is_readme Whether the file being replaced is the root README.
+	 *
+	 * @return  array<string, string>
+	 */
+	private function build_scaffold_placeholder_replacements( string $type, bool $is_readme ): array {
+		$title                    = $this->custom_properties['human-title'] ?? $this->name ?? '';
+		$homepage                 = $this->homepage ?? 'https://wpspecialprojects.com';
+		$description              = $this->description ?? '';
+		$long_prefix              = $this->custom_properties['php-globals-long-prefix'] ?? str_replace( '-', '_', $this->name ?? '' );
+		$short_prefix             = $this->custom_properties['php-globals-short-prefix'] ?? str_replace( '-', '_', $this->name ?? '' );
+		$short_prefix_upper       = strtoupper( $short_prefix );
+		$parent_theme             = $this->custom_properties['parent-theme'] ?? $this->no_code_theme ?? '';
+		$plugin_namespace         = 'A8C\\SpecialProjects\\' . str_replace( 'A8CSP', '', str_replace( ' ', '', $title ) );
+		$plugin_namespace_escaped = str_replace( '\\', '\\\\', $plugin_namespace ) . '\\\\';
+
+		return match ( $type ) {
+			'project' => $is_readme
+				? array(
+					'EXAMPLE_REPO_NAME' => $title,
+					'EXAMPLE_REPO_PROD_URL' => $homepage,
+				)
+				: array(
+					'A8CSP Project Scaffold' => $title,
+					'The scaffold for new projects used by the Automattic Special Projects team.' => $description,
+					'https://a8csp-project-scaffold-production.mystagingwebsite.com' => $homepage,
+					'a8csp-project-scaffold' => $this->name ?? '',
+					'a8csp_project_scaffold' => $long_prefix,
+					'a8csp' => $short_prefix,
+					'A8CSP' => $short_prefix_upper,
+				),
+			'plugin' => $is_readme
+				? array(
+					'EXAMPLE_REPO_NAME' => $title,
+					'EXAMPLE_REPO_DESCRIPTION' => $description,
+				)
+				: array(
+					'A8CSP Plugin Scaffold' => $title,
+					'A scaffold for A8C Special Projects plugins.' => $description,
+					'team51-plugin-scaffold' => $this->name ?? '',
+					'a8csp-scaffold' => $this->name ?? '',
+					'A8C\SpecialProjects\Scaffold' => $plugin_namespace,
+					'A8C\\\\SpecialProjects\\\\Scaffold\\\\' => $plugin_namespace_escaped,
+					'a8csp_scaffold' => $short_prefix,
+					'A8CSP_SCAFFOLD' => $short_prefix_upper,
+				),
+			'no-code-project' => $is_readme
+				? array(
+					'EXAMPLE_REPO_NAME' => $title,
+					'EXAMPLE_REPO_PROD_URL' => $homepage,
+				)
+				: array(
+					'A8CSP No Code Project Scaffold' => $title,
+					'The no code scaffold for new projects used by the Automattic Special Projects team.' => $description,
+					'https://a8csp-no-code-project-scaffold-production.mystagingwebsite.com' => $homepage,
+					'a8csp-no-code-project-scaffold' => $this->name ?? '',
+					'a8csp_no_code_project_scaffold' => $long_prefix,
+					'a8csp-no-code-project-parent-theme' => $parent_theme,
+					'a8csp' => $short_prefix,
+					'A8CSP' => $short_prefix_upper,
+				),
+			default => array(),
+		};
+	}
+
+	/**
+	 * Removes the no-longer-needed scaffold workflow files.
+	 *
+	 * @param   string $repository_dir The cloned repository directory.
+	 *
+	 * @return  boolean
+	 */
+	private function remove_scaffold_workflow_files( string $repository_dir ): bool {
+		return $this->remove_path( $repository_dir . '/.github/workflows/fill-in-scaffold.yml' )
+			&& $this->remove_path( $repository_dir . '/.github/workflows/fill-in-scaffold.mjs' );
+	}
+
+	/**
 	 * Syncs shared AI agent context files into the newly created repository.
 	 *
 	 * @param   OutputInterface $output     The output interface.
@@ -647,18 +955,49 @@ final class GitHub_Repository_Create extends Command {
 	}
 
 	/**
-	 * Waits for the fill in the scaffold placeholders workflow to complete.
+	 * Determines whether a file is likely binary and should be skipped for string replacement.
 	 *
-	 * @param   OutputInterface $output     The output interface.
-	 * @param   string          $repository The name of the repository to wait for the workflow run in.
+	 * @param   string $path The file path to inspect.
 	 *
-	 * @return  void
+	 * @return  boolean
 	 */
-	private function wait_for_fill_in_scaffold_placeholders_action_to_complete( OutputInterface $output, string $repository ): void {
-		$finished = wait_for_github_repository_workflow_run_to_complete( $repository, 'Fill in the Scaffold Placeholders', $output );
-		if ( ! $finished ) {
-			$output->writeln( '<error>The fill in the scaffold placeholders workflow did not complete, check the repository actions for errors.</error>' );
+	private function is_probably_binary_file( string $path ): bool {
+		$binary_extensions = array(
+			'png',
+			'jpg',
+			'jpeg',
+			'gif',
+			'webp',
+			'ico',
+			'zip',
+			'gz',
+			'tgz',
+			'phar',
+			'woff',
+			'woff2',
+			'eot',
+			'ttf',
+			'otf',
+			'mp3',
+			'mp4',
+			'pdf',
+			'mo',
+			'map',
+		);
+		$extension         = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
+		if ( in_array( $extension, $binary_extensions, true ) ) {
+			return true;
 		}
+
+		$handle = fopen( $path, 'rb' );
+		if ( false === $handle ) {
+			return true;
+		}
+
+		$sample = fread( $handle, 1024 );
+		fclose( $handle );
+
+		return false !== $sample && str_contains( $sample, "\0" );
 	}
 
 	// endregion
