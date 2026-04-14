@@ -180,7 +180,7 @@ EOT
 			);
 			$context     = stream_context_create( $options );
 			$result      = @file_get_contents( $site_url, false, $context );
-			$headers     = parse_http_headers( $http_response_header );
+			$headers     = parse_http_headers( http_get_last_response_headers() );
 			$status_code = $headers['http_code'];
 
 			if ( 410 === $status_code && $this->is_staging_domain( $site_url ) ) {
@@ -201,7 +201,8 @@ EOT
 				// Check WPCOM API for site information
 				$wpcom_api_url = 'https://public-api.wordpress.com/rest/v1.1/sites/' . rawurlencode( $domain );
 				$wpcom_result  = @file_get_contents( $wpcom_api_url, false, $context );
-				$wpcom_status  = $http_response_header ? parse_http_headers( $http_response_header )['http_code'] : '';
+				$wpcom_headers = http_get_last_response_headers();
+				$wpcom_status  = $wpcom_headers ? parse_http_headers( $wpcom_headers )['http_code'] : '';
 
 				if ( '400' === $wpcom_status ) {
 					$notes = 'Site is not connected to WordPress.com. If site loads, it may have moved hosts.';
