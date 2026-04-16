@@ -464,13 +464,13 @@ final class GitHub_Repository_Create extends Command {
 			}
 
 			$context_clone_process = run_system_command(
-				array( 'git', 'clone', '--recurse-submodules', 'git@github.com:a8cteam51/a8csp-agent-context.git', $source_dir ),
+				array( 'git', 'clone', '--recurse-submodules', 'git@github.com:a8cteam51/a8csp-agent-context-thin.git', $source_dir ),
 				'.',
 				false
 			);
 
 			if ( ! $context_clone_process->isSuccessful() ) {
-				$output->writeln( '<error>Failed to clone `a8csp-agent-context` with submodules.</error>' );
+				$output->writeln( '<error>Failed to clone `a8csp-agent-context-thin` with submodules.</error>' );
 				return false;
 			}
 
@@ -525,7 +525,7 @@ final class GitHub_Repository_Create extends Command {
 			}
 
 			$git_commit_process = run_system_command(
-				array( 'git', 'commit', '-m', 'Sync agent context files from a8csp-agent-context' ),
+				array( 'git', 'commit', '-m', 'Sync agent context files from a8csp-agent-context-thin' ),
 				$destination_dir,
 				false
 			);
