@@ -44,6 +44,12 @@ use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
  *   # Dry run: check all sites without making any changes
  *   team51 site:remove-atlantis-legacy-modules --sites=atlantis-sites.csv --dry-run
  *
+ *   # Repo-only mode: process repositories without any site operations (creates PRs only, no merge)
+ *   team51 site:remove-atlantis-legacy-modules --repos=repos-to-process.csv
+ *
+ *   # Repo-only dry run
+ *   team51 site:remove-atlantis-legacy-modules --repos=repos-to-process.csv --dry-run
+ *
  *
  * CSV File Format:
  *   The CSV file should have the following columns: Site, URL, Host, Merged, PR, Notes
@@ -199,6 +205,13 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 	private ?string $sites_csv_path = null;
 
 	/**
+	 * Path to the CSV file with repositories to process (repo-only mode).
+	 *
+	 * @var string|null
+	 */
+	private ?string $repos_csv_path = null;
+
+	/**
 	 * The URL of the created PR (captured during execution).
 	 *
 	 * @var string|null
@@ -252,13 +265,30 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 			->addOption( 'uninstall', null, InputOption::VALUE_NONE, 'Uninstall plugins from WordPress in addition to removing them from the repository.' )
 			->addOption( 'sites', null, InputOption::VALUE_REQUIRED, 'Path to a CSV file containing sites to process (Site,URL,Host,Merged,PR).' )
 			->addOption( 'site-only', null, InputOption::VALUE_NONE, 'Skip repository operations; only verify Atlantis is active and uninstall legacy plugins from WordPress.' )
-			->addOption( 'dry-run', null, InputOption::VALUE_NONE, 'Run all checks without making any changes (no plugin install/uninstall, no repo modifications, no CSV updates).' );
+			->addOption( 'dry-run', null, InputOption::VALUE_NONE, 'Run all checks without making any changes (no plugin install/uninstall, no repo modifications, no CSV updates).' )
+			->addOption( 'repos', null, InputOption::VALUE_REQUIRED, 'Path to a CSV file of repositories to process (repo-only mode, no site operations). Format: Repository,Branch,PR,Notes' );
 	}
 
 	/**
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
+		// Check if processing repositories from CSV (repo-only mode).
+		$this->repos_csv_path = $input->getOption( 'repos' );
+
+		if ( $this->repos_csv_path ) {
+			$this->quiet   = (bool) $input->getOption( 'no-output' );
+			$this->dry_run = (bool) $input->getOption( 'dry-run' );
+
+			if ( ! file_exists( $this->repos_csv_path ) ) {
+				$output->writeln( "<error>CSV file not found: {$this->repos_csv_path}</error>" );
+				exit( 1 );
+			}
+
+			// Skip individual site initialization.
+			return;
+		}
+
 		// Check if processing multiple sites from CSV.
 		$this->sites_csv_path = $input->getOption( 'sites' );
 
@@ -361,8 +391,8 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function interact( InputInterface $input, OutputInterface $output ): void {
-		// Skip interaction if quiet mode is enabled or processing CSV.
-		if ( $this->quiet || $this->sites_csv_path ) {
+		// Skip interaction if quiet mode is enabled or processing CSV/repos.
+		if ( $this->quiet || $this->sites_csv_path || $this->repos_csv_path ) {
 			return;
 		}
 
@@ -384,6 +414,11 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 		if ( $this->dry_run ) {
 			$output->writeln( '<fg=yellow;options=bold>--- DRY RUN MODE: No changes will be made ---</>' );
 			$output->writeln( '' );
+		}
+
+		// If repos CSV provided, process repositories only.
+		if ( $this->repos_csv_path ) {
+			return $this->process_repos_csv( $input, $output );
 		}
 
 		// If CSV file provided, process multiple sites.
@@ -721,6 +756,343 @@ final class Site_Remove_Atlantis_Legacy_Modules extends Command {
 		}
 
 		return Command::SUCCESS;
+	}
+
+	/**
+	 * Process repositories from a CSV file (repo-only mode).
+	 *
+	 * Performs only repository operations: clone, remove legacy modules, create PR.
+	 * No site operations (no SSH, no plugin install/uninstall).
+	 *
+	 * CSV format: Repository,Branch,PR,Notes
+	 *   Repository: GitHub repo name (e.g. "my-site-repo")
+	 *   Branch: Base branch to target (e.g. "trunk", "master", "main"). Defaults to "trunk".
+	 *   PR: Left empty, populated by the script with the PR URL.
+	 *   Notes: Left empty, populated by the script.
+	 *
+	 * @param   InputInterface  $input  The input object.
+	 * @param   OutputInterface $output The output object.
+	 *
+	 * @return  int
+	 */
+	private function process_repos_csv( InputInterface $input, OutputInterface $output ): int {
+		$output->writeln( '<fg=magenta;options=bold>Processing repositories from CSV (repo-only mode)...</>' );
+		$output->writeln( '' );
+
+		// Read CSV.
+		$handle = fopen( $this->repos_csv_path, 'r' );
+		if ( false === $handle ) {
+			$output->writeln( '<error>Could not open CSV file.</error>' );
+			return Command::FAILURE;
+		}
+
+		$headers = fgetcsv( $handle, 0, ',', '"', '' );
+		if ( false === $headers ) {
+			fclose( $handle );
+			$output->writeln( '<error>Could not read CSV headers.</error>' );
+			return Command::FAILURE;
+		}
+
+		// Normalize headers.
+		$headers = array_map( 'trim', $headers );
+
+		// Find column indices.
+		$repo_col   = array_search( 'Repository', $headers, true );
+		$branch_col = array_search( 'Branch', $headers, true );
+
+		if ( false === $repo_col ) {
+			fclose( $handle );
+			$output->writeln( '<error>CSV is missing required "Repository" column.</error>' );
+			return Command::FAILURE;
+		}
+
+		// Read all rows.
+		$csv_data = array();
+		$row_idx  = 1;
+		while ( ( $row = fgetcsv( $handle, 0, ',', '"', '' ) ) !== false ) {
+			++$row_idx;
+			if ( empty( array_filter( $row ) ) ) {
+				continue;
+			}
+			// Pad row to match headers.
+			while ( count( $row ) < count( $headers ) ) {
+				$row[] = '';
+			}
+			$csv_data[ $row_idx ] = array_combine( $headers, $row );
+		}
+		fclose( $handle );
+
+		if ( empty( $csv_data ) ) {
+			$output->writeln( '<error>No repositories found in CSV.</error>' );
+			return Command::FAILURE;
+		}
+
+		$total     = count( $csv_data );
+		$processed = 0;
+		$skipped   = 0;
+		$failed    = 0;
+		$counter   = 0;
+
+		foreach ( $csv_data as $index => $row_data ) {
+			++$counter;
+			$repo_name = trim( $row_data['Repository'] ?? '' );
+			$base_branch = trim( $row_data['Branch'] ?? 'trunk' );
+
+			if ( empty( $repo_name ) ) {
+				$output->writeln( "<comment>[{$counter}/{$total}] Skipping empty repository name</comment>" );
+				++$skipped;
+				continue;
+			}
+
+			// Skip if already processed (has PR URL).
+			if ( ! empty( $row_data['PR'] ?? '' ) ) {
+				$output->writeln( "<comment>[{$counter}/{$total}] Skipping {$repo_name} - already has PR</comment>" );
+				++$skipped;
+				continue;
+			}
+
+			$output->writeln( "<info>[{$counter}/{$total}] Processing repository: {$repo_name} (branch: {$base_branch})</info>" );
+
+			try {
+				// Look up the GitHub repository.
+				$this->gh_repository = get_github_repository( $repo_name );
+				if ( ! $this->gh_repository || ! $this->gh_repository->name ) {
+					$note = "Repository not found: {$repo_name}";
+					$this->update_repos_csv_row( $index, '', $note );
+					$output->writeln( "<error>✗ {$repo_name}: {$note}</error>" );
+					++$failed;
+					continue;
+				}
+
+				// Set up branches.
+				$this->git_base_branch = $base_branch;
+				$this->working_branch  = 'remove/atlantis-legacy-modules-' . $base_branch;
+
+				// Set up paths.
+				$this->repos_dir = getcwd() . '/repos';
+				$this->repo_dir  = $this->repos_dir . '/' . $this->gh_repository->name;
+				$this->pr_url    = null;
+				$this->removed_modules = array();
+
+				// Clone.
+				$this->clone_repo( $output );
+
+				// Checkout base branch.
+				$checkout_process = new \Symfony\Component\Process\Process(
+					array( 'git', 'checkout', $this->git_base_branch ),
+					$this->repo_dir
+				);
+				$checkout_process->run();
+				if ( ! $checkout_process->isSuccessful() ) {
+					// Clean up.
+					if ( $this->repo_dir && $this->repos_dir && str_starts_with( $this->repo_dir, $this->repos_dir ) ) {
+						\run_system_command( array( 'rm', '-rf', $this->repo_dir ), $this->repo_dir, false );
+					}
+					$note = "Branch '{$this->git_base_branch}' not found";
+					$this->update_repos_csv_row( $index, '', $note );
+					$output->writeln( "<error>✗ {$repo_name}: {$note}</error>" );
+					++$failed;
+					continue;
+				}
+
+				// Checkout working branch.
+				$this->git_checkout_branch( $this->working_branch, $output );
+
+				// Search for legacy modules.
+				$output->writeln( '<fg=cyan;options=bold>Searching for legacy modules to remove...</>' );
+				$found_modules = array();
+				foreach ( $this->legacy_modules as $plugin_name ) {
+					$plugin_info = $this->find_plugin( $plugin_name, $output );
+					if ( null !== $plugin_info ) {
+						$found_modules[ $plugin_name ] = $plugin_info;
+					}
+				}
+
+				if ( $this->dry_run ) {
+					if ( ! empty( $found_modules ) ) {
+						foreach ( $found_modules as $plugin_name => $plugin_info ) {
+							$output->writeln( "<fg=yellow>[DRY RUN] Would remove {$plugin_name} from {$plugin_info['location']}</>" );
+						}
+						$output->writeln( "<fg=yellow>[DRY RUN] Would create PR to merge {$this->working_branch} into {$this->git_base_branch}</>" );
+					} else {
+						$output->writeln( '<fg=yellow>[DRY RUN] No legacy modules found in repository</>' );
+					}
+					// Clean up cloned repo.
+					if ( $this->repo_dir && $this->repos_dir && str_starts_with( $this->repo_dir, $this->repos_dir ) ) {
+						\run_system_command( array( 'rm', '-rf', $this->repo_dir ), $this->repo_dir, false );
+					}
+					$output->writeln( "<fg=yellow>✓ {$repo_name} dry run complete</>" );
+					++$processed;
+					continue;
+				}
+
+				if ( empty( $found_modules ) ) {
+					// Clean up.
+					if ( $this->repo_dir && $this->repos_dir && str_starts_with( $this->repo_dir, $this->repos_dir ) ) {
+						\run_system_command( array( 'rm', '-rf', $this->repo_dir ), $this->repo_dir, false );
+					}
+					$this->update_repos_csv_row( $index, '', 'No legacy modules found' );
+					$output->writeln( "<info>✓ {$repo_name}: No legacy modules found</info>" );
+					++$processed;
+					continue;
+				}
+
+				// Delete found modules.
+				foreach ( $found_modules as $plugin_name => $plugin_info ) {
+					$this->delete_plugin( $plugin_name, $plugin_info['location'], $plugin_info['path'], $output );
+				}
+
+				// Stage, commit, push, create PR (no merge in repo-only mode).
+				if ( count( $this->removed_modules ) > 0 ) {
+					// Stage and commit.
+					\run_system_command( array( 'git', 'add', '.' ), $this->repo_dir, false );
+					$output->writeln( '<info>Staged file changes.</info>' );
+
+					\run_system_command( array( 'git', 'commit', '-m', 'Remove legacy modules' ), $this->repo_dir, false );
+					$output->writeln( '<info>Committed file changes.</info>' );
+
+					// Push.
+					\run_system_command( array( 'git', 'push', '--force-with-lease', '--set-upstream', 'origin', $this->working_branch ), $this->repo_dir, false );
+					$output->writeln( "<info>Pushed branch '{$this->working_branch}' to remote.</info>" );
+
+					// Create PR (no merge).
+					$process = \run_system_command(
+						array(
+							'gh',
+							'pr',
+							'create',
+							'--title',
+							'Atlantis Rollout - Remove legacy modules',
+							'--body',
+							"This PR was automatically generated by a script. Please review the changes and merge if they look good.\n\n@coderabbitai ignore",
+							'--base',
+							$this->git_base_branch,
+							'--head',
+							$this->working_branch,
+							'--repo',
+							'a8cteam51/' . $this->gh_repository->name,
+						),
+						$this->repo_dir,
+						false
+					);
+
+					$pr_output = trim( $process->getOutput() . $process->getErrorOutput() );
+					if ( ! empty( $pr_output ) ) {
+						$output->writeln( $pr_output );
+						if ( preg_match( '#https://github\.com/[^/]+/[^/]+/pull/\d+#', $pr_output, $matches ) ) {
+							$this->pr_url = $matches[0];
+						}
+					}
+
+					$this->update_repos_csv_row( $index, $this->pr_url ?? '', '' );
+					$output->writeln( "<info>✓ {$repo_name} PR created</info>" );
+				} else {
+					$this->update_repos_csv_row( $index, '', 'Modules found but removal failed' );
+					$output->writeln( "<comment>⚠ {$repo_name}: Modules found but removal failed</comment>" );
+				}
+
+				// Clean up cloned repo.
+				if ( $this->repo_dir && $this->repos_dir && str_starts_with( $this->repo_dir, $this->repos_dir ) ) {
+					\run_system_command( array( 'rm', '-rf', $this->repo_dir ), $this->repo_dir, false );
+					$output->writeln( "<info>Deleted repository folder: {$this->repo_dir}</info>" );
+				}
+
+				++$processed;
+			} catch ( \Exception $e ) {
+				$this->update_repos_csv_row( $index, '', 'Error: ' . $e->getMessage() );
+				++$failed;
+				$output->writeln( "<error>✗ {$repo_name}: {$e->getMessage()}</error>" );
+			}
+
+			$output->writeln( '' );
+		}
+
+		// Summary.
+		$output->writeln( '' );
+		$output->writeln( '<fg=cyan;options=bold>=== Repository Processing Summary ===' );
+		$output->writeln( "<info>Total repositories: {$total}</info>" );
+		$output->writeln( "<info>Processed: {$processed}</info>" );
+		$output->writeln( "<comment>Skipped: {$skipped}</comment>" );
+		if ( $failed > 0 ) {
+			$output->writeln( "<error>Failed: {$failed}</error>" );
+		}
+
+		return Command::SUCCESS;
+	}
+
+	/**
+	 * Update a row in the repos CSV file.
+	 *
+	 * @param   int    $row_index The row index to update.
+	 * @param   string $pr_url    The PR URL.
+	 * @param   string $note      Optional note.
+	 *
+	 * @return  void
+	 */
+	private function update_repos_csv_row( int $row_index, string $pr_url, string $note ): void {
+		if ( ! $this->repos_csv_path || ! file_exists( $this->repos_csv_path ) ) {
+			return;
+		}
+
+		$rows   = array();
+		$handle = fopen( $this->repos_csv_path, 'r' );
+		if ( false === $handle ) {
+			return;
+		}
+
+		$headers = fgetcsv( $handle, 0, ',', '"', '' );
+		if ( false === $headers ) {
+			fclose( $handle );
+			return;
+		}
+
+		$pr_index    = array_search( 'PR', $headers, true );
+		$notes_index = array_search( 'Notes', $headers, true );
+
+		// Add missing columns if needed.
+		if ( false === $pr_index ) {
+			$headers[]  = 'PR';
+			$pr_index   = count( $headers ) - 1;
+		}
+		if ( false === $notes_index ) {
+			$headers[]   = 'Notes';
+			$notes_index = count( $headers ) - 1;
+		}
+
+		$rows[] = $headers;
+
+		$current_row = 1;
+		while ( ( $row = fgetcsv( $handle, 0, ',', '"', '' ) ) !== false ) {
+			++$current_row;
+
+			while ( count( $row ) < count( $headers ) ) {
+				$row[] = '';
+			}
+
+			if ( $current_row === $row_index ) {
+				if ( false !== $pr_index && ! empty( $pr_url ) ) {
+					$row[ $pr_index ] = $pr_url;
+				}
+				if ( false !== $notes_index && ! empty( $note ) ) {
+					$row[ $notes_index ] = $note;
+				}
+			}
+
+			$rows[] = $row;
+		}
+
+		fclose( $handle );
+
+		$handle = fopen( $this->repos_csv_path, 'w' );
+		if ( false === $handle ) {
+			return;
+		}
+
+		foreach ( $rows as $row ) {
+			fputcsv( $handle, $row, ',', '"', '' );
+		}
+
+		fclose( $handle );
 	}
 
 	/**
