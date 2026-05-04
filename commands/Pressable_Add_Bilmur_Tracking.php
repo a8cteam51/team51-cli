@@ -131,25 +131,9 @@ final class Pressable_Add_Bilmur_Tracking extends Command {
 		$this->quiet   = (bool) $input->getOption( 'no-output' );
 		$this->dry_run = (bool) $input->getOption( 'dry-run' );
 
-		// Get the site argument.
-		$site_input = $input->getArgument( 'site' );
-		if ( empty( $site_input ) ) {
-			if ( $this->quiet ) {
-				$output->writeln( '<error>Site argument is required in quiet mode.</error>' );
-				exit( 1 );
-			}
-			$site_input = $this->prompt_site_input( $input, $output );
-			$input->setArgument( 'site', $site_input );
-		}
-
-		// Initialize site.
-		try {
-			$this->initialize_site( $site_input );
-			$input->setArgument( 'site', $this->site );
-		} catch ( \Exception $e ) {
-			$output->writeln( "<error>Failed to find the site with input: {$site_input}</error>" );
-			exit( 1 );
-		}
+		// Get and validate the site argument using the shared Pressable helper.
+		$this->site = get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
+		$input->setArgument( 'site', $this->site );
 	}
 
 	/**
@@ -172,7 +156,7 @@ final class Pressable_Add_Bilmur_Tracking extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
-		if ( $this->dry_run ) {
+		if ( $this->dry_run && ! $this->quiet ) {
 			$output->writeln( '<fg=yellow;options=bold>--- DRY RUN MODE: No changes will be made ---</>' );
 			$output->writeln( '' );
 		}
@@ -197,8 +181,10 @@ final class Pressable_Add_Bilmur_Tracking extends Command {
 	 */
 	private function process_single_site( OutputInterface $output ): int {
 		$result = $this->set_bilmur_constants( $output );
-		$output->writeln( '' );
-		$output->writeln( "<info>Result: {$result['note']}</info>" );
+		if ( ! $this->quiet ) {
+			$output->writeln( '' );
+			$output->writeln( "<info>Result: {$result['note']}</info>" );
+		}
 		return $result['success'] ? Command::SUCCESS : Command::FAILURE;
 	}
 
@@ -211,8 +197,10 @@ final class Pressable_Add_Bilmur_Tracking extends Command {
 	 * @return int
 	 */
 	private function process_csv( InputInterface $input, OutputInterface $output ): int {
-		$output->writeln( '<info>Processing sites from CSV file...</info>' );
-		$output->writeln( '' );
+		if ( ! $this->quiet ) {
+			$output->writeln( '<info>Processing sites from CSV file...</info>' );
+			$output->writeln( '' );
+		}
 
 		$csv_data = $this->read_csv( $this->sites_csv_path );
 		if ( empty( $csv_data ) ) {
@@ -245,27 +233,37 @@ final class Pressable_Add_Bilmur_Tracking extends Command {
 			// Validate URL.
 			if ( empty( $site_url ) ) {
 				$note = 'Missing required field (URL)';
-				$this->update_csv_row( $index, '', $note );
-				$output->writeln( "<error>[{$counter}/{$total_sites}] Skipping {$site_name} - {$note}</error>" );
+				if ( ! $this->dry_run ) {
+					$this->update_csv_row( $index, '', $note );
+				}
+				if ( ! $this->quiet ) {
+					$output->writeln( "<error>[{$counter}/{$total_sites}] Skipping {$site_name} - {$note}</error>" );
+				}
 				++$skipped;
 				continue;
 			}
 
 			// Skip non-Pressable sites.
 			if ( ! empty( $host ) && 'pressable' !== $host ) {
-				$output->writeln( "<comment>[{$counter}/{$total_sites}] Skipping {$site_name} - not a Pressable site ({$host})</comment>" );
+				if ( ! $this->quiet ) {
+					$output->writeln( "<comment>[{$counter}/{$total_sites}] Skipping {$site_name} - not a Pressable site ({$host})</comment>" );
+				}
 				++$skipped;
 				continue;
 			}
 
 			// Skip if already processed.
 			if ( 'Y' === strtoupper( $site_data['Done'] ?? '' ) ) {
-				$output->writeln( "<comment>[{$counter}/{$total_sites}] Skipping {$site_name} - already done</comment>" );
+				if ( ! $this->quiet ) {
+					$output->writeln( "<comment>[{$counter}/{$total_sites}] Skipping {$site_name} - already done</comment>" );
+				}
 				++$skipped;
 				continue;
 			}
 
-			$output->writeln( "<info>[{$counter}/{$total_sites}] Processing: {$site_name} ({$site_url})</info>" );
+			if ( ! $this->quiet ) {
+				$output->writeln( "<info>[{$counter}/{$total_sites}] Processing: {$site_name} ({$site_url})</info>" );
+			}
 
 			try {
 				// Reset state.
@@ -297,12 +295,16 @@ final class Pressable_Add_Bilmur_Tracking extends Command {
 				++$failed;
 			}
 
-			$output->writeln( '' );
+			if ( ! $this->quiet ) {
+				$output->writeln( '' );
+			}
 		}
 
 		// Print summary.
-		$output->writeln( '<info>--- Summary ---</info>' );
-		$output->writeln( "Total: {$total_sites} | Processed: {$processed} | Skipped: {$skipped} | Failed: {$failed}" );
+		if ( ! $this->quiet ) {
+			$output->writeln( '<info>--- Summary ---</info>' );
+			$output->writeln( "Total: {$total_sites} | Processed: {$processed} | Skipped: {$skipped} | Failed: {$failed}" );
+		}
 
 		return $failed > 0 ? Command::FAILURE : Command::SUCCESS;
 	}
@@ -347,19 +349,25 @@ final class Pressable_Add_Bilmur_Tracking extends Command {
 				$exists = 0 === $ssh->getExitStatus();
 
 				if ( $exists ) {
-					$output->writeln( "  <comment>{$name} already exists on {$site_label} - skipping</comment>" );
+					if ( ! $this->quiet ) {
+						$output->writeln( "  <comment>{$name} already exists on {$site_label} - skipping</comment>" );
+					}
 					$already_existed[] = $name;
 					continue;
 				}
 
 				if ( $this->dry_run ) {
-					$raw_label = $raw ? ' (--raw)' : '';
-					$output->writeln( "  <info>[DRY RUN] Would set {$name} = {$value}{$raw_label} on {$site_label}</info>" );
+					if ( ! $this->quiet ) {
+						$raw_label = $raw ? ' (--raw)' : '';
+						$output->writeln( "  <info>[DRY RUN] Would set {$name} = {$value}{$raw_label} on {$site_label}</info>" );
+					}
 					continue;
 				}
 
 				// Set the constant.
-				$output->writeln( "  Setting {$name}..." );
+				if ( ! $this->quiet ) {
+					$output->writeln( "  Setting {$name}..." );
+				}
 				$raw_flag   = $raw ? ' --raw' : '';
 				$wp_command = "wp config set {$name} \"{$value}\"{$raw_flag}";
 				$cmd_output = $ssh->exec( $wp_command );
@@ -371,8 +379,10 @@ final class Pressable_Add_Bilmur_Tracking extends Command {
 						$output->writeln( "  <error>{$cmd_output}</error>" );
 					}
 					$failed[] = $name;
-				} else {
+				} elseif ( ! $this->quiet ) {
 					$output->writeln( "  <info>{$name} set successfully on {$site_label}</info>" );
+					$newly_set[] = $name;
+				} else {
 					$newly_set[] = $name;
 				}
 			}
