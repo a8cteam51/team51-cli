@@ -151,6 +151,25 @@ function set_github_repository_secret( string $repository, string $secret_name, 
 	return API_Helper::make_github_request( "repositories/$repository/secrets/$secret_name", 'PUT', array( 'value' => $secret_value ) );
 }
 
+/**
+ * Adds a user as a collaborator to a given GitHub repository.
+ *
+ * @param   string $repository The name of the repository to add the collaborator to.
+ * @param   string $username   The GitHub username to add as a collaborator.
+ * @param   string $permission The permission to grant. One of 'pull', 'triage', 'push', 'maintain', 'admin'.
+ *
+ * @link    https://docs.github.com/en/rest/collaborators/collaborators#add-a-repository-collaborator
+ *
+ * @return  stdClass|true|null
+ */
+function set_github_repository_collaborator( string $repository, string $username, string $permission = 'push' ): stdClass | true | null {
+	return API_Helper::make_github_request(
+		"repositories/$repository/collaborators/$username",
+		'PUT',
+		array( 'permission' => $permission )
+	);
+}
+
 // endregion
 
 // region CONSOLE
