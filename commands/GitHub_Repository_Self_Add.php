@@ -61,7 +61,6 @@ final class GitHub_Repository_Self_Add extends Command {
 		}
 
 		$this->repository = get_github_repository_input( $input, fn() => $this->prompt_repository_input( $input, $output ) );
-		$input->setArgument( 'repository', $this->repository );
 	}
 
 	/**
@@ -85,7 +84,7 @@ final class GitHub_Repository_Self_Add extends Command {
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		$output->writeln( "<fg=magenta;options=bold>Adding `{$this->gh_username}` to `{$this->repository->name}` as a push collaborator.</>" );
 
-		$result = set_github_repository_collaborator( $this->repository->name, $this->gh_username, 'push' );
+		$result = add_github_repository_collaborator( $this->repository->name, $this->gh_username, 'push' );
 		if ( \is_null( $result ) ) {
 			$output->writeln( "<error>Failed to add `{$this->gh_username}` to `{$this->repository->name}`.</error>" );
 			return Command::FAILURE;
