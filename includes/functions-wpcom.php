@@ -286,6 +286,33 @@ function delete_wpcom_site_user( string $site_id_or_url, string $user_id_or_user
 }
 
 /**
+ * Sends a WordPress.com site invitation to a user by email address.
+ *
+ * @param   string      $site_id_or_url The site URL or WordPress.com site ID.
+ * @param   string      $email          The email address of the user to invite.
+ * @param   string      $role           The role to grant. One of 'contributor', 'author', 'editor'.
+ * @param   string|null $message        Optional. Message to include in the invitation email.
+ *
+ * @link    https://developer.wordpress.com/docs/api/1.1/post/sites/%24site/invites/new/
+ *
+ * @return  stdClass|null
+ */
+function invite_wpcom_site_user( string $site_id_or_url, string $email, string $role = 'editor', ?string $message = null ): ?stdClass {
+	return API_Helper::make_wpcom_request(
+		"site-invites/$site_id_or_url",
+		'POST',
+		array_filter(
+			array(
+				'email'   => $email,
+				'role'    => $role,
+				'message' => $message,
+			),
+			static fn( $value ) => null !== $value && '' !== $value
+		)
+	);
+}
+
+/**
  * Returns the list of stickers associated with a given WPCOM site.
  *
  * @param   string $site_id_or_domain The site URL or WordPress.com site ID.
