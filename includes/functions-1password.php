@@ -1,5 +1,8 @@
 <?php
 
+use Symfony\Component\Process\Exception\ProcessTimedOutException;
+use Symfony\Component\Process\Process;
+
 // region API
 
 /**
@@ -13,7 +16,8 @@
  */
 function list_1password_accounts( array $global_flags = array() ): ?array {
 	$command = _build_1password_command_string( 'op account list', array(), array(), $global_flags );
-	return decode_json_content( shell_exec( "$command --format json" ) );
+	$json    = _run_op_command( "$command --format json" );
+	return is_null( $json ) ? null : decode_json_content( $json );
 }
 
 /**
@@ -30,7 +34,8 @@ function list_1password_items( array $flags = array(), array $global_flags = arr
 	$flags   = array_intersect_key( $flags, array_flip( array( 'categories', 'tags', 'vault', 'favorite', 'include-archive' ) ) );
 	$command = _build_1password_command_string( 'op item list', $flags, array( 'categories', 'tags', 'vault' ), $global_flags );
 
-	return decode_json_content( shell_exec( "$command --format json" ) );
+	$json = _run_op_command( "$command --format json" );
+	return is_null( $json ) ? null : decode_json_content( $json );
 }
 
 /**
@@ -80,7 +85,8 @@ function create_1password_item( array $fields, array $flags, array $global_flags
 		$command .= " '$field=$value'";
 	}
 
-	return decode_json_content( shell_exec( "$command --format json" ) );
+	$json = _run_op_command( "$command --format json" );
+	return is_null( $json ) ? null : decode_json_content( $json );
 }
 
 /**
@@ -98,7 +104,8 @@ function get_1password_item( string $item_id, array $flags = array(), array $glo
 	$flags   = array_intersect_key( $flags, array_flip( array( 'fields', 'include-archive', 'otp', 'share-link', 'vault' ) ) );
 	$command = _build_1password_command_string( "op item get $item_id", $flags, array( 'fields', 'vault' ), $global_flags );
 
-	return decode_json_content( shell_exec( "$command --format json" ) );
+	$json = _run_op_command( "$command --format json" );
+	return is_null( $json ) ? null : decode_json_content( $json );
 }
 
 /**
@@ -125,7 +132,8 @@ function update_1password_item( string $item_id, array $fields, array $flags = a
 		$command .= " '$field=$new_value'";
 	}
 
-	return decode_json_content( shell_exec( "$command --format json" ) );
+	$json = _run_op_command( "$command --format json" );
+	return is_null( $json ) ? null : decode_json_content( $json );
 }
 
 /**
@@ -143,7 +151,62 @@ function delete_1password_item( string $item_id, array $flags = array(), array $
 	$flags   = array_intersect_key( $flags, array_flip( array( 'archive', 'vault' ) ) );
 	$command = _build_1password_command_string( "op item delete $item_id", $flags, array( 'vault' ), $global_flags );
 
-	shell_exec( $command );
+	_run_op_command( $command );
+}
+
+/**
+ * Runs an `op` (1Password CLI) shell command with type-safe output handling and
+ * a small retry loop for transient failures.
+ *
+ * Returns the command's STDOUT on success, or null on either an empty result or
+ * a non-zero exit. Auth/permission errors fail fast; transient errors (timeouts,
+ * connection refused, "temporarily unavailable") are retried up to 3 times with
+ * a 5-second pause between attempts.
+ *
+ * @param   string $command The fully-built `op` command string to execute.
+ *
+ * @internal
+ * @return  string|null
+ */
+function _run_op_command( string $command ): ?string {
+	for ( $attempt = 1; $attempt <= 3; $attempt++ ) {
+		$process = Process::fromShellCommandline( $command );
+		$process->setTimeout( 60 ); // op should never legitimately take longer.
+
+		try {
+			$process->run();
+		} catch ( ProcessTimedOutException $e ) {
+			// A wall-clock timeout is the same shape of failure as op reporting one internally — treat as transient.
+			if ( 3 === $attempt ) {
+				console_writeln( '❌ 1Password CLI timed out after 60s on all 3 attempts.' );
+				return null;
+			}
+			console_writeln( "<comment>1Password CLI exceeded the 60s timeout (attempt $attempt/3), retrying in 5s…</comment>" );
+			sleep( 5 );
+			continue;
+		}
+
+		if ( $process->isSuccessful() ) {
+			$stdout = $process->getOutput();
+			return '' === $stdout ? null : $stdout;
+		}
+
+		$stderr       = $process->getErrorOutput();
+		$is_transient = str_contains( $stderr, 'timed out' )
+			|| str_contains( $stderr, 'timeout' )
+			|| str_contains( $stderr, 'connection refused' )
+			|| str_contains( $stderr, 'temporarily unavailable' );
+
+		if ( ! $is_transient || 3 === $attempt ) {
+			console_writeln( "❌ 1Password CLI failed (exit {$process->getExitCode()}): " . trim( $stderr ) );
+			return null;
+		}
+
+		console_writeln( "<comment>1Password CLI hit a transient error (attempt $attempt/3), retrying in 5s…</comment>" );
+		sleep( 5 );
+	}
+
+	return null;
 }
 
 /**

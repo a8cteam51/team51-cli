@@ -171,7 +171,7 @@ final class WPCOM_Site_Clone extends Command {
 		}
 
 		// Run a few commands to set up the site.
-		run_app_command(
+		$rotate_status = run_app_command(
 			WPCOM_Site_WP_User_Password_Rotate::getDefaultName(),
 			array(
 				'site'   => $staging_site->id,
@@ -257,6 +257,11 @@ final class WPCOM_Site_Clone extends Command {
 		}
 
 		$output->writeln( "<fg=green;options=bold>Staging site created successfully at $staging_site_https_url.</>" );
+
+		if ( Command::SUCCESS !== $rotate_status ) {
+			$output->writeln( '<comment>⚠  Heads up: 1Password sync did not complete during this run. See the warning above for the password to record manually.</comment>' );
+		}
+
 		return Command::SUCCESS;
 	}
 
