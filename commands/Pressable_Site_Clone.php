@@ -216,7 +216,7 @@ final class Pressable_Site_Clone extends Command {
 		$ssh_connection = wait_on_pressable_site_ssh( $site_clone->id, $output );
 
 		// Run a few commands to set up the site.
-		run_app_command(
+		$rotate_status = run_app_command(
 			Pressable_Site_WP_User_Password_Rotate::getDefaultName(),
 			array(
 				'site'   => $site_clone->id,
@@ -283,6 +283,10 @@ final class Pressable_Site_Clone extends Command {
 		// Done last because it seems to cause issues sometimes with the connection breaking off.
 		run_pressable_site_wp_cli_command( $site_clone->id, "search-replace {$this->site->url} $site_clone->url" );
 		run_pressable_site_wp_cli_command( $site_clone->id, 'cache flush' );
+
+		if ( Command::SUCCESS !== $rotate_status ) {
+			$output->writeln( '<comment>⚠  Heads up: 1Password sync did not complete during this run. See the warning above for the password to record manually.</comment>' );
+		}
 
 		return Command::SUCCESS;
 	}

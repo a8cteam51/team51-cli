@@ -160,6 +160,7 @@ final class Pressable_Site_Domain_Add extends Command {
 					'tags'       => 'team51-cli',
 				)
 			);
+			$op_login_entries = $op_login_entries ?? array();
 			$output->writeln( \sprintf( '<comment>Found %d login entries in 1Password that require a URL update.</comment>', \count( $op_login_entries ) ), OutputInterface::VERBOSITY_DEBUG );
 
 			$this->site = get_pressable_site( $this->site->id ); // Refresh the site data. The displayName field is likely to have changed.

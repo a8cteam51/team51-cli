@@ -133,6 +133,8 @@ final class WPCOM_Site_WP_User_Password_Rotate extends Command {
 	 * @noinspection DisconnectedForeachInstructionInspection
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
+		$sync_failures = array();
+
 		foreach ( $this->sites as $site ) {
 			if ( empty( $site->name ) ) {
 				$site->name = $site->URL;
@@ -157,15 +159,19 @@ final class WPCOM_Site_WP_User_Password_Rotate extends Command {
 			// Update the 1Password password value.
 			$result = $this->update_1password_login( $output, $site, $credentials->password, $credentials->username );
 			if ( true !== $result ) {
-				$output->writeln( '<error>Failed to update 1Password entry.</error>' );
-				$output->writeln( "<info>If needed, please update the 1Password entry manually to: $credentials->password</info>" );
+				$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+				$output->writeln( "<error>⚠  Password rotated on WPCOM but NOT synced to 1Password for $site->name.</error>" );
+				$output->writeln( '<error>    Record this password before it scrolls off:</error>' );
+				$output->writeln( "<fg=yellow;options=bold>    $credentials->password</>" );
+				$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+				$sync_failures[] = $site->name;
 				continue;
 			}
 
 			$output->writeln( '<fg=green;options=bold>WP user password updated in 1Password.</>' );
 		}
 
-		return Command::SUCCESS;
+		return empty( $sync_failures ) ? Command::SUCCESS : Command::FAILURE;
 	}
 
 	// endregion

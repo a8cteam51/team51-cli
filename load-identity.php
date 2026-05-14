@@ -5,7 +5,7 @@
 
 // Set the OPSOASIS_WP_USERNAME to the Team51 1Password account email.
 $team51_op_account = array_filter(
-	list_1password_accounts(),
+	list_1password_accounts() ?? array(),
 	static fn( object $account ) => 'ZVYA3AB22BC37JPJZJNSGOPYEQ' === $account->account_uuid
 );
 $team51_op_account = empty( $team51_op_account ) ? null : reset( $team51_op_account );
@@ -24,7 +24,7 @@ if ( ! empty( getenv( 'TEAM51_OPSOASIS_APP_PASSWORD' ) ) ) {
 			)
 		);
 
-		foreach ( $team51_op_logins as $op_login ) {
+		foreach ( $team51_op_logins ?? array() as $op_login ) {
 			foreach ( $op_login->urls ?? array() as $url ) {
 				if ( 'opsoasis.wpspecialprojects.com' !== parse_url( $url->href, PHP_URL_HOST ) ) {
 					continue;

@@ -146,7 +146,7 @@ final class WPCOM_Site_Create extends Command {
 		}
 
 		// Run a few commands to set up the site.
-		run_app_command(
+		$rotate_status = run_app_command(
 			WPCOM_Site_WP_User_Password_Rotate::getDefaultName(),
 			array(
 				'site'   => $transfer->blog_id,
@@ -177,6 +177,11 @@ final class WPCOM_Site_Create extends Command {
 		}
 
 		$output->writeln( "<fg=green;options=bold>Site $this->name created successfully.</>" );
+
+		if ( Command::SUCCESS !== $rotate_status ) {
+			$output->writeln( '<comment>⚠  Heads up: 1Password sync did not complete during this run. See the warning above for the password to record manually.</comment>' );
+		}
+
 		return Command::SUCCESS;
 	}
 
