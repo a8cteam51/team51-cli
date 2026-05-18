@@ -114,11 +114,11 @@ final class GitHub_Repository_Secret_Update extends Command {
 			$output->writeln( "<fg=magenta;options=bold>Setting the GitHub repository secret $this->secret_name on `$repository->name`.</>" );
 
 			// Check that the secrets exist before proceeding.
-			$secrets = get_github_repository_secrets( $repository->name );
-			if ( ! \in_array( $this->secret_name, \array_column( $secrets ?? array(), 'name' ), true ) ) {
-				$output->writeln( "<comment>Secret $this->secret_name not found on `$repository->name`. Skipping...</comment>" );
-				continue;
-			}
+			// $secrets = get_github_repository_secrets( $repository->name );
+			// if ( ! \in_array( $this->secret_name, \array_column( $secrets ?? array(), 'name' ), true ) ) {
+			// 	$output->writeln( "<comment>Secret $this->secret_name not found on `$repository->name`. Skipping...</comment>" );
+			// 	continue;
+			// }
 
 			$result = set_github_repository_secret( $repository->name, $this->secret_name, $this->secret_value );
 			if ( \is_null( $result ) ) {
@@ -127,6 +127,7 @@ final class GitHub_Repository_Secret_Update extends Command {
 			}
 
 			$output->writeln( "<fg=green;options=bold>Successfully updated secret $this->secret_name on `$repository->name`.</>" );
+			sleep( 15 );
 		}
 
 		return Command::SUCCESS;

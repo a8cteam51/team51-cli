@@ -84,6 +84,26 @@ function get_github_repository_branches( string $repository ): ?array {
 }
 
 /**
+ * Returns the contents of a directory in a GitHub repository at a given ref.
+ *
+ * @param   string $repository The name of the repository.
+ * @param   string $path       The path within the repository (e.g., 'plugins', 'mu-plugins').
+ * @param   string $ref        The branch, tag, or commit SHA to read from.
+ *
+ * @return  stdClass[]|null
+ */
+function get_github_repository_contents( string $repository, string $path, string $ref = 'develop' ): ?array {
+	$endpoint = 'repos/a8cteam51/' . urlencode( $repository ) . '/contents/' . $path . '?' . http_build_query( array( 'ref' => $ref ) );
+	$result   = shell_exec( 'gh api ' . escapeshellarg( $endpoint ) . ' 2>/dev/null' );
+	if ( empty( $result ) ) {
+		return null;
+	}
+
+	$decoded = json_decode( $result );
+	return is_array( $decoded ) ? $decoded : null;
+}
+
+/**
  * Creates a new branch in a given GitHub repository.
  *
  * @param   string $repository The name of the repository to create the branch in.

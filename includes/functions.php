@@ -63,7 +63,7 @@ function get_remote_content( string $url, array $headers = array(), string $meth
 	}
 
 	return array(
-		'headers' => parse_http_headers( $http_response_header ),
+		'headers' => parse_http_headers( http_get_last_response_headers() ),
 		'body'    => $result,
 	);
 }
