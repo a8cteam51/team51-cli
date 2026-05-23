@@ -147,6 +147,26 @@ function get_wpcom_site_plugins_batch( array $site_ids_or_urls, ?array &$errors 
 }
 
 /**
+ * Returns the Atlantis plugin and module status for a batch of WPCOM sites.
+ *
+ * Sites without Atlantis installed (or with the endpoint unreachable) are
+ * surfaced via $errors; the returned map only contains successful responses.
+ *
+ * @param   array      $site_ids_or_urls The list of site domains or numeric WPCOM IDs.
+ * @param   array|null $errors           The list of errors that occurred during the request.
+ *
+ * @return  array<int|string,stdClass>|null
+ */
+function get_wpcom_sites_atlantis_status_batch( array $site_ids_or_urls, ?array &$errors = null ): ?array {
+	$sites_status = API_Helper::make_wpcom_request( 'sites/batch/atlantis-status', 'POST', array( 'sites' => $site_ids_or_urls ) );
+	if ( is_null( $sites_status ) ) {
+		return null;
+	}
+
+	return parse_batch_response( $sites_status, $errors );
+}
+
+/**
  * Returns the stats for a WPCOM or Jetpack Connected site.
  *
  * @param   string      $site_id_or_url The site URL or WordPress.com site ID.
