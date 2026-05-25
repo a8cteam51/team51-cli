@@ -130,8 +130,8 @@ final class WPCOM_Atlantis_Status extends Command {
 
 		$this->addOption( 'site', null, InputOption::VALUE_REQUIRED, 'Restrict the report to a single site, identified by its WPCOM ID or URL. Skips the full fleet fetch.' )
 			->addOption( 'module', null, InputOption::VALUE_REQUIRED, 'Restrict the report to a single module column. Accepted values: ' . \implode( ', ', self::KNOWN_MODULE_KEYS ) . '.' )
-			->addOption( 'prod', null, InputOption::VALUE_NONE, 'Exclude any site whose URL contains the substring "staging" (case-insensitive).' )
-			->addOption( 'issues-only', null, InputOption::VALUE_NONE, 'Only show sites where Atlantis is not installed or at least one module is not on.' )
+			->addOption( 'prod', null, InputOption::VALUE_NEGATABLE, 'Exclude any site whose URL contains the substring "staging" (case-insensitive). Use --no-prod to suppress the prompt and include staging sites. When neither is set you will be prompted (unless --no-interaction).' )
+			->addOption( 'issues-only', null, InputOption::VALUE_NEGATABLE, 'Only show sites where Atlantis is not installed or at least one module is not on. Use --no-issues-only to suppress the prompt and show all sites. When neither is set you will be prompted (unless --no-interaction).' )
 			->addOption( 'export', null, InputOption::VALUE_REQUIRED, 'If provided, the report will be saved to this file in addition to the terminal.' )
 			->addOption( 'export-format', null, InputOption::VALUE_REQUIRED, 'The format to export the report in. Accepted values are `json` and `csv`.', 'csv' )
 			->addOption( 'export-exclude', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Exclude columns from the export. Possible values depend on the active --module flag; defaults to `Site ID`, `Site URL`, `Atlantis Version`, plus one column per Atlantis module.' );
@@ -159,8 +159,6 @@ final class WPCOM_Atlantis_Status extends Command {
 			\array_map( fn( string $key ) => \ucfirst( $key ), $this->module_keys )
 		);
 
-		$this->issues_only = (bool) $input->getOption( 'issues-only' );
-
 		$this->format      = get_enum_input( $input, 'export-format', array( 'json', 'csv' ) );
 		$this->destination = maybe_get_string_input( $input, 'export', fn() => $this->prompt_destination_input( $input, $output ) );
 		if ( ! empty( $this->destination ) ) {
@@ -172,14 +170,19 @@ final class WPCOM_Atlantis_Status extends Command {
 
 		$site_option = $input->getOption( 'site' );
 		if ( ! \is_null( $site_option ) ) {
+			// Single-site path: --prod and --issues-only are honoured if explicitly passed, but never prompted.
+			$this->issues_only = true === $input->getOption( 'issues-only' );
 			$this->initialize_single_site( (string) $site_option, $output );
 			return;
 		}
 
+		$prod_filter       = $this->resolve_boolean_flag( $input, $output, 'prod', 'Would you like to exclude staging sites (any URL containing "staging") from the report?' );
+		$this->issues_only = $this->resolve_boolean_flag( $input, $output, 'issues-only', 'Would you like to only show sites where Atlantis is missing or any module is not on?' );
+
 		$this->sites = get_wpcom_jetpack_sites();
 		$output->writeln( '<comment>Successfully fetched ' . \count( $this->sites ) . ' Jetpack site(s).</comment>' );
 
-		if ( $input->getOption( 'prod' ) ) {
+		if ( $prod_filter ) {
 			$before      = \count( $this->sites );
 			$this->sites = \array_filter(
 				$this->sites,
@@ -291,6 +294,34 @@ final class WPCOM_Atlantis_Status extends Command {
 	// endregion
 
 	// region HELPERS
+
+	/**
+	 * Resolves a VALUE_NEGATABLE boolean option, prompting the user when the option
+	 * is absent and the session is interactive.
+	 *
+	 * Explicit `--flag` or `--no-flag` always wins. In non-interactive mode an
+	 * absent option resolves to `false` (the safe default for these filters).
+	 *
+	 * @param   InputInterface  $input    The console input.
+	 * @param   OutputInterface $output   The console output.
+	 * @param   string          $name     The option name.
+	 * @param   string          $question The yes/no prompt text.
+	 *
+	 * @return  bool
+	 */
+	private function resolve_boolean_flag( InputInterface $input, OutputInterface $output, string $name, string $question ): bool {
+		$value = $input->getOption( $name );
+		if ( ! \is_null( $value ) ) {
+			return (bool) $value;
+		}
+
+		if ( ! $input->isInteractive() ) {
+			return false;
+		}
+
+		$confirm = new ConfirmationQuestion( "<question>$question [y/N]</question> ", false );
+		return (bool) $this->getHelper( 'question' )->ask( $input, $output, $confirm );
+	}
 
 	/**
 	 * Resolves a single site from $site_id_or_url, fetches its Atlantis status, and
