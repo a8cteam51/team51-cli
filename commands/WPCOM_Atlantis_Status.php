@@ -304,26 +304,45 @@ final class WPCOM_Atlantis_Status extends Command {
 	 * @return  void
 	 */
 	private function initialize_single_site( string $site_id_or_url, OutputInterface $output ): void {
-		$site = get_wpcom_site( $site_id_or_url );
-		if ( ! \is_object( $site ) ) {
-			throw new \InvalidArgumentException( "Could not resolve site '$site_id_or_url'." );
+		$lookup = $site_id_or_url;
+		if ( \str_contains( $lookup, 'http' ) ) {
+			$host = \parse_url( $lookup, PHP_URL_HOST );
+			if ( ! \is_string( $host ) || '' === $host ) {
+				throw new \InvalidArgumentException( "Invalid URL '$site_id_or_url'." );
+			}
+			$lookup = $host;
 		}
 
-		$site_id = (int) ( $site->ID ?? $site->userblog_id ?? 0 );
+		$sites = get_wpcom_jetpack_sites();
+		$output->writeln( '<comment>Fetched ' . \count( $sites ) . ' Jetpack site(s) to resolve --site.</comment>' );
+
+		$matched = null;
+		if ( \ctype_digit( $lookup ) ) {
+			$matched = $sites[ (int) $lookup ] ?? null;
+		} else {
+			$lookup_lc = \strtolower( $lookup );
+			foreach ( $sites as $site ) {
+				$candidate_host = \parse_url( (string) ( $site->siteurl ?? '' ), PHP_URL_HOST );
+				if ( \is_string( $candidate_host ) && \strtolower( $candidate_host ) === $lookup_lc ) {
+					$matched = $site;
+					break;
+				}
+			}
+		}
+
+		if ( null === $matched ) {
+			throw new \InvalidArgumentException( "Site '$site_id_or_url' is not in the connected Jetpack sites list." );
+		}
+
+		$site_id = (int) ( $matched->userblog_id ?? 0 );
 		if ( 0 === $site_id ) {
 			throw new \InvalidArgumentException( "Resolved site '$site_id_or_url' has no usable ID." );
 		}
 
-		// Normalise into the same shape get_wpcom_jetpack_sites() returns so the rest of execute() needs no branching.
-		$normalised_site              = clone $site;
-		$normalised_site->userblog_id = $site_id;
-		// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- WPCOM API returns a `URL` property.
-		$normalised_site->siteurl = $site->URL ?? $site->siteurl ?? $site_id_or_url;
+		$this->single_site = $matched;
+		$this->sites       = array( $site_id => $matched );
 
-		$this->single_site = $normalised_site;
-		$this->sites       = array( $site_id => $normalised_site );
-
-		$output->writeln( "<comment>Querying single site {$normalised_site->siteurl} (ID $site_id).</comment>" );
+		$output->writeln( "<comment>Querying single site {$matched->siteurl} (ID $site_id).</comment>" );
 
 		$this->statuses = get_wpcom_sites_atlantis_status_batch( array( $site_id ), $this->errors );
 		maybe_output_wpcom_failed_sites_table( $output, $this->errors ?? array(), $this->sites, 'Sites that could NOT be queried for Atlantis status' );
