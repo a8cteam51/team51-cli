@@ -117,6 +117,13 @@ final class WPCOM_Atlantis_Status extends Command {
 	 */
 	private bool $issues_only = false;
 
+	/**
+	 * When true, only sites with at least one stored custom message are rendered.
+	 *
+	 * @var bool
+	 */
+	private bool $with_messages_only = false;
+
 	// endregion
 
 	// region INHERITED METHODS
@@ -132,6 +139,7 @@ final class WPCOM_Atlantis_Status extends Command {
 			->addOption( 'module', null, InputOption::VALUE_REQUIRED, 'Restrict the report to a single module column. Accepted values: ' . \implode( ', ', self::KNOWN_MODULE_KEYS ) . '.' )
 			->addOption( 'prod', null, InputOption::VALUE_NEGATABLE, 'Exclude any site whose URL contains the substring "staging" (case-insensitive). Use --no-prod to suppress the prompt and include staging sites. When neither is set you will be prompted (unless --no-interaction).' )
 			->addOption( 'issues-only', null, InputOption::VALUE_NEGATABLE, 'Only show sites where Atlantis is not installed or at least one module is not on. Use --no-issues-only to suppress the prompt and show all sites. When neither is set you will be prompted (unless --no-interaction).' )
+			->addOption( 'with-messages-only', null, InputOption::VALUE_NONE, 'Only show sites that have at least one stored Atlantis custom message.' )
 			->addOption( 'export', null, InputOption::VALUE_REQUIRED, 'If provided, the report will be saved to this file in addition to the terminal.' )
 			->addOption( 'export-format', null, InputOption::VALUE_REQUIRED, 'The format to export the report in. Accepted values are `json` and `csv`.', 'csv' )
 			->addOption( 'export-exclude', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Exclude columns from the export. Possible values depend on the active --module flag; defaults to `Site ID`, `Site URL`, `Atlantis Version`, plus one column per Atlantis module.' );
@@ -155,7 +163,7 @@ final class WPCOM_Atlantis_Status extends Command {
 		}
 
 		$this->export_columns = \array_merge(
-			array( 'Site ID', 'Site URL', 'Atlantis Version' ),
+			array( 'Site ID', 'Site URL', 'Atlantis Version', 'Custom Msgs' ),
 			\array_map( fn( string $key ) => \ucfirst( $key ), $this->module_keys )
 		);
 
@@ -167,6 +175,8 @@ final class WPCOM_Atlantis_Status extends Command {
 
 			$this->stream = get_file_handle( $this->destination, $this->format );
 		}
+
+		$this->with_messages_only = (bool) $input->getOption( 'with-messages-only' );
 
 		$site_option = $input->getOption( 'site' );
 		if ( ! \is_null( $site_option ) ) {
@@ -205,10 +215,11 @@ final class WPCOM_Atlantis_Status extends Command {
 			: "for site {$this->single_site->siteurl}";
 		$output->writeln( "<fg=magenta;options=bold>Reporting Atlantis status $scope_label.</>" );
 
-		$rows                  = array();
-		$installed_count       = 0;
-		$issue_count           = 0;
-		$module_enabled_counts = \array_fill_keys( $this->module_keys, 0 );
+		$rows                      = array();
+		$installed_count           = 0;
+		$issue_count               = 0;
+		$sites_with_messages_count = 0;
+		$module_enabled_counts     = \array_fill_keys( $this->module_keys, 0 );
 
 		foreach ( $this->sites as $site_id => $site ) {
 			$status = $this->statuses[ $site_id ] ?? null;
@@ -217,18 +228,29 @@ final class WPCOM_Atlantis_Status extends Command {
 				'Site ID'          => $site->userblog_id,
 				'Site URL'         => $site->siteurl,
 				'Atlantis Version' => 'not installed',
+				'Custom Msgs'      => '—',
 			);
 			foreach ( $this->module_keys as $module_key ) {
 				$row[ \ucfirst( $module_key ) ] = '—';
 			}
 
-			$has_issue = true; // Atlantis missing counts as an issue.
+			$has_issue      = true; // Atlantis missing counts as an issue.
+			$messages_count = 0;
 
 			if ( \is_object( $status ) ) {
 				++$installed_count;
 				$has_issue = false;
 
 				$row['Atlantis Version'] = $status->plugin->version ?? 'unknown';
+
+				$count_raw = $status->modules->messages->count ?? null;
+				if ( \is_int( $count_raw ) || ( \is_string( $count_raw ) && \ctype_digit( $count_raw ) ) ) {
+					$messages_count     = (int) $count_raw;
+					$row['Custom Msgs'] = $messages_count;
+					if ( $messages_count > 0 ) {
+						++$sites_with_messages_count;
+					}
+				}
 
 				foreach ( $this->module_keys as $module_key ) {
 					$enabled = $status->modules->$module_key->enabled ?? null;
@@ -253,7 +275,18 @@ final class WPCOM_Atlantis_Status extends Command {
 				continue;
 			}
 
+			if ( $this->with_messages_only && $messages_count <= 0 ) {
+				continue;
+			}
+
 			$rows[] = $row;
+		}
+
+		$table_title = 'Atlantis status by site';
+		if ( $this->with_messages_only ) {
+			$table_title = 'Atlantis sites with custom messages';
+		} elseif ( $this->issues_only ) {
+			$table_title = 'Atlantis sites with issues';
 		}
 
 		$table_header = array_keys( $rows[0] ?? \array_fill_keys( $this->export_columns, '' ) );
@@ -261,14 +294,15 @@ final class WPCOM_Atlantis_Status extends Command {
 			$output,
 			array_map( 'array_values', $rows ),
 			$table_header,
-			$this->issues_only ? 'Atlantis sites with issues' : 'Atlantis status by site'
+			$table_title
 		);
 
 		$summary_output = array(
-			'REPORT SUMMARY'      => '',
-			'Total sites queried' => \count( $this->sites ),
-			'Sites with Atlantis' => $installed_count,
-			'Sites with issues'   => $issue_count,
+			'REPORT SUMMARY'             => '',
+			'Total sites queried'        => \count( $this->sites ),
+			'Sites with Atlantis'        => $installed_count,
+			'Sites with issues'          => $issue_count,
+			'Sites with custom messages' => $sites_with_messages_count,
 		);
 		foreach ( $module_enabled_counts as $module_key => $count ) {
 			$summary_output[ \ucfirst( $module_key ) . ' module ON' ] = $count;
