@@ -110,6 +110,13 @@ final class WPCOM_Atlantis_Status extends Command {
 	 */
 	private $stream = null;
 
+	/**
+	 * When true, only sites with Atlantis missing or any module not "on" are rendered.
+	 *
+	 * @var bool
+	 */
+	private bool $issues_only = false;
+
 	// endregion
 
 	// region INHERITED METHODS
@@ -123,6 +130,8 @@ final class WPCOM_Atlantis_Status extends Command {
 
 		$this->addOption( 'site', null, InputOption::VALUE_REQUIRED, 'Restrict the report to a single site, identified by its WPCOM ID or URL. Skips the full fleet fetch.' )
 			->addOption( 'module', null, InputOption::VALUE_REQUIRED, 'Restrict the report to a single module column. Accepted values: ' . \implode( ', ', self::KNOWN_MODULE_KEYS ) . '.' )
+			->addOption( 'prod', null, InputOption::VALUE_NONE, 'Exclude any site whose URL contains the substring "staging" (case-insensitive).' )
+			->addOption( 'issues-only', null, InputOption::VALUE_NONE, 'Only show sites where Atlantis is not installed or at least one module is not on.' )
 			->addOption( 'export', null, InputOption::VALUE_REQUIRED, 'If provided, the report will be saved to this file in addition to the terminal.' )
 			->addOption( 'export-format', null, InputOption::VALUE_REQUIRED, 'The format to export the report in. Accepted values are `json` and `csv`.', 'csv' )
 			->addOption( 'export-exclude', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Exclude columns from the export. Possible values depend on the active --module flag; defaults to `Site ID`, `Site URL`, `Atlantis Version`, plus one column per Atlantis module.' );
@@ -150,6 +159,8 @@ final class WPCOM_Atlantis_Status extends Command {
 			\array_map( fn( string $key ) => \ucfirst( $key ), $this->module_keys )
 		);
 
+		$this->issues_only = (bool) $input->getOption( 'issues-only' );
+
 		$this->format      = get_enum_input( $input, 'export-format', array( 'json', 'csv' ) );
 		$this->destination = maybe_get_string_input( $input, 'export', fn() => $this->prompt_destination_input( $input, $output ) );
 		if ( ! empty( $this->destination ) ) {
@@ -168,6 +179,16 @@ final class WPCOM_Atlantis_Status extends Command {
 		$this->sites = get_wpcom_jetpack_sites();
 		$output->writeln( '<comment>Successfully fetched ' . \count( $this->sites ) . ' Jetpack site(s).</comment>' );
 
+		if ( $input->getOption( 'prod' ) ) {
+			$before      = \count( $this->sites );
+			$this->sites = \array_filter(
+				$this->sites,
+				static fn( $site ) => false === \stripos( (string) ( $site->siteurl ?? '' ), 'staging' )
+			);
+			$excluded    = $before - \count( $this->sites );
+			$output->writeln( "<comment>Excluding $excluded staging site(s); querying " . \count( $this->sites ) . ' production site(s).</comment>' );
+		}
+
 		$this->statuses = get_wpcom_sites_atlantis_status_batch( \array_column( $this->sites, 'userblog_id' ), $this->errors );
 		maybe_output_wpcom_failed_sites_table( $output, $this->errors ?? array(), $this->sites, 'Sites that could NOT be queried for Atlantis status' );
 	}
@@ -183,6 +204,7 @@ final class WPCOM_Atlantis_Status extends Command {
 
 		$rows                  = array();
 		$installed_count       = 0;
+		$issue_count           = 0;
 		$module_enabled_counts = \array_fill_keys( $this->module_keys, 0 );
 
 		foreach ( $this->sites as $site_id => $site ) {
@@ -197,8 +219,11 @@ final class WPCOM_Atlantis_Status extends Command {
 				$row[ \ucfirst( $module_key ) ] = '—';
 			}
 
+			$has_issue = true; // Atlantis missing counts as an issue.
+
 			if ( \is_object( $status ) ) {
 				++$installed_count;
+				$has_issue = false;
 
 				$row['Atlantis Version'] = $status->plugin->version ?? 'unknown';
 
@@ -209,8 +234,20 @@ final class WPCOM_Atlantis_Status extends Command {
 						++$module_enabled_counts[ $module_key ];
 					} elseif ( false === $enabled ) {
 						$row[ \ucfirst( $module_key ) ] = 'off';
+						$has_issue                      = true;
+					} else {
+						// Module key absent from response — treat as an issue so it surfaces in --issues-only.
+						$has_issue = true;
 					}
 				}
+			}
+
+			if ( $has_issue ) {
+				++$issue_count;
+			}
+
+			if ( $this->issues_only && ! $has_issue ) {
+				continue;
 			}
 
 			$rows[] = $row;
@@ -221,13 +258,14 @@ final class WPCOM_Atlantis_Status extends Command {
 			$output,
 			array_map( 'array_values', $rows ),
 			$table_header,
-			'Atlantis status by site'
+			$this->issues_only ? 'Atlantis sites with issues' : 'Atlantis status by site'
 		);
 
 		$summary_output = array(
 			'REPORT SUMMARY'      => '',
 			'Total sites queried' => \count( $this->sites ),
 			'Sites with Atlantis' => $installed_count,
+			'Sites with issues'   => $issue_count,
 		);
 		foreach ( $module_enabled_counts as $module_key => $count ) {
 			$summary_output[ \ucfirst( $module_key ) . ' module ON' ] = $count;
