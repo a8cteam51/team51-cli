@@ -73,6 +73,13 @@ final class GitHub_Repository_Create extends Command {
 	private ?array $custom_properties = null;
 
 	/**
+	 * The classification taxonomy tag to apply to the repository.
+	 *
+	 * @var string|null
+	 */
+	private ?string $classification = null;
+
+	/**
 	 * Repo types that can be created.
 	 *
 	 * @var array
@@ -83,6 +90,36 @@ final class GitHub_Repository_Create extends Command {
 		'plugin'          => 'Plugin Specific Repo',
 		'issues'          => 'Issues Only Repo',
 		'empty'           => 'Empty Repo',
+	);
+
+	/**
+	 * Classification taxonomy applied as a GitHub topic for repo discovery.
+	 *
+	 * @var array<string,string>
+	 */
+	private const CLASSIFICATION_TAGS = array(
+		'partner-site'      => 'A site build for a partner',
+		'plugin'            => 'A reusable WordPress plugin',
+		'theme'             => 'A WordPress or Tumblr theme',
+		'internal-tool'     => 'CLI tools, bots, monitoring, team ops',
+		'migration-tool'    => 'Import/export/migration scripts',
+		'browser-extension' => 'Chrome extensions, etc.',
+		'block-or-pattern'  => 'Gutenberg blocks and pattern libraries',
+		'documentation'     => 'Docs, checklists, configs',
+		'sandbox'           => 'Test, demo, and experimentation repos',
+		'scaffold'          => 'Project templates and starters',
+	);
+
+	/**
+	 * Default mapping from a repo type to a classification tag. Unmapped types
+	 * (e.g. `issues`, `empty`) fall through to a prompt.
+	 *
+	 * @var array<string,string>
+	 */
+	private const TYPE_TO_CLASSIFICATION = array(
+		'project'         => 'partner-site',
+		'no-code-project' => 'partner-site',
+		'plugin'          => 'plugin',
 	);
 
 	// endregion
@@ -100,7 +137,8 @@ final class GitHub_Repository_Create extends Command {
 			->addOption( 'homepage', null, InputOption::VALUE_REQUIRED, 'A URL with more information about the repository.' )
 			->addOption( 'description', null, InputOption::VALUE_REQUIRED, 'A short, human-friendly description for this project.' )
 			->addOption( 'type', null, InputOption::VALUE_REQUIRED, 'The name of the template repository to use, if any. One of either `project`, `no-code-project`, `plugin`, `issues`, or `empty`. Default empty repo.' )
-			->addOption( 'no-code-theme', null, InputOption::VALUE_OPTIONAL, 'The name of the no-code theme to use for the repository.' );
+			->addOption( 'no-code-theme', null, InputOption::VALUE_OPTIONAL, 'The name of the no-code theme to use for the repository.' )
+			->addOption( 'classification', null, InputOption::VALUE_REQUIRED, 'The classification taxonomy tag to apply to the repository. One of: ' . implode( ', ', array_keys( self::CLASSIFICATION_TAGS ) ) . '.' );
 
 		$this->addOption( 'custom-properties', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'The custom properties to set for the repository.' );
 	}
@@ -118,6 +156,12 @@ final class GitHub_Repository_Create extends Command {
 
 		$this->type = get_enum_input( $input, 'type', array_keys( self::REPO_TYPES ), fn() => $this->prompt_type_input( $input, $output ) );
 		$input->setOption( 'type', $this->type );
+
+		if ( null === $input->getOption( 'classification' ) && isset( self::TYPE_TO_CLASSIFICATION[ $this->type ] ) ) {
+			$input->setOption( 'classification', self::TYPE_TO_CLASSIFICATION[ $this->type ] );
+		}
+		$this->classification = get_enum_input( $input, 'classification', array_keys( self::CLASSIFICATION_TAGS ), fn() => $this->prompt_classification_input( $input, $output ) );
+		$input->setOption( 'classification', $this->classification );
 	}
 
 	/**
@@ -161,12 +205,12 @@ final class GitHub_Repository_Create extends Command {
 			return Command::FAILURE;
 		}
 
-		// Set a topic on the repository for easier finding.
-		if ( ! \is_null( $this->type ) ) {
-			set_github_repository_topics( $repository->name, array( "team51-$this->type" ) );
-		} else {
-			set_github_repository_topics( $repository->name, array( 'team51-empty' ) );
+		// Set topics on the repository for easier finding.
+		$topics = array( \is_null( $this->type ) ? 'team51-empty' : "team51-$this->type" );
+		if ( ! \is_null( $this->classification ) ) {
+			$topics[] = $this->classification;
 		}
+		set_github_repository_topics( $repository->name, $topics );
 
 		// Check if the selected no code theme is child theme.
 		if ( 'no-code-project' === $this->type && ! empty( $this->no_code_theme ) ) {
@@ -234,6 +278,24 @@ final class GitHub_Repository_Create extends Command {
 
 		if ( ! $input->getOption( 'no-autocomplete' ) ) {
 			$question->setAutocompleterValues( array_keys( self::REPO_TYPES ) );
+		}
+
+		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+	}
+
+	/**
+	 * Prompts the user for a classification taxonomy tag.
+	 *
+	 * @param   InputInterface  $input  The input object.
+	 * @param   OutputInterface $output The output object.
+	 *
+	 * @return  string|null
+	 */
+	private function prompt_classification_input( InputInterface $input, OutputInterface $output ): ?string {
+		$question = new ChoiceQuestion( '<question>Please select a classification tag for the repo:</question> ', self::CLASSIFICATION_TAGS );
+
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( array_keys( self::CLASSIFICATION_TAGS ) );
 		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
