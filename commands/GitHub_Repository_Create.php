@@ -210,7 +210,7 @@ final class GitHub_Repository_Create extends Command {
 		if ( ! \is_null( $this->classification ) ) {
 			$topics[] = $this->classification;
 		}
-		set_github_repository_topics( $repository->name, $topics );
+		set_github_repository_topics( $this->name, $topics );
 
 		// Check if the selected no code theme is child theme.
 		if ( 'no-code-project' === $this->type && ! empty( $this->no_code_theme ) ) {
