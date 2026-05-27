@@ -345,11 +345,11 @@ final class Team51McpTools {
 
 		if ( ! \is_null( $site_id_or_url ) ) {
 			$lookup = $site_id_or_url;
-			if ( \str_contains( $lookup, 'http' ) ) {
-				$host = \parse_url( $lookup, PHP_URL_HOST );
-				if ( ! \is_string( $host ) || '' === $host ) {
-					return array( 'error' => "Invalid URL '$site_id_or_url'." );
-				}
+			$host   = \parse_url( $lookup, PHP_URL_HOST );
+			if ( ! \is_string( $host ) || '' === $host ) {
+				$host = \parse_url( 'https://' . \ltrim( $lookup, '/' ), PHP_URL_HOST );
+			}
+			if ( \is_string( $host ) && '' !== $host ) {
 				$lookup = $host;
 			}
 
