@@ -297,6 +297,179 @@ final class Team51McpTools {
 	}
 
 	/**
+	 * Report the status of the Atlantis plugin and its modules across
+	 * Jetpack-connected WordPress.com sites.
+	 *
+	 * When `$site_id_or_url` is provided, returns the status for that single
+	 * site only and `$exclude_staging` is ignored. Otherwise queries the full
+	 * Jetpack-connected fleet. Sites without Atlantis are reported with
+	 * `atlantis_installed: false`.
+	 *
+	 * @param string|null $site_id_or_url     Optional. Single site URL or WPCOM numeric ID.
+	 * @param string|null $module             Optional. Restrict the report to a single module column. One of: messages, colophon, tracking, autoupdates.
+	 * @param bool        $exclude_staging    Exclude sites whose URL contains "staging" (case-insensitive). Ignored in single-site mode.
+	 * @param bool        $issues_only        Only return sites where Atlantis is not installed or at least one module is not on.
+	 * @param bool        $with_messages_only Only return sites that have at least one stored Atlantis custom message.
+	 */
+	#[McpTool( name: 'wpcom_get_atlantis_status' )]
+	public function wpcom_get_atlantis_status(
+		?string $site_id_or_url = null,
+		?string $module = null,
+		bool $exclude_staging = false,
+		bool $issues_only = false,
+		bool $with_messages_only = false
+	): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
+		// Keep this list in sync with WPCOM_Atlantis_Status::KNOWN_MODULE_KEYS.
+		$known_modules = array( 'messages', 'colophon', 'tracking', 'autoupdates' );
+
+		$module_keys = $known_modules;
+		if ( ! \is_null( $module ) ) {
+			$module = \strtolower( $module );
+			if ( ! \in_array( $module, $known_modules, true ) ) {
+				return array(
+					'error' => "Unknown module '$module'. Accepted values: " . \implode( ', ', $known_modules ) . '.',
+				);
+			}
+			$module_keys = array( $module );
+		}
+
+		$sites = get_wpcom_jetpack_sites();
+		if ( null === $sites ) {
+			return array( 'error' => 'Failed to fetch Jetpack-connected sites.' );
+		}
+
+		if ( ! \is_null( $site_id_or_url ) ) {
+			$lookup = $site_id_or_url;
+			$host   = \parse_url( $lookup, PHP_URL_HOST );
+			if ( ! \is_string( $host ) || '' === $host ) {
+				$host = \parse_url( 'https://' . \ltrim( $lookup, '/' ), PHP_URL_HOST );
+			}
+			if ( \is_string( $host ) && '' !== $host ) {
+				$lookup = $host;
+			}
+
+			$matched = null;
+			if ( \ctype_digit( $lookup ) ) {
+				$matched = $sites[ (int) $lookup ] ?? null;
+			} else {
+				$lookup_lc = \strtolower( $lookup );
+				foreach ( $sites as $site ) {
+					$candidate_host = \parse_url( (string) ( $site->siteurl ?? '' ), PHP_URL_HOST );
+					if ( \is_string( $candidate_host ) && \strtolower( $candidate_host ) === $lookup_lc ) {
+						$matched = $site;
+						break;
+					}
+				}
+			}
+
+			if ( null === $matched ) {
+				return array( 'error' => "Site '$site_id_or_url' is not in the connected Jetpack sites list." );
+			}
+
+			$site_id = (int) ( $matched->userblog_id ?? 0 );
+			if ( 0 === $site_id ) {
+				return array( 'error' => "Resolved site '$site_id_or_url' has no usable ID." );
+			}
+
+			$sites = array( $site_id => $matched );
+		} elseif ( $exclude_staging ) {
+			$sites = \array_filter(
+				$sites,
+				static fn( $site ) => false === \stripos( (string) ( $site->siteurl ?? '' ), 'staging' )
+			);
+		}
+
+		$errors   = array();
+		$statuses = get_wpcom_sites_atlantis_status_batch( \array_column( $sites, 'userblog_id' ), $errors );
+		if ( null === $statuses ) {
+			return array( 'error' => 'Failed to fetch Atlantis status batch.' );
+		}
+
+		$rows                      = array();
+		$installed_count           = 0;
+		$issue_count               = 0;
+		$sites_with_messages_count = 0;
+		$module_enabled_counts     = \array_fill_keys( $module_keys, 0 );
+
+		foreach ( $sites as $site_id => $site ) {
+			$status = $statuses[ $site_id ] ?? null;
+
+			$row = array(
+				'site_id'               => (int) $site->userblog_id,
+				'site_url'              => $site->siteurl ?? null,
+				'atlantis_installed'    => false,
+				'atlantis_version'      => null,
+				'custom_messages_count' => null,
+				'modules'               => \array_fill_keys( $module_keys, null ),
+			);
+
+			$has_issue      = true;
+			$messages_count = 0;
+
+			if ( \is_object( $status ) ) {
+				++$installed_count;
+				$has_issue                 = false;
+				$row['atlantis_installed'] = true;
+				$row['atlantis_version']   = $status->plugin->version ?? 'unknown';
+
+				$count_raw = $status->modules->messages->count ?? null;
+				if ( \is_int( $count_raw ) || ( \is_string( $count_raw ) && \ctype_digit( $count_raw ) ) ) {
+					$messages_count               = (int) $count_raw;
+					$row['custom_messages_count'] = $messages_count;
+					if ( $messages_count > 0 ) {
+						++$sites_with_messages_count;
+					}
+				}
+
+				foreach ( $module_keys as $module_key ) {
+					$enabled = $status->modules->$module_key->enabled ?? null;
+					if ( true === $enabled ) {
+						$row['modules'][ $module_key ] = 'on';
+						++$module_enabled_counts[ $module_key ];
+					} elseif ( false === $enabled ) {
+						$row['modules'][ $module_key ] = 'off';
+						$has_issue                     = true;
+					} else {
+						$has_issue = true;
+					}
+				}
+			}
+
+			if ( $has_issue ) {
+				++$issue_count;
+			}
+
+			if ( $issues_only && ! $has_issue ) {
+				continue;
+			}
+			if ( $with_messages_only && $messages_count <= 0 ) {
+				continue;
+			}
+
+			$rows[] = $row;
+		}
+
+		return array(
+			'count'   => count( $rows ),
+			'sites'   => $rows,
+			'errors'  => $errors,
+			'summary' => array(
+				'total_sites_queried' => count( $sites ),
+				'sites_with_atlantis' => $installed_count,
+				'sites_with_issues'   => $issue_count,
+				'sites_with_messages' => $sites_with_messages_count,
+				'modules_on'          => $module_enabled_counts,
+				'errors_count'        => count( $errors ),
+			),
+		);
+	}
+
+	/**
 	 * List plugins installed on a specific WordPress.com or Jetpack-connected site.
 	 *
 	 * @param string $site_id_or_domain The domain name or WPCOM site ID.

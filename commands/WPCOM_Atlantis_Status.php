@@ -370,11 +370,11 @@ final class WPCOM_Atlantis_Status extends Command {
 	 */
 	private function initialize_single_site( string $site_id_or_url, OutputInterface $output ): void {
 		$lookup = $site_id_or_url;
-		if ( \str_contains( $lookup, 'http' ) ) {
-			$host = \parse_url( $lookup, PHP_URL_HOST );
-			if ( ! \is_string( $host ) || '' === $host ) {
-				throw new \InvalidArgumentException( "Invalid URL '$site_id_or_url'." );
-			}
+		$host   = \parse_url( $lookup, PHP_URL_HOST );
+		if ( ! \is_string( $host ) || '' === $host ) {
+			$host = \parse_url( 'https://' . \ltrim( $lookup, '/' ), PHP_URL_HOST );
+		}
+		if ( \is_string( $host ) && '' !== $host ) {
 			$lookup = $host;
 		}
 
