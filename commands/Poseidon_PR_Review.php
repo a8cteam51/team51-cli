@@ -227,15 +227,6 @@ final class Poseidon_PR_Review extends Command {
 					(string) $this->max_turns,
 					'--permission-mode',
 					'bypassPermissions',
-					'--allowedTools',
-					'Bash',
-					'Read',
-					'Write',
-					'Edit',
-					'Glob',
-					'Grep',
-					'WebFetch',
-					'WebSearch',
 				),
 				$work_dir
 			);
