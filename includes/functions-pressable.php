@@ -214,6 +214,138 @@ function update_pressable_site_deployhq_server( string $site_id_or_url, string $
 }
 
 /**
+ * Returns the Git deployment configuration for the specified Pressable site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the Pressable site to retrieve the Git configuration for.
+ *
+ * @return  stdClass|null
+ */
+function get_pressable_site_git_config( string $site_id_or_url ): ?stdClass {
+	$site_id_or_url = pressable_maybe_resolve_site_alias( $site_id_or_url );
+	return API_Helper::make_pressable_request( "site-git/$site_id_or_url" );
+}
+
+/**
+ * Connects a GitHub repository to the specified Pressable site and triggers an initial deploy.
+ *
+ * The GitHub access token is stored server-side by OpsOasis, so none is passed from here.
+ *
+ * @param   string      $site_id_or_url          The ID or URL of the Pressable site to connect the repository to.
+ * @param   string      $repository              The HTTPS github.com clone URL (e.g. https://github.com/owner/repo.git).
+ * @param   string      $branch                  The branch to deploy from.
+ * @param   string|null $destination_path        Optional. The destination path on the site to deploy to.
+ * @param   string|null $repository_subdirectory Optional. The repository subdirectory to deploy from.
+ *
+ * @return  stdClass|null
+ */
+function connect_pressable_site_repository( string $site_id_or_url, string $repository, string $branch, ?string $destination_path = null, ?string $repository_subdirectory = null ): ?stdClass {
+	$site_id_or_url = pressable_maybe_resolve_site_alias( $site_id_or_url );
+	return API_Helper::make_pressable_request(
+		"site-git/$site_id_or_url",
+		'POST',
+		array(
+			'repository' => $repository,
+			'branch'     => $branch,
+		) + array_filter(
+			array(
+				'destination_path'        => $destination_path,
+				'repository_subdirectory' => $repository_subdirectory,
+			)
+		)
+	);
+}
+
+/**
+ * Updates the Git deployment configuration for the specified Pressable site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the Pressable site to update the Git configuration for.
+ * @param   array  $params         The configuration properties to update (repository, branch, destination_path, repository_subdirectory).
+ *
+ * @return  stdClass|null
+ */
+function update_pressable_site_git_config( string $site_id_or_url, array $params ): ?stdClass {
+	$site_id_or_url = pressable_maybe_resolve_site_alias( $site_id_or_url );
+	return API_Helper::make_pressable_request( "site-git/$site_id_or_url", 'PUT', $params );
+}
+
+/**
+ * Disconnects the GitHub repository from the specified Pressable site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the Pressable site to disconnect the repository from.
+ *
+ * @return  true|null
+ */
+function disconnect_pressable_site_repository( string $site_id_or_url ): ?true {
+	$site_id_or_url = pressable_maybe_resolve_site_alias( $site_id_or_url );
+	$result         = API_Helper::make_pressable_request( "site-git/$site_id_or_url", 'DELETE' );
+	return is_null( $result ) ? null : true;
+}
+
+/**
+ * Stores the OpsOasis GitHub access token on the specified Pressable site.
+ *
+ * The token itself is injected server-side by OpsOasis, so no token value is sent from here.
+ *
+ * @param   string $site_id_or_url The ID or URL of the Pressable site to store the token on.
+ *
+ * @return  true|null
+ */
+function store_pressable_site_git_token( string $site_id_or_url ): ?true {
+	$site_id_or_url = pressable_maybe_resolve_site_alias( $site_id_or_url );
+	$result         = API_Helper::make_pressable_request( "site-git/$site_id_or_url/token", 'POST' );
+	return is_null( $result ) ? null : true;
+}
+
+/**
+ * Revokes the stored GitHub access token from the specified Pressable site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the Pressable site to revoke the token from.
+ *
+ * @return  true|null
+ */
+function revoke_pressable_site_git_token( string $site_id_or_url ): ?true {
+	$site_id_or_url = pressable_maybe_resolve_site_alias( $site_id_or_url );
+	$result         = API_Helper::make_pressable_request( "site-git/$site_id_or_url/token", 'DELETE' );
+	return is_null( $result ) ? null : true;
+}
+
+/**
+ * Returns the branches available on the repository connected to the specified Pressable site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the Pressable site to retrieve the branches for.
+ *
+ * @return  stdClass[]|null
+ */
+function get_pressable_site_git_branches( string $site_id_or_url ): ?array {
+	$site_id_or_url = pressable_maybe_resolve_site_alias( $site_id_or_url );
+	return API_Helper::make_pressable_request( "site-git/$site_id_or_url/branches" )?->records;
+}
+
+/**
+ * Queues a deploy of the currently configured branch for the specified Pressable site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the Pressable site to deploy.
+ *
+ * @return  stdClass|null
+ */
+function trigger_pressable_site_git_deployment( string $site_id_or_url ): ?stdClass {
+	$site_id_or_url = pressable_maybe_resolve_site_alias( $site_id_or_url );
+	return API_Helper::make_pressable_request( "site-git/$site_id_or_url/deploy", 'POST' );
+}
+
+/**
+ * Returns the deploy history for the specified Pressable site, newest first.
+ *
+ * @param   string $site_id_or_url The ID or URL of the Pressable site to retrieve the deploy history for.
+ *
+ * @return  stdClass[]|null
+ */
+function get_pressable_site_git_history( string $site_id_or_url ): ?array {
+	$site_id_or_url = pressable_maybe_resolve_site_alias( $site_id_or_url );
+	return API_Helper::make_pressable_request( "site-git/$site_id_or_url/history" )?->records;
+}
+
+/**
  * Creates a new collaborator on the specified Pressable site.
  *
  * @param   string $site_id_or_url     The ID or URL of the Pressable site to create the collaborator on.
@@ -707,6 +839,23 @@ function create_deployhq_project_server_for_pressable_site( stdClass $pressable_
 	);
 
 	return $deployhq_project_server;
+}
+
+/**
+ * Connects a GitHub repository to the specified Pressable site via the Pressable Git API and triggers an
+ * initial deploy. OpsOasis stores the GitHub access token server-side as part of the connect request.
+ *
+ * @param   stdClass    $pressable_site          The Pressable site to connect the repository to.
+ * @param   stdClass    $github_repository       The GitHub repository to connect. Must expose a `full_name` property.
+ * @param   string      $branch                  The GitHub branch to deploy from.
+ * @param   string|null $destination_path        Optional. The destination path on the site to deploy to. Defaults to `wp-content/`.
+ * @param   string|null $repository_subdirectory Optional. The repository subdirectory to deploy from. Defaults to the repository root.
+ *
+ * @return  stdClass|null
+ */
+function connect_pressable_site_repository_for_site( stdClass $pressable_site, stdClass $github_repository, string $branch = 'trunk', ?string $destination_path = 'wp-content/', ?string $repository_subdirectory = null ): ?stdClass {
+	$clone_url = "https://github.com/{$github_repository->full_name}.git";
+	return connect_pressable_site_repository( $pressable_site->id, $clone_url, $branch, $destination_path, $repository_subdirectory );
 }
 
 // endregion

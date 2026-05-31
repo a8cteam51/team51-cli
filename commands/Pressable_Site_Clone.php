@@ -37,21 +37,14 @@ final class Pressable_Site_Clone extends Command {
 	private ?string $site_root_name = null;
 
 	/**
-	 * The DeployHQ project for the given site.
+	 * The Git deployment configuration of the parent site.
 	 *
 	 * @var \stdClass|null
 	 */
-	private ?\stdClass $deployhq_project = null;
+	private ?\stdClass $parent_git_config = null;
 
 	/**
-	 * The DeployHQ project server for the given site.
-	 *
-	 * @var \stdClass|null
-	 */
-	private ?\stdClass $site_deployhq_project_server = null;
-
-	/**
-	 * The GitHub repository connected to the DeployHQ project.
+	 * The GitHub repository connected to the parent site.
 	 *
 	 * @var \stdClass|null
 	 */
@@ -126,9 +119,9 @@ final class Pressable_Site_Clone extends Command {
 			$this->site_root_name = $site_root_name;
 		}
 
-		$deployhq_config = get_pressable_site_deployhq_config( $this->site->id );
-		if ( \is_null( $deployhq_config ) ) {
-			$output->writeln( '<error>Unable to find a DeployHQ project for the site.</error>' );
+		$git_config = get_pressable_site_git_config( $this->site->id );
+		if ( \is_null( $git_config ) || empty( $git_config->connected ) || empty( $git_config->repository ) ) {
+			$output->writeln( '<error>Unable to find a connected GitHub repository for the site.</error>' );
 
 			$question = new ConfirmationQuestion( '<question>Do you want to continue anyway? [y/N]</question> ', false );
 			if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
@@ -136,18 +129,13 @@ final class Pressable_Site_Clone extends Command {
 				exit( 1 );
 			}
 		} else {
-			$this->deployhq_project = $deployhq_config->project;
-			$output->writeln( "<comment>Found DeployHQ project {$this->deployhq_project->name} (permalink {$this->deployhq_project->permalink}) for the given site.</comment>", OutputInterface::VERBOSITY_VERBOSE );
+			$this->parent_git_config = $git_config;
+			$output->writeln( "<comment>Found connected repository {$git_config->repository} (branch {$git_config->branch}) for the given site.</comment>", OutputInterface::VERBOSITY_VERBOSE );
 
-			$this->site_deployhq_project_server = $deployhq_config->server;
-			if ( \is_null( $this->site_deployhq_project_server ) ) {
-				$output->writeln( '<error>Failed to get the DeployHQ project server connected to the site. Aborting!</error>' );
-				exit( 1 );
-			}
-
-			$this->gh_repository = get_github_repository_from_deployhq_project( $this->deployhq_project->permalink );
+			$gh_repo_url         = parse_github_remote_repository_url( $git_config->repository );
+			$this->gh_repository = \is_null( $gh_repo_url ) ? null : get_github_repository( $gh_repo_url->repo );
 			if ( \is_null( $this->gh_repository ) ) {
-				$output->writeln( '<error>Failed to get the GitHub repository connected to the project or invalid connected repository. Aborting!</error>' );
+				$output->writeln( '<error>Failed to get the GitHub repository connected to the site or invalid connected repository. Aborting!</error>' );
 				exit( 1 );
 			}
 
@@ -269,15 +257,21 @@ final class Pressable_Site_Clone extends Command {
 		}
 		$ssh_connection?->disconnect();
 
-		// Create a DeployHQ server for the site.
-		if ( ! \is_null( $this->deployhq_project ) ) {
-			create_deployhq_project_server_for_pressable_site(
-				$site_clone,
-				$this->deployhq_project,
-				'Development' . ( 'development' !== $this->label ? "-$this->label" : '' ),
-				$this->gh_repo_branch,
-				$this->site_deployhq_project_server->branch,
-			);
+		// Connect the cloned site to the GitHub repository on the development branch via the Pressable Git API.
+		if ( ! \is_null( $this->parent_git_config ) ) {
+			$clone_git_config = get_pressable_site_git_config( $site_clone->id );
+			if ( ! \is_null( $clone_git_config ) && ! empty( $clone_git_config->connected ) ) {
+				// The clone inherited the parent's repository connection; just point it at the development branch.
+				$update = update_pressable_site_git_config( $site_clone->id, array( 'branch' => $this->gh_repo_branch ) );
+				if ( \is_null( $update ) ) {
+					$output->writeln( '<error>Failed to update the cloned site Git branch. You may need to connect it manually via `team51 pressable:connect-site-repository`.</error>' );
+				}
+			} else {
+				$connect = connect_pressable_site_repository_for_site( $site_clone, $this->gh_repository, $this->gh_repo_branch );
+				if ( \is_null( $connect ) ) {
+					$output->writeln( '<error>Failed to connect the cloned site repository. You may need to connect it manually via `team51 pressable:connect-site-repository`.</error>' );
+				}
+			}
 		}
 
 		// Done last because it seems to cause issues sometimes with the connection breaking off.

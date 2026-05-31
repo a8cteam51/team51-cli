@@ -102,7 +102,7 @@ final class Pressable_Site_Create extends Command {
 	 */
 	protected function interact( InputInterface $input, OutputInterface $output ): void {
 		$template_text = 'project' === $this->project_template ? 'using the `project` template' : 'using the `no-code-project` template';
-		$repo_query    = $this->gh_repository ? "and to connect it to the `{$this->gh_repository->full_name}` repository via DeployHQ {$template_text}" : 'without connecting it to a GitHub repository';
+		$repo_query    = $this->gh_repository ? "and to connect it to the `{$this->gh_repository->full_name}` repository via the Pressable Git API {$template_text}" : 'without connecting it to a GitHub repository';
 		$question      = new ConfirmationQuestion( "<question>Are you sure you want to create a new Pressable site named `$this->name` in the $this->datacenter datacenter $repo_query? [y/N]</question> ", false );
 		if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 			$output->writeln( '<comment>Command aborted by user.</comment>' );
@@ -117,7 +117,7 @@ final class Pressable_Site_Create extends Command {
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		$template_text = 'project' === $this->project_template ? 'using the `project` template' : 'using the `no-code-project` template';
-		$repo_text     = $this->gh_repository ? "and connecting it to the `{$this->gh_repository->full_name}` repository via DeployHQ {$template_text}" : 'without connecting it to a GitHub repository';
+		$repo_text     = $this->gh_repository ? "and connecting it to the `{$this->gh_repository->full_name}` repository via the Pressable Git API {$template_text}" : 'without connecting it to a GitHub repository';
 		$output->writeln( "<fg=magenta;options=bold>Creating new Pressable site named `$this->name` in the $this->datacenter datacenter $repo_text.</>" );
 
 		// Create the site and wait for it to be deployed.
@@ -148,23 +148,15 @@ final class Pressable_Site_Create extends Command {
 			'plugin install https://github.com/a8cteam51/a8csp-atlantis/releases/latest/download/a8csp-atlantis.zip --activate',
 		);
 
-		// Create a DeployHQ project and server for the site.
+		// Connect the GitHub repository to the site via the Pressable Git API and trigger an initial deploy.
 		if ( ! \is_null( $this->gh_repository ) ) {
-			$deployhq_project = create_deployhq_project_for_pressable_site( $site, $this->gh_repository, $this->name );
-			if ( ! \is_null( $deployhq_project ) ) {
-				$deployhq_server = create_deployhq_project_server_for_pressable_site( $site, $deployhq_project, 'Production', 'trunk' );
+			$output->writeln( '<fg=magenta;options=bold>Connecting the repository via the Pressable Git API and triggering an initial deploy...</>' );
 
-				// Trigger initial deployment
-				if ( ! \is_null( $deployhq_server ) ) {
-					$output->writeln( '<fg=magenta;options=bold>Triggering initial deployment...</>' );
-
-					$deployment_success = trigger_deployhq_deployment( $deployhq_project, $this->gh_repository, 'trunk' );
-					if ( $deployment_success ) {
-						$output->writeln( '<fg=green;options=bold>Initial deployment triggered successfully.</>' );
-					} else {
-						$output->writeln( '<error>Failed to trigger initial deployment. You may need to manually deploy from the DeployHQ dashboard.</error>' );
-					}
-				}
+			$git_config = connect_pressable_site_repository_for_site( $site, $this->gh_repository, 'trunk' );
+			if ( ! \is_null( $git_config ) ) {
+				$output->writeln( '<fg=green;options=bold>Repository connected and initial deploy triggered successfully.</>' );
+			} else {
+				$output->writeln( '<error>Failed to connect the repository. You may need to connect it manually via `team51 pressable:connect-site-repository`.</error>' );
 			}
 		}
 

@@ -4,7 +4,7 @@
 
 Glad you asked.
 
-This is a small utility written by some fine folks at Automattic.com. It automates and standardizes provisioning new WordPress sites (on Pressable.com), connecting them to code repositories (on GitHub.com) and configuring deploy automation (via DeployHQ.com). It does a few other things, but that's the gist.
+This is a small utility written by some fine folks at Automattic.com. It automates and standardizes provisioning new WordPress sites (on Pressable.com), connecting them to code repositories (on GitHub.com) and configuring deploy automation. New sites connect directly via native Git deployments (the Pressable Git API for Pressable sites, WordPress.com code deployments for WPCOM sites); DeployHQ.com is retained only for legacy projects that have not yet been migrated. It does a few other things, but that's the gist.
 
 ## How do I use this?
 
@@ -144,6 +144,22 @@ team51 wpcom:site:deployment:webhook:delete <site> [deployment_id] <webhook_id>
 # Manual secret sync fallback (if automatic sync fails)
 team51 wpcom:site:deployment:webhook:sync-secret <site> <deployment_id> <webhook_id> <secret>
 ```
+
+### Pressable GitHub deployments
+
+New Pressable sites connect to GitHub via Pressable's native Git API instead of DeployHQ. `pressable:create-site` and `pressable:clone-site` use this automatically; you can also connect an existing site manually:
+
+```bash
+# Connect a Pressable site to a GitHub repository and trigger an initial deploy.
+# OpsOasis stores the GitHub access token on the site server-side, so no token is passed here.
+# Deploys from the repository root to the site's `wp-content/` by default.
+team51 pressable:connect-site-repository <site> <repository> [--branch=trunk] [--destination-path=wp-content/] [--repository-subdirectory=...]
+
+# Queue an additional deploy after connecting (the connection already triggers an initial deploy).
+team51 pressable:connect-site-repository <site> <repository> --deploy
+```
+
+Existing DeployHQ-backed Pressable sites are unaffected and continue to deploy through DeployHQ until migrated separately.
 
 ### Download site plugins
 
