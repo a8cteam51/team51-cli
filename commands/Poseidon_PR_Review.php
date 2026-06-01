@@ -9,6 +9,7 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
+use Symfony\Component\Console\Question\Question;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\Process\Process;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
@@ -100,7 +101,7 @@ final class Poseidon_PR_Review extends Command {
 		$this->setDescription( 'Runs the Poseidon AI code review against a pull request using your local `gh` and `claude` CLIs.' )
 			->setHelp( "This command fetches the Poseidon review prompt from `a8cteam51/poseidon-actions` (trunk), clones the PR locally, and runs the local `claude` CLI to review it.\n\nIt uses your own `gh` and `claude` authentication (not OpsOasis), so it works on any PR you have GitHub access to — including repos outside a8cteam51 such as `Automattic`.\n\nBy default the review is printed to the terminal and nothing is posted. Pass `--post-to-github` to post the review to the PR as your `gh` user." );
 
-		$this->addArgument( 'pr', InputArgument::REQUIRED, 'Pull request URL (https://github.com/OWNER/REPO/pull/N) or OWNER/REPO#N.' );
+		$this->addArgument( 'pr', InputArgument::OPTIONAL, 'Pull request URL (https://github.com/OWNER/REPO/pull/N) or OWNER/REPO#N. Prompted for if omitted.' );
 
 		$this->addOption( 'post-to-github', null, InputOption::VALUE_NONE, 'Post the review to the PR as your `gh` user. Off by default (prints to the terminal only).' );
 		$this->addOption( 'no-clone', null, InputOption::VALUE_NONE, 'Skip cloning the repository; the agent reads the PR through the GitHub API. Faster, but loses AGENTS.md/.agents grounding and surrounding-code context.' );
@@ -114,7 +115,7 @@ final class Poseidon_PR_Review extends Command {
 	 * @throws \InvalidArgumentException If the PR reference cannot be parsed.
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$reference = get_string_input( $input, 'pr' );
+		$reference = get_string_input( $input, 'pr', fn() => $this->prompt_pr_input( $input, $output ) );
 		$parsed    = $this->parse_pr_reference( $reference );
 		if ( null === $parsed ) {
 			throw new \InvalidArgumentException( "Could not parse a pull request reference from `$reference`. Expected a PR URL or OWNER/REPO#N." );
@@ -256,6 +257,19 @@ final class Poseidon_PR_Review extends Command {
 	// endregion
 
 	// region HELPERS
+
+	/**
+	 * Prompts the user for a pull request reference.
+	 *
+	 * @param   InputInterface  $input  The input object.
+	 * @param   OutputInterface $output The output object.
+	 *
+	 * @return  string|null
+	 */
+	private function prompt_pr_input( InputInterface $input, OutputInterface $output ): ?string {
+		$question = new Question( '<question>Please enter the pull request URL or OWNER/REPO#N:</question> ' );
+		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+	}
 
 	/**
 	 * Parses a PR reference (full URL or OWNER/REPO#N) into its parts.
