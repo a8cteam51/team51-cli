@@ -13,8 +13,8 @@ use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 /**
  * Outputs a list of plugins installed on a given WPCOM or Jetpack-connected site.
  */
-#[AsCommand( name: 'wpcom:list-site-plugins' )]
-final class WPCOM_Site_Plugins_List extends Command {
+#[AsCommand( name: 'jetpack:list-site-plugins' )]
+final class Jetpack_Site_Plugins_List extends Command {
 	use AutocompleteTrait;
 
 	// region FIELDS AND CONSTANTS
@@ -34,8 +34,8 @@ final class WPCOM_Site_Plugins_List extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function configure(): void {
-		$this->setDescription( 'List the plugins installed on a WPCOM site.' )
-			->setHelp( 'Use this command to list the plugins installed on a WPCOM site.' );
+		$this->setDescription( 'List the plugins installed on a WPCOM or Jetpack-connected site.' )
+			->setHelp( 'Use this command to list the plugins installed on a WPCOM or Jetpack-connected site.' );
 
 		$this->addArgument( 'site', InputArgument::REQUIRED, 'Domain or WPCOM ID of the site to list the plugins for.' );
 	}
