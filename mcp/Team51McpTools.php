@@ -474,8 +474,8 @@ final class Team51McpTools {
 	 *
 	 * @param string $site_id_or_domain The domain name or WPCOM site ID.
 	 */
-	#[McpTool( name: 'wpcom_list_site_plugins' )]
-	public function wpcom_list_site_plugins( string $site_id_or_domain ): array {
+	#[McpTool( name: 'jetpack_list_site_plugins' )]
+	public function jetpack_list_site_plugins( string $site_id_or_domain ): array {
 		$identity_error = self::ensure_identity();
 		if ( $identity_error ) {
 			return $identity_error;
