@@ -74,19 +74,37 @@ final class Pressable_Site_Shell_Open extends Command {
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		$output->writeln( "<fg=magenta;options=bold>Opening an interactive $this->shell_type shell for {$this->site->displayName} (ID {$this->site->id}, URL {$this->site->url}) as $this->email.</>" );
 
-		// Retrieve the SFTP user for the current user.
-		$sftp_user = get_pressable_site_sftp_user( $this->site->id, $this->email );
+		// Retrieve the SFTP user for the current user, creating it if it does not exist yet.
+		$user_was_created = false;
+		$sftp_user        = $this->find_site_sftp_user();
 		if ( \is_null( $sftp_user ) ) {
-			$output->writeln( "<comment>Could not find a Pressable SFTP user with the email $this->email on {$this->site->displayName}. Creating...</comment>", OutputInterface::VERBOSITY_VERBOSE );
+			$output->writeln( "<comment>No Pressable SFTP user with the email $this->email on {$this->site->displayName}. Creating...</comment>" );
 
-			$sftp_user = create_pressable_site_collaborator( $this->site->id, $this->email );
-			if ( \is_null( $sftp_user ) ) {
+			if ( \is_null( create_pressable_site_collaborator( $this->site->id, $this->email ) ) ) {
 				$output->writeln( "<error>Could not create a Pressable SFTP user with the email $this->email on {$this->site->displayName}.</>" );
 				return Command::FAILURE;
 			}
 
-			// SFTP users are different from collaborator users. We need to query the API again to get the SFTP user.
-			$sftp_user = get_pressable_site_sftp_user( $this->site->id, $this->email );
+			// Creating the collaborator provisions the SFTP user asynchronously on Pressable's side, so it is
+			// not returned by the API right away. Poll until it shows up - this is what a manual re-run of the
+			// command was implicitly relying on before.
+			$output->writeln( '<comment>Waiting for the new SFTP user to be provisioned...</comment>' );
+			for ( $attempt = 1; $attempt <= 6; $attempt++ ) {
+				$sftp_user = $this->find_site_sftp_user();
+				if ( ! \is_null( $sftp_user ) ) {
+					break;
+				}
+
+				$output->writeln( "<comment>Not ready yet (attempt $attempt). Retrying in 5 seconds...</comment>", OutputInterface::VERBOSITY_VERBOSE );
+				\sleep( 5 );
+			}
+
+			if ( \is_null( $sftp_user ) ) {
+				$output->writeln( "<error>The SFTP user for $this->email on {$this->site->displayName} was created but did not become available in time. Please try again in a minute.</>" );
+				return Command::FAILURE;
+			}
+
+			$user_was_created = true;
 		}
 
 		// WPCOMSP users are logged-in through AutoProxxy, but for everyone else we must first reset their password and display it.
@@ -105,18 +123,57 @@ final class Pressable_Site_Shell_Open extends Command {
 		// Call the system SSH/SFTP application.
 		$ssh_host = $sftp_user->username . '@' . \Pressable_Connection_Helper::SSH_HOST;
 
-		$output->writeln( "<comment>Connecting to $ssh_host...</comment>", OutputInterface::VERBOSITY_VERBOSE );
-		if ( ! \is_null( \passthru( "$this->shell_type $ssh_host", $result_code ) ) ) {
-			$output->writeln( "<error>Could not open an interactive $this->shell_type shell. Error code: $result_code</error>" );
-			return Command::FAILURE;
-		}
+		// After a collaborator is created, Pressable still needs time to propagate the new user's access to the
+		// SSH gateway (ssh.atomicsites.net). Until that finishes the gateway closes the connection (exit code
+		// 255) even though the SFTP user already exists in the API. So for a freshly created user we retry with
+		// a back-off for up to ~2 minutes. Existing users get a single attempt, so a genuine failure (e.g. a
+		// wrong password) does not hang.
+		$retry_delays = $user_was_created ? array( 5, 10, 15, 20, 20, 20, 30 ) : array();
+		$attempt      = 0;
 
-		return Command::SUCCESS;
+		do {
+			$output->writeln( "<comment>Connecting to $ssh_host...</comment>", OutputInterface::VERBOSITY_VERBOSE );
+
+			\passthru( "$this->shell_type $ssh_host", $result_code );
+
+			// 255 is the SSH/SFTP "connection or authentication error" exit code. Any other code comes from the
+			// interactive session itself (e.g. the user's last command), so it must not trigger a retry.
+			if ( 255 !== $result_code ) {
+				return Command::SUCCESS;
+			}
+
+			$delay = $retry_delays[ $attempt++ ] ?? null;
+			if ( null !== $delay ) {
+				$output->writeln( "<comment>The SSH gateway refused the connection - the new user's access may still be provisioning. Retrying in {$delay}s (Ctrl+C to abort)...</comment>" );
+				\sleep( $delay );
+			}
+		} while ( null !== $delay );
+
+		$output->writeln( "<error>Could not open an interactive $this->shell_type shell (exit code $result_code). The SFTP user exists but the SSH gateway is still refusing the connection; for a newly created user this usually clears within a couple of minutes. Please try again shortly.</error>" );
+		return Command::FAILURE;
 	}
 
 	// endregion
 
 	// region HELPERS
+
+	/**
+	 * Returns the site's SFTP user matching the current email, or null if none exists yet.
+	 *
+	 * Uses the list endpoint and matches locally rather than the single-user lookup: the latter logs an
+	 * API error on every miss, which is noisy while polling for a freshly provisioned user.
+	 *
+	 * @return  \stdClass|null
+	 */
+	private function find_site_sftp_user(): ?\stdClass {
+		foreach ( get_pressable_site_sftp_users( $this->site->id ) ?? array() as $sftp_user ) {
+			if ( 0 === \strcasecmp( $sftp_user->email ?? '', $this->email ) ) {
+				return $sftp_user;
+			}
+		}
+
+		return null;
+	}
 
 	/**
 	 * Prompts the user for a site.
