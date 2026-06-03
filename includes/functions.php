@@ -66,7 +66,7 @@ function get_remote_content( string $url, array $headers = array(), string $meth
 	// The short-circuit keeps PHP < 8.4 working without reading (and thus deprecating) $http_response_header on 8.4+.
 	$response_headers = function_exists( 'http_get_last_response_headers' )
 		? ( http_get_last_response_headers() ?? array() )
-		: $http_response_header;
+		: ( $http_response_header ?? array() );
 
 	return array(
 		'headers' => parse_http_headers( $response_headers ),

@@ -209,7 +209,7 @@ EOT
 					: ( $http_response_header ?? array() );
 				$wpcom_status  = $wpcom_headers ? ( parse_http_headers( $wpcom_headers )['http_code'] ?? '' ) : '';
 
-				if ( '400' === $wpcom_status ) {
+				if ( 400 === $wpcom_status ) {
 					$notes = 'Site is not connected to WordPress.com. If site loads, it may have moved hosts.';
 				} else {
 					$wpcom_data = json_decode( $wpcom_result, true );
