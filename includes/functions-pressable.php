@@ -623,6 +623,44 @@ function run_pressable_site_wp_cli_command( string $site_id_or_url, string $wp_c
 }
 
 /**
+ * Runs an arbitrary, non-interactive shell command on the specified Pressable site over SSH and returns the captured output.
+ *
+ * Unlike run_pressable_site_wp_cli_command(), the command is not prefixed with `wp` and is executed verbatim. This is a
+ * high-risk operation: callers are responsible for guarding/approving the command (e.g. the MCP layer requires human approval).
+ *
+ * @param   string $site_id_or_url The ID or URL of the site to run the command on.
+ * @param   string $ssh_command    The raw shell command to run.
+ *
+ * @return  string|null The captured command output, or null if the site could not be resolved or the SSH connection failed.
+ */
+function run_pressable_site_ssh_command( string $site_id_or_url, string $ssh_command ): ?string {
+	$site = get_pressable_site( $site_id_or_url );
+	if ( is_null( $site ) ) {
+		return null;
+	}
+
+	$ssh = Pressable_Connection_Helper::get_ssh_connection( $site->id );
+	if ( is_null( $ssh ) ) {
+		return null;
+	}
+
+	$output = '';
+	try {
+		$ssh->setTimeout( 0 ); // Disable timeout in case the command takes a long time.
+		$ssh->exec(
+			$ssh_command,
+			static function ( string $str ) use ( &$output ): void {
+				$output .= $str;
+			}
+		);
+	} finally {
+		$ssh->disconnect();
+	}
+
+	return $output;
+}
+
+/**
  * Creates a new DeployHQ project for the specified Pressable site.
  *
  * @param   stdClass $pressable_site        The Pressable site to create the DeployHQ project for.

@@ -14,7 +14,11 @@ use PhpMcp\Schema\ToolAnnotations;
  *
  * High-risk operations are exposed only when explicitly needed and are marked
  * with ToolAnnotations so MCP clients can prompt/guard appropriately. This
- * includes WP-CLI execution tools, which are allowlisted and audit-logged.
+ * includes WP-CLI execution tools (allowlisted and audit-logged) and SSH
+ * command execution tools (denylisted and audit-logged). Because the MCP
+ * protocol cannot itself enforce human approval, these tools rely on the
+ * client's per-command approval prompt and MUST NOT be auto-approved/allowlisted
+ * in the client configuration.
  *
  * IMPORTANT: When adding new tools, keep in mind that STDOUT is reserved for
  * JSON-RPC communication. Use STDERR for any debug output.
@@ -170,6 +174,70 @@ final class Team51McpTools {
 					'provider'  => $provider,
 					'site'      => $site_id_or_url,
 					'command'   => trim( $wp_cli_command ),
+					'actor'     => $actor,
+					'timestamp' => gmdate( DATE_ATOM ),
+				)
+			) ?? '' )
+		);
+	}
+
+	/**
+	 * Denylist of catastrophic shell commands that must never run over MCP SSH, regardless of approval.
+	 *
+	 * This is intentionally NOT an allowlist: arbitrary SSH is the point of the tool. The denylist is
+	 * defense-in-depth against an accidental rubber-stamp, NOT a hard security boundary — it is trivially
+	 * bypassable (encodings, aliases, scripts). The real gate is the client's per-command human approval prompt.
+	 *
+	 * @param string $command Raw shell command.
+	 *
+	 * @return bool True if the command is blocked.
+	 */
+	private static function is_blocked_ssh_command( string $command ): bool {
+		// Normalize: collapse whitespace and lowercase for pattern matching.
+		$normalized = strtolower( trim( preg_replace( '/\s+/', ' ', $command ) ?? '' ) );
+		if ( '' === $normalized ) {
+			return false;
+		}
+
+		$blocked_patterns = array(
+			'/\brm\s+(-[a-z]*\s+)*-[a-z]*r[a-z]*f|\brm\s+(-[a-z]*\s+)*-[a-z]*f[a-z]*r/', // rm -rf / -fr in any flag order.
+			'/--no-preserve-root/',
+			'/:\s*\(\s*\)\s*\{/',                  // Fork bomb declaration of the form colon-paren-paren-brace.
+			'/\bmkfs\b/',                          // Format a filesystem.
+			'/\bdd\b.*\bof=\/dev\//',              // dd writing to a device.
+			'/>\s*\/dev\/(sd|nvme|disk|hd|vd)/',   // Redirect into a block device.
+			'/\b(shutdown|reboot|halt|poweroff)\b/',
+			'/\binit\s+[06]\b/',
+			'/\bchmod\s+(-[a-z]*\s+)*-[a-z]*r[a-z]*\s+0{3}\s+\//', // chmod -R 000 /
+		);
+
+		foreach ( $blocked_patterns as $pattern ) {
+			if ( preg_match( $pattern, $normalized ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Emits a structured audit entry for high-risk SSH command execution.
+	 *
+	 * @param string $provider       Either wpcom or pressable.
+	 * @param string $site_id_or_url Site identifier passed by caller.
+	 * @param string $command        Raw shell command.
+	 *
+	 * @return void
+	 */
+	private static function audit_ssh_command( string $provider, string $site_id_or_url, string $command ): void {
+		$actor = defined( 'OPSOASIS_WP_USERNAME' ) ? OPSOASIS_WP_USERNAME : 'unknown';
+
+		error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			'[MCP SSH AUDIT] ' . ( encode_json_content(
+				array(
+					'provider'  => $provider,
+					'site'      => $site_id_or_url,
+					'command'   => trim( $command ),
 					'actor'     => $actor,
 					'timestamp' => gmdate( DATE_ATOM ),
 				)
@@ -1891,6 +1959,48 @@ final class Team51McpTools {
 		);
 	}
 
+	/**
+	 * Runs a single, non-interactive shell command on a WordPress.com Atomic site over SSH and returns the captured output.
+	 *
+	 * HIGH RISK: this runs arbitrary shell commands. The MCP server cannot itself enforce human approval; that gate
+	 * is the client's per-call approval prompt, which the destructive annotation below ensures is shown. This tool
+	 * must NOT be added to the client's auto-approve allowlist. Server-side safeguards are a catastrophic-command
+	 * denylist (defense-in-depth, not a hard boundary) and an audit log of every executed command. SSH is only
+	 * available on Atomic sites.
+	 *
+	 * @param string $site_id_or_url The WordPress.com site ID or URL.
+	 * @param string $ssh_command    The shell command to run.
+	 */
+	#[McpTool(
+		name: 'wpcom_run_ssh_command',
+		annotations: new ToolAnnotations(
+			title: 'Run SSH Command on WordPress.com Site (High Risk — Requires Human Approval)',
+			readOnlyHint: false,
+			destructiveHint: true,
+			idempotentHint: false,
+			openWorldHint: true,
+		)
+	)]
+	public function wpcom_run_ssh_command( string $site_id_or_url, string $ssh_command ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
+		if ( self::is_blocked_ssh_command( $ssh_command ) ) {
+			return array( 'error' => 'Command is blocked by the MCP SSH denylist (potentially catastrophic operation).' );
+		}
+
+		self::audit_ssh_command( 'wpcom', $site_id_or_url, $ssh_command );
+
+		$output = run_wpcom_site_ssh_command( $site_id_or_url, $ssh_command );
+		if ( null === $output ) {
+			return array( 'error' => "Failed to run SSH command on WordPress.com site '$site_id_or_url'. The site may not exist, may not be an Atomic site (SSH unavailable), or the SSH connection could not be established." );
+		}
+
+		return array( 'output' => $output );
+	}
+
 	#[McpTool( name: 'wpcom_connect_site_repository' )]
 	public function wpcom_connect_site_repository( string $site_id_or_url, string $repository, string $branch = 'trunk', string $target_dir = '/wp-content/', bool $deploy = false ): array {
 		$identity_error = self::ensure_identity();
@@ -2166,10 +2276,51 @@ final class Team51McpTools {
 		);
 	}
 
+	/**
+	 * Runs a single, non-interactive shell command on a Pressable site over SSH and returns the captured output.
+	 *
+	 * HIGH RISK: this runs arbitrary shell commands. The MCP server cannot itself enforce human approval; that gate
+	 * is the client's per-call approval prompt, which the destructive annotation below ensures is shown. This tool
+	 * must NOT be added to the client's auto-approve allowlist. Server-side safeguards are a catastrophic-command
+	 * denylist (defense-in-depth, not a hard boundary) and an audit log of every executed command.
+	 *
+	 * @param string $site_id_or_url The Pressable site ID or URL.
+	 * @param string $ssh_command    The shell command to run.
+	 */
+	#[McpTool(
+		name: 'pressable_run_ssh_command',
+		annotations: new ToolAnnotations(
+			title: 'Run SSH Command on Pressable Site (High Risk — Requires Human Approval)',
+			readOnlyHint: false,
+			destructiveHint: true,
+			idempotentHint: false,
+			openWorldHint: true,
+		)
+	)]
+	public function pressable_run_ssh_command( string $site_id_or_url, string $ssh_command ): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
+		if ( self::is_blocked_ssh_command( $ssh_command ) ) {
+			return array( 'error' => 'Command is blocked by the MCP SSH denylist (potentially catastrophic operation).' );
+		}
+
+		self::audit_ssh_command( 'pressable', $site_id_or_url, $ssh_command );
+
+		$output = run_pressable_site_ssh_command( $site_id_or_url, $ssh_command );
+		if ( null === $output ) {
+			return array( 'error' => "Failed to run SSH command on Pressable site '$site_id_or_url'. The site may not exist or the SSH connection could not be established." );
+		}
+
+		return array( 'output' => $output );
+	}
+
 	#[McpTool( name: 'pressable_open_site_shell' )]
 	public function pressable_open_site_shell( string $site_id_or_url, string $shell_type = 'ssh' ): array {
 		return array(
-			'error'      => 'Unsupported operation in MCP context: interactive shell sessions are not supported over JSON-RPC.',
+			'error'      => 'Unsupported operation in MCP context: interactive shell sessions are not supported over JSON-RPC. To run a single non-interactive command, use the pressable_run_ssh_command tool instead.',
 			'site'       => $site_id_or_url,
 			'shell_type' => $shell_type,
 		);

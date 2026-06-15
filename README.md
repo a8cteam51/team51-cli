@@ -97,7 +97,7 @@ claude mcp add team51 -- team51 --mcp
 
 ### Available Tools
 
-The MCP server currently exposes 67 tools across all services. The table below shows a subset of commonly used tools:
+The MCP server currently exposes 69 tools across all services. The table below shows a subset of commonly used tools:
 
 | Service | Read Tools | Write Tools |
 |---------|-----------|-------------|
@@ -109,7 +109,18 @@ The MCP server currently exposes 67 tools across all services. The table below s
 
 Write tools are annotated with MCP `ToolAnnotations` (`destructiveHint`, `readOnlyHint`, etc.) so clients prompt for confirmation before executing destructive actions.
 
-High-risk operations (site creation, user deletion, WP-CLI execution, deployments) are intentionally excluded.
+#### High-risk command execution (WP-CLI and SSH)
+
+Command-execution tools are exposed but guarded:
+
+| Tool | Guardrail |
+|------|-----------|
+| `pressable_run_wp_cli_command`, `wpcom_run_wp_cli_command` | Restrictive **allowlist** of read-only WP-CLI subcommands + audit log |
+| `pressable_run_ssh_command`, `wpcom_run_ssh_command` | Arbitrary commands allowed, but a **denylist** blocks catastrophic patterns (`rm -rf /`, fork bombs, `dd`/`mkfs`, `reboot`, …) + audit log |
+
+**Human approval is required for every SSH command.** The MCP protocol cannot enforce this server-side (the `php-mcp/server` version in use has no elicitation support), so each call relies on the **client's per-command approval prompt** — guaranteed only by the `destructiveHint` annotation and by **never adding these tools to the client's auto-approve allowlist**. The denylist is defense-in-depth, not a hard boundary; the human prompt is the real gate. Interactive shell sessions remain unsupported over MCP (use the `pressable:open-site-shell` CLI command for those).
+
+Other high-risk operations (site creation, user deletion, deployments) are intentionally excluded — run them via the CLI.
 
 ### Extending
 
