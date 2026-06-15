@@ -634,6 +634,12 @@ function run_pressable_site_wp_cli_command( string $site_id_or_url, string $wp_c
  * @return  string|null The captured command output, or null if the site could not be resolved or the SSH connection failed.
  */
 function run_pressable_site_ssh_command( string $site_id_or_url, string $ssh_command ): ?string {
+	// Accept a full URL, a bare domain, or a numeric ID. Normalize URLs to a host, mirroring get_site_input().
+	if ( str_contains( $site_id_or_url, 'http' ) ) {
+		$host           = parse_url( $site_id_or_url, PHP_URL_HOST );
+		$site_id_or_url = empty( $host ) ? $site_id_or_url : $host;
+	}
+
 	$site = get_pressable_site( $site_id_or_url );
 	if ( is_null( $site ) ) {
 		return null;
