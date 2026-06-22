@@ -22,10 +22,14 @@
  *       }
  *     }
  *   }
+ *
+ * @package WPCOMSpecialProjects\CLI
  */
 
 use PhpMcp\Server\Server;
 use PhpMcp\Server\Transports\StdioServerTransport;
+use Symfony\Component\Console\Application;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\StreamOutput;
 
 // Set up constants needed by the CLI environment.
@@ -46,6 +50,25 @@ $team51_cli_output = new StreamOutput( fopen( 'php://stderr', 'w' ) );
 
 // Mark as non-autocomplete so that identity loading proceeds when needed.
 $GLOBALS['team51_is_autocomplete'] = false;
+
+// Build the Symfony Console application and register ONLY the commands the MCP tools
+// dispatch internally via run_app_command(). Without an app, run_app_command() fatals with
+// "Call to a member function find() on null" in MCP mode — team51-cli.php builds the app for
+// normal CLI runs, but its `--mcp` branch returns before reaching that code. The SSH tools
+// connect directly and need no command; only the WP-CLI execution tools delegate to one.
+// Register a command here only if a new MCP tool needs to run it via run_app_command().
+$team51_cli_app             = new Application();
+$team51_mcp_command_classes = array(
+	\WPCOMSpecialProjects\CLI\Command\Pressable_Site_WP_CLI_Command_Run::class,
+	\WPCOMSpecialProjects\CLI\Command\WPCOM_Site_WP_CLI_Command_Run::class,
+);
+foreach ( $team51_mcp_command_classes as $team51_command_class ) {
+	$team51_command = new $team51_command_class();
+	// The commands' interactive site-prompt fallback reads --no-autocomplete; define it so
+	// getOption() always resolves. (MCP supplies the site argument, so the prompt isn't hit.)
+	$team51_command->addOption( '--no-autocomplete', null, InputOption::VALUE_NONE, 'Do not provide options to initialization questions.' );
+	$team51_cli_app->add( $team51_command );
+}
 
 // Identity (1Password credentials) is loaded lazily on first tool call,
 // not at startup. This prevents Cursor from prompting for 1Password unlock
