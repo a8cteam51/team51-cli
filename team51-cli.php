@@ -12,6 +12,31 @@ use Symfony\Component\EventDispatcher\EventDispatcher;
 const TEAM51_CLI_ROOT_DIR = __DIR__;
 const TEAM51_CLI_FILE     = __FILE__;
 
+// Fail clearly on an unsupported runtime instead of a cryptic fatal deep in a dependency
+// (e.g. a package installed under --ignore-platform-reqs that needs a newer PHP). Runs
+// before autoload, so it relies only on built-in functions.
+( static function (): void {
+	$problems = array();
+
+	if ( PHP_VERSION_ID < 80300 ) {
+		$problems[] = 'PHP 8.3 or newer is required (running ' . PHP_VERSION . ').';
+	}
+	foreach ( array( 'gd', 'json', 'posix', 'readline' ) as $extension ) {
+		if ( ! extension_loaded( $extension ) ) {
+			$problems[] = "The '$extension' PHP extension is required but not loaded.";
+		}
+	}
+
+	if ( $problems ) {
+		fwrite( STDERR, "Team51 CLI cannot start due to an unsupported environment:\n" );
+		foreach ( $problems as $problem ) {
+			fwrite( STDERR, "  - $problem\n" );
+		}
+		fwrite( STDERR, "See the README for setup requirements.\n" );
+		exit( 1 );
+	}
+} )();
+
 // If --mcp flag is passed, start the MCP server instead of the CLI.
 if ( in_array( '--mcp', $argv ?? $_SERVER['argv'] ?? array(), true ) ) {
 	require __DIR__ . '/mcp-server.php';
