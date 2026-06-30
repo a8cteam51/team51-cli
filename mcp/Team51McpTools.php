@@ -1429,6 +1429,8 @@ final class Team51McpTools {
 	 * Set topics/tags for a GitHub repository. Replaces all existing topics.
 	 *
 	 * @param string $repository  The repository name.
+	 *
+	 * @phpcs:ignore WordPress.WP.CapitalPDangit -- GitHub topic literals must be lowercase.
 	 * @param string $topics_json JSON array of topic strings (e.g., ["wordpress", "plugin"]).
 	 */
 	#[McpTool(
