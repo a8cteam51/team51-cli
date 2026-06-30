@@ -1429,7 +1429,7 @@ final class Team51McpTools {
 	 * Set topics/tags for a GitHub repository. Replaces all existing topics.
 	 *
 	 * @param string $repository  The repository name.
-	 * @param string $topics_json JSON array of topic strings (e.g., ["WordPress", "plugin"]).
+	 * @param string $topics_json JSON array of topic strings (e.g., ["wordpress", "plugin"]).
 	 */
 	#[McpTool(
 		name: 'github_set_topics',
