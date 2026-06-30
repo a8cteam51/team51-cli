@@ -1,6 +1,6 @@
 #!/bin/bash
 ulimit -n 8192
-composer install
+composer install --ignore-platform-reqs
 composer dump-autoload -o
 sudo mkdir -p /usr/local/bin
 script_path=$(pwd)
