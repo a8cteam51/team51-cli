@@ -100,7 +100,7 @@ final class Team51McpTools {
 		}
 
 		// Block known WP-CLI global flags, but allow command-specific flags.
-		$tokens = preg_split( '/\s+/', $command ) ?: array();
+		$tokens               = preg_split( '/\s+/', $command ) ?: array();
 		$blocked_global_flags = array(
 			'--path',
 			'--url',
@@ -189,14 +189,14 @@ final class Team51McpTools {
 		return array_filter(
 			$sites,
 			static function ( $site ) use ( $deny ) {
-				$site_url  = $site->URL ?? $site->siteurl ?? '';
-				$host      = parse_url( $site_url, PHP_URL_HOST );
+				$site_url = $site->URL ?? $site->siteurl ?? '';
+				$host     = parse_url( $site_url, PHP_URL_HOST );
 				if ( ! is_string( $host ) || '' === $host ) {
 					// Some site URLs are schemeless (e.g. example.com); add a default
 					// scheme so parse_url can reliably extract the host.
 					$host = parse_url( 'https://' . ltrim( (string) $site_url, '/' ), PHP_URL_HOST );
 				}
-				$host      = is_string( $host ) ? strtolower( $host ) : '';
+				$host = is_string( $host ) ? strtolower( $host ) : '';
 				if ( '' === $host ) {
 					return true;
 				}
@@ -789,9 +789,9 @@ final class Team51McpTools {
 			return $identity_error;
 		}
 
-		$url             = '' !== trim( $url ) ? $url : get_wpcom_site_code_deployment_webhook_default_url();
-		$events          = '' !== trim( $events ) ? $events : get_wpcom_site_code_deployment_webhook_default_events();
-		$site            = get_wpcom_site( $site_id_or_url );
+		$url    = '' !== trim( $url ) ? $url : get_wpcom_site_code_deployment_webhook_default_url();
+		$events = '' !== trim( $events ) ? $events : get_wpcom_site_code_deployment_webhook_default_events();
+		$site   = get_wpcom_site( $site_id_or_url );
 		if ( null === $site || ! isset( $site->ID ) ) {
 			return array( 'error' => "Failed to fetch WPCOM site: $site_id_or_url" );
 		}
@@ -991,11 +991,11 @@ final class Team51McpTools {
 			'sites' => array_map(
 				static function ( $site ) {
 					return array(
-						'id'          => $site->id,
-						'name'        => $site->name,
-						'url'         => $site->url,
-						'state'       => $site->state ?? null,
-						'datacenter'  => $site->datacenterCode ?? null, // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+						'id'         => $site->id,
+						'name'       => $site->name,
+						'url'        => $site->url,
+						'state'      => $site->state ?? null,
+						'datacenter' => $site->datacenterCode ?? null, // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 					);
 				},
 				$sites
@@ -1217,9 +1217,9 @@ final class Team51McpTools {
 		}
 
 		return array(
-			'success'        => true,
-			'site'           => $site_id_or_url,
-			'collaborator'   => $collaborator,
+			'success'         => true,
+			'site'            => $site_id_or_url,
+			'collaborator'    => $collaborator,
 			'wp_user_deleted' => $delete_wp_user,
 		);
 	}
@@ -1429,7 +1429,7 @@ final class Team51McpTools {
 	 * Set topics/tags for a GitHub repository. Replaces all existing topics.
 	 *
 	 * @param string $repository  The repository name.
-	 * @param string $topics_json JSON array of topic strings (e.g., ["wordpress", "plugin"]).
+	 * @param string $topics_json JSON array of topic strings (e.g., ["WordPress", "plugin"]).
 	 */
 	#[McpTool(
 		name: 'github_set_topics',
@@ -1965,7 +1965,7 @@ final class Team51McpTools {
 			);
 		}
 		if ( $deploy ) {
-			$run = create_wpcom_site_code_deployment_run( $site_id_or_url, $deployment->id );
+			$run                      = create_wpcom_site_code_deployment_run( $site_id_or_url, $deployment->id );
 			$result['deployment_run'] = $run ? (array) $run : array( 'error' => 'Failed to trigger deployment run.' );
 		}
 
@@ -1979,7 +1979,7 @@ final class Team51McpTools {
 			return $identity_error;
 		}
 
-		$date  = $date ?: gmdate( 'Y-m-d' );
+		$date          = $date ?: gmdate( 'Y-m-d' );
 		$jetpack_sites = get_wpcom_jetpack_sites();
 		if ( null === $jetpack_sites ) {
 			return array( 'error' => 'Failed to fetch Jetpack sites from WPCOM.' );
@@ -2013,14 +2013,18 @@ final class Team51McpTools {
 
 		return array(
 			'count'  => count( $stats ),
-			'sites'  => array_map( static fn( $s, $id ) => array(
-				'site_id'   => $id,
-				'site_url'  => $sites[ $id ]->siteurl ?? null,
-				'views'     => $s->views ?? 0,
-				'visitors'  => $s->visitors ?? 0,
-				'comments'  => $s->comments ?? 0,
-				'followers' => $s->followers ?? 0,
-			), $stats, array_keys( $stats ) ),
+			'sites'  => array_map(
+				static fn( $s, $id ) => array(
+					'site_id'   => $id,
+					'site_url'  => $sites[ $id ]->siteurl ?? null,
+					'views'     => $s->views ?? 0,
+					'visitors'  => $s->visitors ?? 0,
+					'comments'  => $s->comments ?? 0,
+					'followers' => $s->followers ?? 0,
+				),
+				$stats,
+				array_keys( $stats )
+			),
 			'errors' => array_map( static fn( $e ) => (array) $e, $errors ?? array() ),
 		);
 	}
@@ -2032,12 +2036,14 @@ final class Team51McpTools {
 			return $identity_error;
 		}
 
-		$date  = $date ?: gmdate( match ( $unit ) {
+		$date = $date ?: gmdate(
+			match ( $unit ) {
 			'week' => 'Y-\WW',
 			'month' => 'Y-m',
 			'year' => 'Y',
 			default => 'Y-m-d',
-		} );
+			}
+		);
 		$jetpack_sites = get_wpcom_jetpack_sites();
 		if ( null === $jetpack_sites ) {
 			return array( 'error' => 'Failed to fetch Jetpack sites from WPCOM.' );
@@ -2059,13 +2065,21 @@ final class Team51McpTools {
 				false
 			)
 		);
-		$sites = self::index_sites_by_userblog_id( $sites );
+		$sites   = self::index_sites_by_userblog_id( $sites );
 
 		$stats = get_wpcom_site_stats_batch(
 			array_column( $sites, 'userblog_id' ),
 			array_combine(
 				array_column( $sites, 'userblog_id' ),
-				array_fill( 0, count( $sites ), array( 'unit' => $unit, 'date' => $date, 'quantity' => 1 ) )
+				array_fill(
+					0,
+					count( $sites ),
+					array(
+						'unit'     => $unit,
+						'date'     => $date,
+						'quantity' => 1,
+					)
+				)
 			),
 			'orders',
 			$errors
@@ -2074,14 +2088,18 @@ final class Team51McpTools {
 
 		return array(
 			'count'  => count( $stats ),
-			'sites'  => array_map( static fn( $s, $id ) => array(
-				'site_id'           => $id,
-				'site_url'          => $sites[ $id ]->siteurl ?? null,
-				'total_gross_sales' => $s->total_gross_sales ?? 0,
-				'total_net_sales'   => $s->total_net_sales ?? 0,
-				'total_orders'      => $s->total_orders ?? 0,
-				'total_products'    => $s->total_products ?? 0,
-			), $stats, array_keys( $stats ) ),
+			'sites'  => array_map(
+				static fn( $s, $id ) => array(
+					'site_id'           => $id,
+					'site_url'          => $sites[ $id ]->siteurl ?? null,
+					'total_gross_sales' => $s->total_gross_sales ?? 0,
+					'total_net_sales'   => $s->total_net_sales ?? 0,
+					'total_orders'      => $s->total_orders ?? 0,
+					'total_products'    => $s->total_products ?? 0,
+				),
+				$stats,
+				array_keys( $stats )
+			),
 			'errors' => array_map( static fn( $e ) => (array) $e, array_merge( $errors ?? array(), $plugin_errors ?? array() ) ),
 		);
 	}
@@ -2308,8 +2326,8 @@ final class Team51McpTools {
 		if ( $repository ) {
 			$connected = update_deployhq_project_repository( $project->permalink, "git@github.com:a8cteam51/$repository.git" );
 			return array(
-				'project'             => (array) $project,
-				'repository_connect'  => $connected ? (array) $connected : array( 'error' => 'Failed to connect repository.' ),
+				'project'            => (array) $project,
+				'repository_connect' => $connected ? (array) $connected : array( 'error' => 'Failed to connect repository.' ),
 			);
 		}
 
@@ -2436,12 +2454,12 @@ final class Team51McpTools {
 		foreach ( $plugins as $site_id => $site_plugins ) {
 			foreach ( $site_plugins as $plugin_file => $plugin_data ) {
 				$rows[] = array(
-					'site_id'   => $sites[ $site_id ]->userblog_id,
-					'site_url'  => $sites[ $site_id ]->siteurl,
-					'name'      => $plugin_data->Name,
-					'slug'      => dirname( $plugin_file ),
-					'version'   => $plugin_data->Version,
-					'status'    => ( $plugin_data->active ?? false ) ? 'Active' : 'Inactive',
+					'site_id'  => $sites[ $site_id ]->userblog_id,
+					'site_url' => $sites[ $site_id ]->siteurl,
+					'name'     => $plugin_data->Name,
+					'slug'     => dirname( $plugin_file ),
+					'version'  => $plugin_data->Version,
+					'status'   => ( $plugin_data->active ?? false ) ? 'Active' : 'Inactive',
 				);
 			}
 		}
