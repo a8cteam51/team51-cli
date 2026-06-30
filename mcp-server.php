@@ -37,6 +37,9 @@ if ( ! defined( 'TEAM51_CLI_FILE' ) ) {
 	define( 'TEAM51_CLI_FILE', __FILE__ );
 }
 
+// Fail clearly on an unsupported runtime before autoload (shared with team51-cli.php).
+require_once TEAM51_CLI_ROOT_DIR . '/environment-guard.php';
+
 // Load Composer autoloader (skip self-update.php — we don't want update checks or ASCII art in MCP mode).
 require_once TEAM51_CLI_ROOT_DIR . '/vendor/autoload.php';
 
