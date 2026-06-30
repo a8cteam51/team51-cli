@@ -56,7 +56,7 @@
     "packages-install": "@composer install --ignore-platform-reqs --no-interaction",
     "packages-update": [
       "@composer clear-cache",
-      "@composer update --prefer-stable --ignore-platform-reqs --no-interaction"
+      "@composer update --prefer-stable --ignore-platform-req=ext-* --no-interaction"
     ]
   },
   "config": {
