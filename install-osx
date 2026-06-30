@@ -1,7 +1,7 @@
 #!/bin/bash
 ulimit -n 8192
 composer install --ignore-platform-reqs
-composer dump-autoload -o
+composer dump-autoload -o --ignore-platform-reqs
 sudo mkdir -p /usr/local/bin
 script_path=$(pwd)
 sudo ln -sf "$script_path"/team51-cli.php /usr/local/bin/team51
