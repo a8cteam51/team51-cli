@@ -15,8 +15,11 @@ use Symfony\Component\Process\Process;
  * @return  object[]|null
  */
 function list_1password_accounts( array $global_flags = array() ): ?array {
-	$command = _build_1password_command_string( 'op account list', array(), array(), $global_flags );
-	$json    = _run_op_command( "$command --format json" );
+	$command   = _build_1password_command_args( array( 'op', 'account', 'list' ), array(), array(), $global_flags );
+	$command[] = '--format';
+	$command[] = 'json';
+
+	$json = _run_op_command( $command );
 	return is_null( $json ) ? null : decode_json_content( $json );
 }
 
@@ -31,10 +34,12 @@ function list_1password_accounts( array $global_flags = array() ): ?array {
  * @return  object[]|null
  */
 function list_1password_items( array $flags = array(), array $global_flags = array() ): ?array {
-	$flags   = array_intersect_key( $flags, array_flip( array( 'categories', 'tags', 'vault', 'favorite', 'include-archive' ) ) );
-	$command = _build_1password_command_string( 'op item list', $flags, array( 'categories', 'tags', 'vault' ), $global_flags );
+	$flags     = array_intersect_key( $flags, array_flip( array( 'categories', 'tags', 'vault', 'favorite', 'include-archive' ) ) );
+	$command   = _build_1password_command_args( array( 'op', 'item', 'list' ), $flags, array( 'categories', 'tags', 'vault' ), $global_flags );
+	$command[] = '--format';
+	$command[] = 'json';
 
-	$json = _run_op_command( "$command --format json" );
+	$json = _run_op_command( $command );
 	return is_null( $json ) ? null : decode_json_content( $json );
 }
 
@@ -79,13 +84,15 @@ function create_1password_item( array $fields, array $flags, array $global_flags
 		array_merge( $flags, array( 'dry-run' => $dry_run ) ),
 		array_flip( array( 'title', 'url', 'template', 'category', 'tags', 'generate-password', 'vault', 'dry-run' ) )
 	);
-	$command = _build_1password_command_string( 'op item create', $flags, array( 'title', 'url', 'template', 'category', 'tags', 'vault' ), $global_flags );
+	$command = _build_1password_command_args( array( 'op', 'item', 'create' ), $flags, array( 'title', 'url', 'template', 'category', 'tags', 'vault' ), $global_flags );
 
 	foreach ( $fields as $field => $value ) {
-		$command .= " '$field=$value'";
+		$command[] = "$field=$value";
 	}
+	$command[] = '--format';
+	$command[] = 'json';
 
-	$json = _run_op_command( "$command --format json" );
+	$json = _run_op_command( $command );
 	return is_null( $json ) ? null : decode_json_content( $json );
 }
 
@@ -101,10 +108,12 @@ function create_1password_item( array $fields, array $flags, array $global_flags
  * @return  object|null
  */
 function get_1password_item( string $item_id, array $flags = array(), array $global_flags = array() ): ?object {
-	$flags   = array_intersect_key( $flags, array_flip( array( 'fields', 'include-archive', 'otp', 'share-link', 'vault' ) ) );
-	$command = _build_1password_command_string( "op item get $item_id", $flags, array( 'fields', 'vault' ), $global_flags );
+	$flags     = array_intersect_key( $flags, array_flip( array( 'fields', 'include-archive', 'otp', 'share-link', 'vault' ) ) );
+	$command   = _build_1password_command_args( array( 'op', 'item', 'get', $item_id ), $flags, array( 'fields', 'vault' ), $global_flags );
+	$command[] = '--format';
+	$command[] = 'json';
 
-	$json = _run_op_command( "$command --format json" );
+	$json = _run_op_command( $command );
 	return is_null( $json ) ? null : decode_json_content( $json );
 }
 
@@ -126,13 +135,15 @@ function update_1password_item( string $item_id, array $fields, array $flags = a
 		array_merge( $flags, array( 'dry-run' => $dry_run ) ),
 		array_flip( array( 'title', 'url', 'tags', 'generate-password', 'vault', 'dry-run' ) )
 	);
-	$command = _build_1password_command_string( "op item edit $item_id", $flags, array( 'title', 'url', 'tags', 'vault' ), $global_flags );
+	$command = _build_1password_command_args( array( 'op', 'item', 'edit', $item_id ), $flags, array( 'title', 'url', 'tags', 'vault' ), $global_flags );
 
 	foreach ( $fields as $field => $new_value ) {
-		$command .= " '$field=$new_value'";
+		$command[] = "$field=$new_value";
 	}
+	$command[] = '--format';
+	$command[] = 'json';
 
-	$json = _run_op_command( "$command --format json" );
+	$json = _run_op_command( $command );
 	return is_null( $json ) ? null : decode_json_content( $json );
 }
 
@@ -149,13 +160,13 @@ function update_1password_item( string $item_id, array $fields, array $flags = a
  */
 function delete_1password_item( string $item_id, array $flags = array(), array $global_flags = array() ): void {
 	$flags   = array_intersect_key( $flags, array_flip( array( 'archive', 'vault' ) ) );
-	$command = _build_1password_command_string( "op item delete $item_id", $flags, array( 'vault' ), $global_flags );
+	$command = _build_1password_command_args( array( 'op', 'item', 'delete', $item_id ), $flags, array( 'vault' ), $global_flags );
 
 	_run_op_command( $command );
 }
 
 /**
- * Runs an `op` (1Password CLI) shell command with type-safe output handling and
+ * Runs an `op` (1Password CLI) command with type-safe output handling and
  * a small retry loop for transient failures.
  *
  * Returns the command's STDOUT on success, or null on either an empty result or
@@ -163,14 +174,21 @@ function delete_1password_item( string $item_id, array $flags = array(), array $
  * connection refused, "temporarily unavailable") are retried up to 3 times with
  * a 5-second pause between attempts.
  *
- * @param   string $command The fully-built `op` command string to execute.
+ * @param   string[] $command The fully-built `op` command argument vector to execute.
  *
  * @internal
  * @return  string|null
  */
-function _run_op_command( string $command ): ?string {
+function _run_op_command( array $command ): ?string {
+	// `op item create`/`edit` read a piped stdin as a JSON item template and abort with
+	// "invalid JSON in piped input" when it isn't one. Symfony Process always wires the child's
+	// stdin to a pipe, so run op through a minimal `sh` that points its stdin at /dev/null.
+	// Passing the argument vector as an array (never a shell string) also sidesteps shell quoting
+	// and Symfony's `"${:VAR}"` placeholder substitution.
+	$command = array_merge( array( 'sh', '-c', 'exec "$@" < /dev/null', 'op' ), $command );
+
 	for ( $attempt = 1; $attempt <= 3; $attempt++ ) {
-		$process = Process::fromShellCommandline( $command );
+		$process = new Process( $command );
 		$process->setTimeout( 60 ); // op should never legitimately take longer.
 
 		try {
@@ -210,31 +228,33 @@ function _run_op_command( string $command ): ?string {
 }
 
 /**
- * Prepares a 1Password command string.
+ * Prepares a 1Password command argument vector.
  *
- * @param   string $command      The command to run.
- * @param   array  $flags        The flags to filter the results by.
- * @param   array  $value_flags  The flags that can have a value.
- * @param   array  $global_flags The global flags to pass to the command.
+ * @param   string[] $command      The base command argument vector (e.g. `array( 'op', 'item', 'get', $item_id )`).
+ * @param   array    $flags        The flags to filter the results by.
+ * @param   array    $value_flags  The flags that can have a value.
+ * @param   array    $global_flags The global flags to pass to the command.
  *
  * @internal
- * @return  string
+ * @return  string[]
  */
-function _build_1password_command_string( string $command, array $flags, array $value_flags, array $global_flags ): string {
+function _build_1password_command_args( array $command, array $flags, array $value_flags, array $global_flags ): array {
 	$global_flags = array_intersect_key( $global_flags, array_flip( array( 'account', 'cache', 'config', 'debug', 'encoding', 'iso-timestamps', 'session' ) ) );
 
 	foreach ( $flags as $flag => $value ) {
 		if ( in_array( $flag, $value_flags, true ) ) {
-			$command .= " --$flag " . escapeshellarg( implode( ',', (array) $value ) );
+			$command[] = "--$flag";
+			$command[] = implode( ',', (array) $value );
 		} elseif ( $value ) {
-			$command .= " --$flag";
+			$command[] = "--$flag";
 		}
 	}
 	foreach ( $global_flags as $flag => $value ) {
 		if ( in_array( $flag, array( 'account', 'config', 'encoding', 'session' ), true ) ) {
-			$command .= " --$flag " . escapeshellarg( implode( ',', (array) $value ) );
+			$command[] = "--$flag";
+			$command[] = implode( ',', (array) $value );
 		} elseif ( $value ) {
-			$command .= " --$flag";
+			$command[] = "--$flag";
 		}
 	}
 
