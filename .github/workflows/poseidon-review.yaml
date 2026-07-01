@@ -1,0 +1,39 @@
+# managed-by: opsoasis-repo-sync 3aa3e9d
+name: Poseidon Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  review:
+    # Dependabot PRs run with a restricted token that can't resolve the private
+    # poseidon-actions repo, so the job fails at setup. Skip them entirely.
+    if: ${{ github.actor != 'dependabot[bot]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: poseidon-review-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      pull-requests: write
+      # issues:/actions: write are used only by the review-fix auto-chain on
+      # Poseidon-authored PRs (self-gated by the poseidon-pr label), which
+      # never exist on review-only repos.
+      issues: write
+      actions: write
+      # claude-code-action exchanges an OIDC token for its GitHub App token.
+      id-token: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # @trunk is intentional: the Poseidon actions are continuously delivered from the hub.
+      - uses: a8cteam51/poseidon-actions/pr-review@trunk # zizmor: ignore[unpinned-uses]
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ github.token }}
+          fix_workflow: poseidon.yaml
