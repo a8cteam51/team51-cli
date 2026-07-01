@@ -189,7 +189,6 @@ If you get the error `./install-osx: line 2: composer: command not found`, you c
 
 If you don't have [brew](https://brew.sh/) yet, install it by executing this from your Terminal: `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"` — Tip: you can use brew to install all sort of apps on your Mac. Give it [a try](https://formulae.brew.sh/cask/zoom)
 
-
 ### `env: php: No such file or directory`
 
 This is likely because you don't have PHP installed on your system. If you recently updated to MacOS Monterey, that could be the culprit as it doesn't come bundled with PHP anymore. If you have `brew` installed, it's easy to get PHP added by running the following command in the terminal: `brew install php@8.3 brew-php-switcher`. This will install the latest version of PHP 8.3 as well as a handy utility for switching between PHP versions if you need to.
