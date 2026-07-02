@@ -2,10 +2,13 @@
 /**
  * Pre-autoload environment guard.
  *
- * Required from every entry point (team51-cli.php, mcp-server.php) before the Composer
- * autoloader, so an unsupported runtime fails with a clear message instead of a cryptic
- * fatal deep in a dependency (e.g. a package installed under --ignore-platform-reqs that
- * needs a newer PHP). Uses only built-in functions, since it runs before autoload.
+ * Runs from every entry point (team51-cli.php, mcp-server.php) before the Composer autoloader,
+ * enforcing the project's declared floor — PHP 8.3+ and the gd/json/posix/readline extensions —
+ * so an unsupported runtime fails with a clear message instead of a cryptic fatal deep in a
+ * dependency. Install and self-update run `composer dump-autoload --ignore-platform-reqs`, which
+ * drops composer's generated platform_check.php, so this is the sole platform gate at startup.
+ * It checks the project floor only, not the PHP version any installed dependency requires.
+ * Uses only built-in functions, since it runs before autoload.
  */
 
 ( static function (): void {
