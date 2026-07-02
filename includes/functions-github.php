@@ -162,7 +162,7 @@ function set_github_repository_secret( string $repository, string $secret_name, 
  *
  * @return  stdClass|true|null
  */
-function add_github_repository_collaborator( string $repository, string $username, string $permission = 'push' ): stdClass | true | null {
+function add_github_repository_collaborator( string $repository, string $username, string $permission = 'push' ): stdClass|true|null {
 	return API_Helper::make_github_request(
 		"repositories/$repository/collaborators/$username",
 		'PUT',

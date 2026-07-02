@@ -12,6 +12,9 @@ use Symfony\Component\EventDispatcher\EventDispatcher;
 const TEAM51_CLI_ROOT_DIR = __DIR__;
 const TEAM51_CLI_FILE     = __FILE__;
 
+// Fail clearly on an unsupported runtime before autoload (shared with mcp-server.php).
+require_once TEAM51_CLI_ROOT_DIR . '/environment-guard.php';
+
 // If --mcp flag is passed, start the MCP server instead of the CLI.
 if ( in_array( '--mcp', $argv ?? $_SERVER['argv'] ?? array(), true ) ) {
 	require __DIR__ . '/mcp-server.php';

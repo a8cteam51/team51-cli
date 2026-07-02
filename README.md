@@ -31,7 +31,7 @@ Be well, be kind, make things and set them free.
 1. Ensure you have OpsOasis access. Details: p4Kr4c-dgn-p2#setting-up-opsoasis-1password (Not familiar with the link? Check the Field Guide for "Public GitHub Repository Shorthand".)
 1. Open the Terminal on your Mac and install [Homebrew](https://brew.sh/) (if you haven't already).
 	- `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"`
-1. Ensure that you are running PHP8.2+ in your terminal by running `php -v` and cross-checking the outputted version; We actually recommend running the latest version of PHP. If you’re not, then run `brew install php@8.3 brew-php-switcher` followed by `brew link php@8.3`
+1. Ensure that you are running PHP 8.3+ in your terminal by running `php -v` and cross-checking the outputted version; We actually recommend running the latest version of PHP. If you’re not, then run `brew install php@8.3 brew-php-switcher` followed by `brew link php@8.3`
 1. Keep your Terminal open and clone this repository by running:
 	- `git clone git@github.com:a8cteam51/team51-cli.git`
 	- The Terminal will ask you for a so-called SSH Passphrase which you must type and hit `Enter` (if you're unsure what the passphrase is, try entering the same you'd use for the AutoProxxy).
@@ -189,12 +189,11 @@ If you get the error `./install-osx: line 2: composer: command not found`, you c
 
 If you don't have [brew](https://brew.sh/) yet, install it by executing this from your Terminal: `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"` — Tip: you can use brew to install all sort of apps on your Mac. Give it [a try](https://formulae.brew.sh/cask/zoom)
 
-
 ### `env: php: No such file or directory`
 
-This is likely because you don't have PHP installed on your system. If you recently updated to MacOS Monterey, that could be the culprit as it doesn't come bundled with PHP anymore. If you have `brew` installed, it's easy to get PHP added by running the following command in the terminal: `brew install php@8.2 brew-php-switcher`. This will install the latest version of PHP 8.2 as well as a handy utility for switching between PHP versions if you need to.
+This is likely because you don't have PHP installed on your system. If you recently updated to MacOS Monterey, that could be the culprit as it doesn't come bundled with PHP anymore. If you have `brew` installed, it's easy to get PHP added by running the following command in the terminal: `brew install php@8.3 brew-php-switcher`. This will install the latest version of PHP 8.3 as well as a handy utility for switching between PHP versions if you need to.
 
-You will then need to run `brew link php@8.2` so that PHP gets symlinked properly to your system's PHP files. Running `team51` now should work just fine.
+You will then need to run `brew link php@8.3` so that PHP gets symlinked properly to your system's PHP files. Running `team51` now should work just fine.
 
 ### `git@github.com: Permission denied (publickey)`
 
