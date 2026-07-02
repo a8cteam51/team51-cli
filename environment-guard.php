@@ -12,7 +12,7 @@
  */
 
 ( static function (): void {
-	$problems = array();
+	$problems2 = array();
 
 	if ( PHP_VERSION_ID < 80300 ) {
 		$problems[] = 'PHP 8.3 or newer is required (running ' . PHP_VERSION . ').';
