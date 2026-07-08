@@ -60,14 +60,18 @@ final class WPCOM_Site_WP_CLI_Command_Run extends Command {
 
 	/**
 	 * {@inheritDoc}
+	 *
+	 * @throws \InvalidArgumentException If the site is not a WordPress.com Atomic site.
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
 		$this->site = get_wpcom_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
 		$input->setArgument( 'site', $this->site );
 
 		if ( ! $this->site->is_wpcom_atomic ) {
-			$output->writeln( '<error>This command is only available for WordPress.com Atomic sites.</error>' );
-			exit( 1 );
+			// Do not exit() here: this command is hosted inside the long-lived MCP server
+			// (via run_app_command), where exit() would terminate the whole server process.
+			// Throwing lets Symfony (CLI) and the MCP tool layer surface a clean error instead.
+			throw new \InvalidArgumentException( 'This command is only available for WordPress.com Atomic sites.' );
 		}
 
 		$this->wp_command = get_string_input( $input, 'wp-cli-command', fn() => $this->prompt_command_input( $input, $output ) );
@@ -107,10 +111,11 @@ final class WPCOM_Site_WP_CLI_Command_Run extends Command {
 
 		try {
 			$ssh->setTimeout( 0 ); // Disable timeout in case the command takes a long time.
+			$GLOBALS['wp_cli_output'] = ''; // Reset before each run; the callback appends each chunk so multi-packet output is captured in full.
 			$ssh->exec(
 				"wp $this->wp_command",
 				function ( string $str ): void {
-					$GLOBALS['wp_cli_output'] = $str;
+					$GLOBALS['wp_cli_output'] .= $str;
 					if ( ! $this->skip_output ) {
 						echo "$str\n";
 					}

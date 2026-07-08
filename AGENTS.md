@@ -153,7 +153,9 @@ See `.agents/subagents/add-cli-command.md` for a detailed runbook.
 4. Use existing `get_*` functions from includes.
 5. Return arrays (or error arrays with `'error' => '...'`). No STDOUT — reserved for JSON-RPC.
 
-**MUST**: Do not add high-risk tools (site creation, user deletion, WP-CLI execution, deployments). See README MCP section.
+**MUST**: Do not add high-risk tools (site creation, user deletion, deployments). See README MCP section.
+
+Command execution (WP-CLI and SSH) is the one sanctioned exception, and only *with guardrails*: `pressable_run_wp_cli_command`/`wpcom_run_wp_cli_command` use an allowlist + audit log; `pressable_run_ssh_command`/`wpcom_run_ssh_command` use a denylist + audit log + `destructiveHint` annotation. The MCP server cannot enforce human approval itself (no elicitation support), so these tools depend on the client's per-command approval prompt and must never be auto-approved/allowlisted in the client.
 
 **For full details**: `.agents/skills/add-mcp-tool.md`
 

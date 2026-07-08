@@ -128,10 +128,11 @@ final class Pressable_Site_WP_CLI_Command_Run extends Command {
 
 			try {
 				$ssh->setTimeout( 0 ); // Disable timeout in case the command takes a long time.
+				$GLOBALS['wp_cli_output'] = ''; // Reset before each run; the callback appends each chunk so multi-packet output is captured in full.
 				$ssh->exec(
 					"wp $this->wp_command",
 					function ( string $str ): void {
-						$GLOBALS['wp_cli_output'] = $str;
+						$GLOBALS['wp_cli_output'] .= $str;
 						if ( ! $this->skip_output ) {
 							echo "$str\n";
 						}

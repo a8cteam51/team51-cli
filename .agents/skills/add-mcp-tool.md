@@ -87,10 +87,11 @@ The following are intentionally excluded from MCP:
 
 - Site creation (Pressable or WPCOM)
 - User deletion
-- WP-CLI command execution
 - Deployment triggers
 
 If the user requests one, explain that these operations are excluded by design and must be run via the CLI.
+
+**Sanctioned exception — command execution with guardrails.** WP-CLI and SSH execution are exposed, but only because they ship with guardrails: WP-CLI tools (`*_run_wp_cli_command`) use a restrictive allowlist (`is_allowed_wp_cli_command()`); SSH tools (`*_run_ssh_command`) use a catastrophic-command denylist (`is_blocked_ssh_command()`). Both audit-log every call (`audit_wp_cli_command()` / `audit_ssh_command()`) and carry a `destructiveHint: true` annotation. The MCP server cannot itself enforce human approval (no elicitation support in `php-mcp/server`), so per-command approval relies entirely on the client's approval prompt — these tools must never be auto-approved/allowlisted in the client. Follow this same pattern (guardrail + audit + destructive annotation) for any new execution-style tool; do not add an unguarded one.
 
 ## Verification
 
