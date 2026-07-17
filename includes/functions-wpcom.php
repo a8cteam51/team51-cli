@@ -167,6 +167,38 @@ function get_wpcom_sites_atlantis_status_batch( array $site_ids_or_urls, ?array 
 }
 
 /**
+ * Forces an update of a single plugin across a batch of WPCOM/Jetpack sites.
+ *
+ * Proxies the OpsOasis batch endpoint, which calls the WPCOM v1.2 plugin update endpoint on each
+ * site. The update self-refreshes the site's update cache and installs from the plugin's own update
+ * source (wp.org, or a custom `Update URI` such as GitHub), so it is not subject to the ~12h
+ * dashboard cache. It only upgrades sites where a newer version is available; sites already current
+ * report "No update needed" and are returned as successes with an unchanged version.
+ *
+ * @param   array      $site_ids_or_urls The list of site domains or numeric WPCOM IDs.
+ * @param   string     $plugin           The plugin identifier in `folder/file` form without the
+ *                                        `.php` suffix (e.g. `a8csp-atlantis/a8csp-atlantis`).
+ * @param   array|null $errors           The list of errors that occurred during the request.
+ *
+ * @return  stdClass[]|null  Per-site update result keyed by site ID (with `version` and `log`).
+ */
+function update_wpcom_site_plugins_batch( array $site_ids_or_urls, string $plugin, ?array &$errors = null ): ?array {
+	$results = API_Helper::make_wpcom_request(
+		'sites/batch/plugin-update',
+		'POST',
+		array(
+			'sites'  => $site_ids_or_urls,
+			'plugin' => $plugin,
+		)
+	);
+	if ( is_null( $results ) ) {
+		return null;
+	}
+
+	return parse_batch_response( $results, $errors );
+}
+
+/**
  * Returns the stats for a WPCOM or Jetpack Connected site.
  *
  * @param   string      $site_id_or_url The site URL or WordPress.com site ID.
