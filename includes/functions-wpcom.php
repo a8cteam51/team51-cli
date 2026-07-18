@@ -167,6 +167,89 @@ function get_wpcom_sites_atlantis_status_batch( array $site_ids_or_urls, ?array 
 }
 
 /**
+ * Deploys a signed Atlantis remediation snippet to a batch of WPCOM sites.
+ *
+ * Proxies the OpsOasis batch endpoint, which signs the snippet with the Ed25519
+ * private key it holds and fans it out to each site's `a8csp-atlantis/v1/snippets`
+ * route. The site verifies the signature against the public key baked into
+ * Atlantis before storing and materializing the snippet. Sites that reject or
+ * cannot be reached are surfaced via $errors.
+ *
+ * @param   array      $site_ids_or_urls The list of site domains or numeric WPCOM IDs.
+ * @param   string     $snippet_id       The stable snippet id (lowercase slug).
+ * @param   int        $version          The monotonic version for this snippet id.
+ * @param   string     $code_base64      The snippet PHP, base64-encoded.
+ * @param   string     $expires          Optional ISO-8601 expiry, or ''.
+ * @param   string     $notes            Optional operator notes / tracking reference.
+ * @param   array|null $errors           The list of errors that occurred during the request.
+ *
+ * @return  array<int|string,stdClass>|null
+ */
+function deploy_wpcom_sites_atlantis_snippet_batch( array $site_ids_or_urls, string $snippet_id, int $version, string $code_base64, string $expires = '', string $notes = '', ?array &$errors = null ): ?array {
+	$results = API_Helper::make_wpcom_request(
+		'sites/batch/atlantis-snippet-deploy',
+		'POST',
+		array(
+			'sites'   => $site_ids_or_urls,
+			'id'      => $snippet_id,
+			'version' => $version,
+			'code'    => $code_base64,
+			'expires' => $expires,
+			'notes'   => $notes,
+		)
+	);
+	if ( is_null( $results ) ) {
+		return null;
+	}
+
+	return parse_batch_response( $results, $errors );
+}
+
+/**
+ * Removes an Atlantis snippet from a batch of WPCOM sites (signed removal).
+ *
+ * @param   array      $site_ids_or_urls The list of site domains or numeric WPCOM IDs.
+ * @param   string     $snippet_id       The stable snippet id to remove.
+ * @param   int        $version          The removal version (must exceed the deployed version).
+ * @param   array|null $errors           The list of errors that occurred during the request.
+ *
+ * @return  array<int|string,stdClass>|null
+ */
+function remove_wpcom_sites_atlantis_snippet_batch( array $site_ids_or_urls, string $snippet_id, int $version, ?array &$errors = null ): ?array {
+	$results = API_Helper::make_wpcom_request(
+		'sites/batch/atlantis-snippet-remove',
+		'POST',
+		array(
+			'sites'   => $site_ids_or_urls,
+			'id'      => $snippet_id,
+			'version' => $version,
+		)
+	);
+	if ( is_null( $results ) ) {
+		return null;
+	}
+
+	return parse_batch_response( $results, $errors );
+}
+
+/**
+ * Returns the deployed-snippet inventory for a batch of WPCOM sites.
+ *
+ * @param   array      $site_ids_or_urls The list of site domains or numeric WPCOM IDs.
+ * @param   array|null $errors           The list of errors that occurred during the request.
+ *
+ * @return  array<int|string,stdClass>|null
+ */
+function get_wpcom_sites_atlantis_snippet_status_batch( array $site_ids_or_urls, ?array &$errors = null ): ?array {
+	$statuses = API_Helper::make_wpcom_request( 'sites/batch/atlantis-snippet-status', 'POST', array( 'sites' => $site_ids_or_urls ) );
+	if ( is_null( $statuses ) ) {
+		return null;
+	}
+
+	return parse_batch_response( $statuses, $errors );
+}
+
+/**
  * Returns the stats for a WPCOM or Jetpack Connected site.
  *
  * @param   string      $site_id_or_url The site URL or WordPress.com site ID.
