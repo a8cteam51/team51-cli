@@ -69,6 +69,20 @@ final class Jetpack_Plugin_Update extends Command {
 	private ?string $package = null;
 
 	/**
+	 * With --force, whether to also overwrite sites already at the package version (same-version reinstall).
+	 *
+	 * @var bool|null
+	 */
+	private ?bool $reinstall = null;
+
+	/**
+	 * The plugin version contained in the package (read from the zip, or --release as a fallback).
+	 *
+	 * @var string|null
+	 */
+	private ?string $target_version = null;
+
+	/**
 	 * The list of connected sites.
 	 *
 	 * @var array|null
@@ -98,8 +112,9 @@ final class Jetpack_Plugin_Update extends Command {
 
 		$this->addOption( 'sites', null, InputOption::VALUE_REQUIRED, 'Which sites to update: `all` for the whole connected fleet, a comma-separated list of site URLs and/or numeric WPCOM IDs, or a path to a CSV file whose first column holds the site URLs.' )
 			->addOption( 'release', null, InputOption::VALUE_REQUIRED, 'The plugin version you are publishing. When set, each site is reported as updated / current / ahead / behind relative to it, so sites running a newer (e.g. test) build, or ones the release has not reached, are surfaced.' )
-			->addOption( 'force', null, InputOption::VALUE_NONE, 'Force-install the plugin from --package on every targeted site, overwriting it in place. Bypasses update detection entirely, installing the exact version regardless of what each site currently has or believes is the latest. Use this when a just-published release has not propagated to sites yet.' )
+			->addOption( 'force', null, InputOption::VALUE_NONE, 'Force-install the plugin from --package, overwriting it in place. Installs only on sites whose version is below the package version; sites already at that version are skipped and sites ahead of it are never touched (no downgrades). Bypasses update detection entirely — use this when a just-published release has not propagated to sites yet.' )
 			->addOption( 'package', null, InputOption::VALUE_REQUIRED, 'The plugin zip URL to install. Required with --force (e.g. a GitHub release asset URL).' )
+			->addOption( 'reinstall', null, InputOption::VALUE_NONE, 'With --force, also overwrite sites already at the package version (a same-version reinstall). Sites ahead of the package version are still never touched.' )
 			->addOption( 'dry-run', null, InputOption::VALUE_NONE, 'List the sites that would be updated without updating them.' )
 			->addOption( 'yes', null, InputOption::VALUE_NONE, 'Skip the confirmation prompt before updating.' );
 	}
@@ -113,11 +128,12 @@ final class Jetpack_Plugin_Update extends Command {
 		$this->plugin = get_string_input( $input, 'plugin', fn() => $this->prompt_plugin_input( $input, $output ) );
 		$input->setArgument( 'plugin', $this->plugin );
 
-		$this->release = maybe_get_string_input( $input, 'release' );
-		$this->dry_run = get_bool_input( $input, 'dry-run' );
-		$this->yes     = get_bool_input( $input, 'yes' );
-		$this->force   = get_bool_input( $input, 'force' );
-		$this->package = maybe_get_string_input( $input, 'package' );
+		$this->release   = maybe_get_string_input( $input, 'release' );
+		$this->dry_run   = get_bool_input( $input, 'dry-run' );
+		$this->yes       = get_bool_input( $input, 'yes' );
+		$this->force     = get_bool_input( $input, 'force' );
+		$this->reinstall = get_bool_input( $input, 'reinstall' );
+		$this->package   = maybe_get_string_input( $input, 'package' );
 		if ( $this->force && empty( $this->package ) ) {
 			throw new \InvalidArgumentException( 'The --force option requires --package <zip-url> (e.g. a GitHub release asset URL).' );
 		}
@@ -167,6 +183,10 @@ final class Jetpack_Plugin_Update extends Command {
 				break; // One match per site is enough.
 			}
 		}
+
+		if ( $this->force && ! empty( $this->targets ) ) {
+			$this->plan_force_install();
+		}
 	}
 
 	/**
@@ -178,20 +198,42 @@ final class Jetpack_Plugin_Update extends Command {
 			return Command::SUCCESS;
 		}
 
-		// Show what will be updated.
+		// In force mode, targets carry a plan: only `install` sites are written; `current`/`ahead` are skipped.
+		$install_ids = array();
+		foreach ( $this->targets as $site_id => $target ) {
+			if ( 'install' === ( $target['plan'] ?? 'install' ) ) {
+				$install_ids[] = $site_id;
+			}
+		}
+
+		if ( $this->force ) {
+			$skipped_ahead   = \count( \array_filter( $this->targets, static fn( $target ) => 'ahead' === ( $target['plan'] ?? '' ) ) );
+			$skipped_current = \count( \array_filter( $this->targets, static fn( $target ) => 'current' === ( $target['plan'] ?? '' ) ) );
+			if ( $skipped_ahead > 0 ) {
+				$output->writeln( "<comment>Skipping $skipped_ahead site(s) ahead of $this->target_version — never downgraded.</comment>" );
+			}
+			if ( $skipped_current > 0 ) {
+				$output->writeln( "<comment>Skipping $skipped_current site(s) already at $this->target_version — pass --reinstall to overwrite them too.</comment>" );
+			}
+			if ( empty( $install_ids ) ) {
+				$output->writeln( "<info>Nothing to install: every targeted site is already at or ahead of $this->target_version.</info>" );
+				return Command::SUCCESS;
+			}
+		}
+
+		// Show what will be changed.
 		output_table(
 			$output,
 			\array_map(
-				static fn( $site_id, $target ) => array( $site_id, $target['siteurl'], $target['installed'] ),
-				\array_keys( $this->targets ),
-				$this->targets
+				fn( $site_id ) => array( $site_id, $this->targets[ $site_id ]['siteurl'], $this->targets[ $site_id ]['installed'] ),
+				$install_ids
 			),
 			array( 'Site ID', 'Site URL', 'Installed Version' ),
-			"Sites with `$this->plugin` installed"
+			'Sites to ' . ( $this->force ? 'force-install' : 'update' ) . " `$this->plugin`"
 		);
 
 		if ( $this->dry_run ) {
-			$output->writeln( '<comment>Dry run: no sites were updated.</comment>' );
+			$output->writeln( '<comment>Dry run: no sites were changed.</comment>' );
 			return Command::SUCCESS;
 		}
 
@@ -199,7 +241,7 @@ final class Jetpack_Plugin_Update extends Command {
 			$action   = $this->force
 				? 'Force-install `' . $this->plugin . '` from ' . $this->package . ' on '
 				: 'Update `' . $this->plugin . '` on ';
-			$question = new ConfirmationQuestion( '<question>' . $action . \count( $this->targets ) . ' site(s)? [y/N]</question> ', false );
+			$question = new ConfirmationQuestion( '<question>' . $action . \count( $install_ids ) . ' site(s)? [y/N]</question> ', false );
 			if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 				$output->writeln( '<comment>Aborted. No sites were changed.</comment>' );
 				return Command::SUCCESS;
@@ -207,10 +249,10 @@ final class Jetpack_Plugin_Update extends Command {
 		}
 
 		if ( $this->force ) {
-			$output->writeln( "<fg=magenta;options=bold>Force-installing `$this->plugin` from $this->package across " . \count( $this->targets ) . ' site(s).</>' );
-			[ $results, $errors ] = $this->run_force_install( $output );
+			$output->writeln( "<fg=magenta;options=bold>Force-installing `$this->plugin` ($this->target_version) across " . \count( $install_ids ) . ' site(s).</>' );
+			[ $results, $errors ] = $this->run_force_install( $output, $install_ids );
 		} else {
-			$output->writeln( "<fg=magenta;options=bold>Updating `$this->plugin` across " . \count( $this->targets ) . ' site(s).</>' );
+			$output->writeln( "<fg=magenta;options=bold>Updating `$this->plugin` across " . \count( $install_ids ) . ' site(s).</>' );
 			[ $results, $errors ] = $this->run_update( $output );
 		}
 
@@ -224,15 +266,20 @@ final class Jetpack_Plugin_Update extends Command {
 			'failed'  => 0,
 		);
 		foreach ( $this->targets as $site_id => $target ) {
-			$was    = $target['installed'];
-			$now    = $was;
-			$result = 'failed';
+			$was  = $target['installed'];
+			$now  = $was;
+			$plan = $target['plan'] ?? 'install';
 
-			if ( isset( $errors[ $site_id ] ) ) {
-				$now = encode_json_content( $errors[ $site_id ]->errors ?? $errors[ $site_id ] );
+			if ( 'install' !== $plan ) {
+				$result = $plan; // Skipped in force mode: `current` or `ahead`, left unchanged.
+			} elseif ( isset( $errors[ $site_id ] ) ) {
+				$now    = encode_json_content( $errors[ $site_id ]->errors ?? $errors[ $site_id ] );
+				$result = 'failed';
 			} elseif ( isset( $results[ $site_id ] ) ) {
 				$now    = (string) ( $results[ $site_id ]->version ?? $was );
 				$result = $this->classify( $was, $now );
+			} else {
+				$result = 'failed';
 			}
 
 			++$counts[ $result ];
@@ -247,19 +294,20 @@ final class Jetpack_Plugin_Update extends Command {
 		);
 
 		$summary = "Updated: {$counts['updated']} | Current: {$counts['current']}";
-		if ( ! empty( $this->release ) ) {
+		if ( $this->force || ! empty( $this->release ) ) {
 			$summary .= " | Ahead: {$counts['ahead']} | Behind: {$counts['behind']}";
 		}
 		$summary .= " | Failed: {$counts['failed']}";
 		$output->writeln( "<info>$summary</info>" );
 
+		$reference = ! empty( $this->target_version ) ? $this->target_version : $this->release;
 		if ( $counts['ahead'] > 0 ) {
-			$output->writeln( "<fg=yellow;options=bold>⚠ {$counts['ahead']} site(s) are AHEAD of `$this->release` (running a newer/test build) and were left unchanged.</>" );
+			$output->writeln( "<fg=yellow;options=bold>⚠ {$counts['ahead']} site(s) are AHEAD of `$reference` (running a newer/test build) and were left unchanged.</>" );
 		}
 		if ( $counts['behind'] > 0 ) {
 			$output->writeln( "<fg=red;options=bold>✗ {$counts['behind']} site(s) are BEHIND `$this->release` — the release did not reach them (its update source may not have it yet).</>" );
 		}
-		if ( empty( $this->release ) && $counts['current'] > 0 ) {
+		if ( ! $this->force && empty( $this->release ) && $counts['current'] > 0 ) {
 			$output->writeln( '<comment>Tip: some sites reported no change — pass --release <version> to distinguish "already current" from "ahead of the release".</comment>' );
 		}
 
@@ -302,17 +350,18 @@ final class Jetpack_Plugin_Update extends Command {
 	}
 
 	/**
-	 * Force-installs the package on every target site via the WPCOM replace endpoint, in batches.
+	 * Force-installs the package on the given sites via the WPCOM replace endpoint, in batches.
 	 *
-	 * @param   OutputInterface $output The output interface.
+	 * @param   OutputInterface $output      The output interface.
+	 * @param   array           $install_ids The site IDs to install on (already filtered by plan).
 	 *
 	 * @return  array A two-element list: per-site results and per-site errors, both keyed by site ID.
 	 */
-	private function run_force_install( OutputInterface $output ): array {
+	private function run_force_install( OutputInterface $output, array $install_ids ): array {
 		// Group by plugin folder (the replace slug); near-always a single group.
 		$groups = array();
-		foreach ( $this->targets as $site_id => $target ) {
-			$groups[ $target['folder'] ][] = $site_id;
+		foreach ( $install_ids as $site_id ) {
+			$groups[ $this->targets[ $site_id ]['folder'] ][] = $site_id;
 		}
 
 		$results = array();
@@ -333,6 +382,85 @@ final class Jetpack_Plugin_Update extends Command {
 		}
 
 		return array( $results, $errors );
+	}
+
+	/**
+	 * Resolves the package version and tags each target with a force-install plan.
+	 *
+	 * The plan enforces the version rules for --force: sites below the package version are installed,
+	 * sites already at it are skipped (unless --reinstall), and sites ahead of it are never touched.
+	 *
+	 * @return  void
+	 *
+	 * @throws  \RuntimeException If the package version cannot be determined (no zip version, no --release).
+	 */
+	private function plan_force_install(): void {
+		$this->target_version = $this->resolve_package_version() ?? $this->release;
+		if ( empty( $this->target_version ) ) {
+			throw new \RuntimeException( 'Could not read the plugin version from the package. Pass --release <version> so already-current and ahead sites can be detected and skipped, or check the --package URL.' );
+		}
+
+		foreach ( $this->targets as $site_id => $target ) {
+			$comparison = \version_compare( $this->normalize_version( $target['installed'] ), $this->normalize_version( $this->target_version ) );
+			if ( $comparison > 0 ) {
+				$this->targets[ $site_id ]['plan'] = 'ahead';   // Never overwrite a newer build.
+			} elseif ( 0 === $comparison && ! $this->reinstall ) {
+				$this->targets[ $site_id ]['plan'] = 'current'; // Already at the target; skip unless --reinstall.
+			} else {
+				$this->targets[ $site_id ]['plan'] = 'install';
+			}
+		}
+	}
+
+	/**
+	 * Reads the plugin version from the package zip's header.
+	 *
+	 * @return  string|null The version, or null if the package could not be downloaded or parsed.
+	 */
+	private function resolve_package_version(): ?string {
+		$tmp = \tempnam( \sys_get_temp_dir(), 't51pkg' );
+		if ( false === $tmp ) {
+			return null;
+		}
+
+		$handle = \fopen( $tmp, 'wb' );
+		$curl   = \curl_init( $this->package );
+		\curl_setopt_array(
+			$curl,
+			array(
+				\CURLOPT_FILE           => $handle,
+				\CURLOPT_FOLLOWLOCATION => true,
+				\CURLOPT_TIMEOUT        => 60,
+			)
+		);
+		$downloaded = \curl_exec( $curl );
+		\curl_close( $curl );
+		\fclose( $handle );
+
+		$version = null;
+		if ( false !== $downloaded && \class_exists( '\ZipArchive' ) ) {
+			$zip = new \ZipArchive();
+			if ( true === $zip->open( $tmp ) ) {
+				for ( $index = 0; $index < $zip->numFiles; $index++ ) { // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+					$name = (string) $zip->getNameIndex( $index );
+					if ( ! \preg_match( '#^[^/]+/[^/]+\.php$#', $name ) ) {
+						continue; // Only top-level PHP files inside the plugin folder.
+					}
+					$contents = $zip->getFromIndex( $index, 8192 );
+					if ( false === $contents || false === \stripos( $contents, 'Plugin Name:' ) ) {
+						continue;
+					}
+					if ( \preg_match( '/^[ \t\/*#@]*Version:\s*(\S+)/mi', $contents, $matches ) ) {
+						$version = \trim( $matches[1] );
+						break;
+					}
+				}
+				$zip->close();
+			}
+		}
+
+		\unlink( $tmp );
+		return $version;
 	}
 
 	/**
