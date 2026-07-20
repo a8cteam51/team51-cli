@@ -199,6 +199,38 @@ function update_wpcom_site_plugins_batch( array $site_ids_or_urls, string $plugi
 }
 
 /**
+ * Force-installs a plugin from a zip package across a batch of WPCOM/Jetpack sites.
+ *
+ * Proxies the OpsOasis batch endpoint, which downloads the package once and overwrites the plugin in
+ * place on each site via the WPCOM `plugins/replace` endpoint. Unlike an update, this ignores the site's
+ * update cache, the check throttle, and the plugin's own update source, so it installs the given version
+ * on every site regardless of what is currently installed or what the site believes is the latest.
+ *
+ * @param   array      $site_ids_or_urls The list of site domains or numeric WPCOM IDs.
+ * @param   string     $slug             The plugin slug (must match the zip's top-level folder).
+ * @param   string     $package_url      The URL of the plugin zip to install.
+ * @param   array|null $errors           The list of errors that occurred during the request.
+ *
+ * @return  stdClass[]|null  Per-site result keyed by site ID (with `version` and `log`).
+ */
+function replace_wpcom_site_plugins_batch( array $site_ids_or_urls, string $slug, string $package_url, ?array &$errors = null ): ?array {
+	$results = API_Helper::make_wpcom_request(
+		'sites/batch/plugin-replace',
+		'POST',
+		array(
+			'sites'   => $site_ids_or_urls,
+			'slug'    => $slug,
+			'package' => $package_url,
+		)
+	);
+	if ( is_null( $results ) ) {
+		return null;
+	}
+
+	return parse_batch_response( $results, $errors );
+}
+
+/**
  * Returns the stats for a WPCOM or Jetpack Connected site.
  *
  * @param   string      $site_id_or_url The site URL or WordPress.com site ID.

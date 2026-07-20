@@ -22,6 +22,11 @@ final class Jetpack_Plugin_Update extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**
+	 * Number of sites per batch when force-installing (each install is a real download + overwrite).
+	 */
+	private const FORCE_BATCH_SIZE = 30;
+
+	/**
 	 * The plugin slug to update (matched against folder name, main file name, and textdomain).
 	 *
 	 * @var string|null
@@ -50,6 +55,20 @@ final class Jetpack_Plugin_Update extends Command {
 	private ?bool $yes = null;
 
 	/**
+	 * Whether to force-install the package on every targeted site, bypassing update detection.
+	 *
+	 * @var bool|null
+	 */
+	private ?bool $force = null;
+
+	/**
+	 * The plugin zip URL to force-install (required with --force).
+	 *
+	 * @var string|null
+	 */
+	private ?string $package = null;
+
+	/**
 	 * The list of connected sites.
 	 *
 	 * @var array|null
@@ -58,7 +77,7 @@ final class Jetpack_Plugin_Update extends Command {
 
 	/**
 	 * The sites that have the plugin installed and will be updated, keyed by site ID.
-	 * Each entry: array{ name: string, installed: string, siteurl: string }.
+	 * Each entry: array{ name: string, folder: string, installed: string, siteurl: string }.
 	 *
 	 * @var array|null
 	 */
@@ -73,12 +92,14 @@ final class Jetpack_Plugin_Update extends Command {
 	 */
 	protected function configure(): void {
 		$this->setDescription( 'Force-updates a given plugin on connected sites where it is installed.' )
-			->setHelp( 'Use this command to push a new plugin release to sites that have the plugin installed. Pass --sites to choose the targets: `all` for the whole connected fleet, a comma-separated list of site URLs and/or WPCOM IDs, or the path to a CSV whose first column holds the site URLs. Each site is updated via the WPCOM plugin update endpoint, which refreshes its update cache and installs from the plugin\'s own update source (wp.org, or a custom Update URI such as GitHub). Only sites with an active Jetpack connection to WPCOM are processed. The update only fires where a newer version is available, so publish the new release before running this.' );
+			->setHelp( 'Use this command to push a new plugin release to sites that have the plugin installed. Pass --sites to choose the targets: `all` for the whole connected fleet, a comma-separated list of site URLs and/or WPCOM IDs, or the path to a CSV whose first column holds the site URLs. By default each site is updated via the WPCOM plugin update endpoint, which relies on the site having already detected a newer version from the plugin\'s own update source (wp.org, or a custom Update URI such as GitHub) — so a freshly published release may not reach every site immediately. Pass --force with --package <zip-url> to instead overwrite the plugin in place from a specific zip on every targeted site, bypassing update detection entirely (the deterministic way to push a just-published release fleet-wide). Only sites with an active Jetpack connection to WPCOM are processed.' );
 
 		$this->addArgument( 'plugin', InputArgument::REQUIRED, 'The plugin to update. The term is matched exactly against the folder name, the main file name, and the textdomain.' );
 
 		$this->addOption( 'sites', null, InputOption::VALUE_REQUIRED, 'Which sites to update: `all` for the whole connected fleet, a comma-separated list of site URLs and/or numeric WPCOM IDs, or a path to a CSV file whose first column holds the site URLs.' )
 			->addOption( 'release', null, InputOption::VALUE_REQUIRED, 'The plugin version you are publishing. When set, each site is reported as updated / current / ahead / behind relative to it, so sites running a newer (e.g. test) build, or ones the release has not reached, are surfaced.' )
+			->addOption( 'force', null, InputOption::VALUE_NONE, 'Force-install the plugin from --package on every targeted site, overwriting it in place. Bypasses update detection entirely, installing the exact version regardless of what each site currently has or believes is the latest. Use this when a just-published release has not propagated to sites yet.' )
+			->addOption( 'package', null, InputOption::VALUE_REQUIRED, 'The plugin zip URL to install. Required with --force (e.g. a GitHub release asset URL).' )
 			->addOption( 'dry-run', null, InputOption::VALUE_NONE, 'List the sites that would be updated without updating them.' )
 			->addOption( 'yes', null, InputOption::VALUE_NONE, 'Skip the confirmation prompt before updating.' );
 	}
@@ -95,6 +116,11 @@ final class Jetpack_Plugin_Update extends Command {
 		$this->release = maybe_get_string_input( $input, 'release' );
 		$this->dry_run = get_bool_input( $input, 'dry-run' );
 		$this->yes     = get_bool_input( $input, 'yes' );
+		$this->force   = get_bool_input( $input, 'force' );
+		$this->package = maybe_get_string_input( $input, 'package' );
+		if ( $this->force && empty( $this->package ) ) {
+			throw new \InvalidArgumentException( 'The --force option requires --package <zip-url> (e.g. a GitHub release asset URL).' );
+		}
 
 		$sites_spec = get_string_input( $input, 'sites', fn() => $this->prompt_sites_input( $input, $output ) );
 
@@ -133,6 +159,7 @@ final class Jetpack_Plugin_Update extends Command {
 
 				$this->targets[ $site_id ] = array(
 					'name'      => \preg_replace( '/\.php$/', '', $plugin_file ),
+					'folder'    => \dirname( $plugin_file ),
 					// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 					'installed' => (string) $plugin_data->Version,
 					'siteurl'   => (string) ( $this->sites[ $site_id ]->siteurl ?? '' ),
@@ -169,31 +196,22 @@ final class Jetpack_Plugin_Update extends Command {
 		}
 
 		if ( ! $this->yes ) {
-			$question = new ConfirmationQuestion( '<question>Update `' . $this->plugin . '` on ' . \count( $this->targets ) . ' site(s)? [y/N]</question> ', false );
+			$action   = $this->force
+				? 'Force-install `' . $this->plugin . '` from ' . $this->package . ' on '
+				: 'Update `' . $this->plugin . '` on ';
+			$question = new ConfirmationQuestion( '<question>' . $action . \count( $this->targets ) . ' site(s)? [y/N]</question> ', false );
 			if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
-				$output->writeln( '<comment>Aborted. No sites were updated.</comment>' );
+				$output->writeln( '<comment>Aborted. No sites were changed.</comment>' );
 				return Command::SUCCESS;
 			}
 		}
 
-		$output->writeln( "<fg=magenta;options=bold>Updating `$this->plugin` across " . \count( $this->targets ) . ' site(s).</>' );
-
-		// Group by plugin identifier (near-always a single group) and update each group in one batch call.
-		$groups = array();
-		foreach ( $this->targets as $site_id => $target ) {
-			$groups[ $target['name'] ][] = $site_id;
-		}
-
-		$results = array();
-		$errors  = array();
-		foreach ( $groups as $plugin_name => $site_ids ) {
-			$group_results = update_wpcom_site_plugins_batch( $site_ids, $plugin_name, $group_errors );
-			if ( \is_null( $group_results ) ) {
-				$output->writeln( "<error>The update request failed for plugin `$plugin_name`.</error>" );
-				continue;
-			}
-			$results += $group_results;
-			$errors  += $group_errors ?? array();
+		if ( $this->force ) {
+			$output->writeln( "<fg=magenta;options=bold>Force-installing `$this->plugin` from $this->package across " . \count( $this->targets ) . ' site(s).</>' );
+			[ $results, $errors ] = $this->run_force_install( $output );
+		} else {
+			$output->writeln( "<fg=magenta;options=bold>Updating `$this->plugin` across " . \count( $this->targets ) . ' site(s).</>' );
+			[ $results, $errors ] = $this->run_update( $output );
 		}
 
 		// Build the results table.
@@ -225,7 +243,7 @@ final class Jetpack_Plugin_Update extends Command {
 			$output,
 			$rows,
 			array( 'Site ID', 'Site URL', 'Was', 'Now', 'Result' ),
-			"Update results for `$this->plugin`"
+			( $this->force ? 'Force-install' : 'Update' ) . " results for `$this->plugin`"
 		);
 
 		$summary = "Updated: {$counts['updated']} | Current: {$counts['current']}";
@@ -253,6 +271,69 @@ final class Jetpack_Plugin_Update extends Command {
 	// endregion
 
 	// region HELPERS
+
+	/**
+	 * Updates the plugin on every target site via the WPCOM update endpoint (version-gated).
+	 *
+	 * @param   OutputInterface $output The output interface.
+	 *
+	 * @return  array A two-element list: per-site results and per-site errors, both keyed by site ID.
+	 */
+	private function run_update( OutputInterface $output ): array {
+		// Group by plugin identifier (near-always a single group) and update each group in one batch call.
+		$groups = array();
+		foreach ( $this->targets as $site_id => $target ) {
+			$groups[ $target['name'] ][] = $site_id;
+		}
+
+		$results = array();
+		$errors  = array();
+		foreach ( $groups as $plugin_name => $site_ids ) {
+			$group_results = update_wpcom_site_plugins_batch( $site_ids, $plugin_name, $group_errors );
+			if ( \is_null( $group_results ) ) {
+				$output->writeln( "<error>The update request failed for plugin `$plugin_name`.</error>" );
+				continue;
+			}
+			$results += $group_results;
+			$errors  += $group_errors ?? array();
+		}
+
+		return array( $results, $errors );
+	}
+
+	/**
+	 * Force-installs the package on every target site via the WPCOM replace endpoint, in batches.
+	 *
+	 * @param   OutputInterface $output The output interface.
+	 *
+	 * @return  array A two-element list: per-site results and per-site errors, both keyed by site ID.
+	 */
+	private function run_force_install( OutputInterface $output ): array {
+		// Group by plugin folder (the replace slug); near-always a single group.
+		$groups = array();
+		foreach ( $this->targets as $site_id => $target ) {
+			$groups[ $target['folder'] ][] = $site_id;
+		}
+
+		$results = array();
+		$errors  = array();
+		foreach ( $groups as $slug => $site_ids ) {
+			$chunks = \array_chunk( $site_ids, self::FORCE_BATCH_SIZE );
+			$total  = \count( $chunks );
+			foreach ( $chunks as $index => $chunk ) {
+				$output->writeln( '<comment>Batch ' . ( $index + 1 ) . "/$total: force-installing on " . \count( $chunk ) . ' site(s)…</comment>' );
+				$chunk_results = replace_wpcom_site_plugins_batch( $chunk, $slug, $this->package, $chunk_errors );
+				if ( \is_null( $chunk_results ) ) {
+					$output->writeln( '<error>The force-install request failed for this batch.</error>' );
+					continue;
+				}
+				$results += $chunk_results;
+				$errors  += $chunk_errors ?? array();
+			}
+		}
+
+		return array( $results, $errors );
+	}
 
 	/**
 	 * Prompts the user for the plugin term to update.
