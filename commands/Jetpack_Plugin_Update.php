@@ -245,7 +245,9 @@ final class Jetpack_Plugin_Update extends Command {
 			$output->writeln( '<comment>Tip: some sites reported no change — pass --release <version> to distinguish "already current" from "ahead of the release".</comment>' );
 		}
 
-		return ( 0 === $counts['failed'] && 0 === $counts['behind'] ) ? Command::SUCCESS : Command::FAILURE;
+		// Only real per-site errors fail the command; `behind` (the release hasn't propagated to the
+		// plugin's own update source yet) and `ahead` are surfaced as warnings but are not failures.
+		return 0 === $counts['failed'] ? Command::SUCCESS : Command::FAILURE;
 	}
 
 	// endregion
