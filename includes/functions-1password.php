@@ -82,7 +82,7 @@ function create_1password_item( array $fields, array $flags, array $global_flags
 	$command = _build_1password_command_string( 'op item create', $flags, array( 'title', 'url', 'template', 'category', 'tags', 'vault' ), $global_flags );
 
 	foreach ( $fields as $field => $value ) {
-		$command .= " '$field=$value'";
+		$command .= ' ' . escapeshellarg( "$field=$value" );
 	}
 
 	$json = _run_op_command( "$command --format json" );
@@ -129,7 +129,7 @@ function update_1password_item( string $item_id, array $fields, array $flags = a
 	$command = _build_1password_command_string( "op item edit $item_id", $flags, array( 'title', 'url', 'tags', 'vault' ), $global_flags );
 
 	foreach ( $fields as $field => $new_value ) {
-		$command .= " '$field=$new_value'";
+		$command .= ' ' . escapeshellarg( "$field=$new_value" );
 	}
 
 	$json = _run_op_command( "$command --format json" );
@@ -170,7 +170,9 @@ function delete_1password_item( string $item_id, array $flags = array(), array $
  */
 function _run_op_command( string $command ): ?string {
 	for ( $attempt = 1; $attempt <= 3; $attempt++ ) {
-		$process = Process::fromShellCommandline( $command );
+		// Redirect STDIN from /dev/null: the Process pipe would make `op item create`
+		// treat STDIN as a piped JSON item template and fail on the empty input.
+		$process = Process::fromShellCommandline( "$command < /dev/null" );
 		$process->setTimeout( 60 ); // op should never legitimately take longer.
 
 		try {
