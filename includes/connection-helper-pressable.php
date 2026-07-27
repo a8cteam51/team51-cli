@@ -21,6 +21,11 @@ final class Pressable_Connection_Helper extends Abstract_Connection_Helper {
 	 */
 	private const SFTP_USER_EMAIL = 'concierge@wordpress.com';
 
+	/**
+	 * How many lookups may fail before the collaborator is assumed missing rather than still provisioning.
+	 */
+	private const SFTP_USER_LOOKUP_GRACE_ATTEMPTS = 3;
+
 	// endregion
 
 	// region HELPERS
@@ -38,6 +43,7 @@ final class Pressable_Connection_Helper extends Abstract_Connection_Helper {
 				// than on every pass.
 				$sftp_user = self::provision_sftp_user( $site_identifier );
 			}
+
 			if ( \is_null( $sftp_user ) ) {
 				return null;
 			}
@@ -53,19 +59,23 @@ final class Pressable_Connection_Helper extends Abstract_Connection_Helper {
 	 *
 	 * A freshly cloned site does not always inherit the collaborator, which used to leave every SSH and SFTP
 	 * connection to it failing with `SFTP user not found.` until someone added the collaborator by hand.
-	 * Creation is attempted only once per site because callers retry `get_credentials()` in a loop.
+	 *
+	 * The far more common reason for that error is simply that the clone's own SFTP user has not finished
+	 * provisioning yet - it usually appears within a few seconds - so the first lookups are allowed to fail
+	 * before concluding the collaborator is missing and creating one. Creation is then attempted only once
+	 * per site, because callers retry `get_credentials()` in a loop.
 	 *
 	 * @param   string $site_identifier The site to provision the SFTP user on.
 	 *
 	 * @return  stdClass|null
 	 */
 	private static function provision_sftp_user( string $site_identifier ): ?stdClass {
-		static $attempted = array();
+		static $lookup_failures = array();
 
-		if ( isset( $attempted[ $site_identifier ] ) ) {
+		$lookup_failures[ $site_identifier ] = ( $lookup_failures[ $site_identifier ] ?? 0 ) + 1;
+		if ( self::SFTP_USER_LOOKUP_GRACE_ATTEMPTS !== $lookup_failures[ $site_identifier ] ) {
 			return null;
 		}
-		$attempted[ $site_identifier ] = true;
 
 		console_writeln( '⏳ No Pressable SFTP user found for ' . self::SFTP_USER_EMAIL . '. Creating the collaborator...' );
 		if ( \is_null( create_pressable_site_collaborator( $site_identifier, self::SFTP_USER_EMAIL ) ) ) {
