@@ -97,6 +97,10 @@ final class WPCOM_Site_WP_CLI_Command_Run extends Command {
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		$output->writeln( "<fg=magenta;options=bold>Running the command `wp $this->wp_command` on {$this->site->name} (ID {$this->site->ID}, URL {$this->site->URL}).</>" );
 
+		// Callers read the output of the command they just ran out of this global, so a run that produces none
+		// must not leave the previous run's output behind for them to pick up.
+		$GLOBALS['wp_cli_output'] = null;
+
 		$ssh = \WPCOM_Connection_Helper::get_ssh_connection( $this->site->ID );
 		if ( \is_null( $ssh ) ) {
 			$output->writeln( '<error>Could not connect to the SSH server.</error>' );

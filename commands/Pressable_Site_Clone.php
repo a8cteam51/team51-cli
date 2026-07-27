@@ -225,47 +225,15 @@ final class Pressable_Site_Clone extends Command {
 		);
 		run_pressable_site_wp_cli_command( $site_clone->id, 'config set WP_ENVIRONMENT_TYPE development --type=constant' );
 
+		$safety_net_installed = true;
 		if ( $this->skip_safety_net ) {
 			$output->writeln( '<comment>Skipping the installation of SafetyNet as a mu-plugin.</comment>' );
-		} elseif ( \is_null( $ssh_connection ) ) {
-			$output->writeln( '<error>Failed to connect to the site via SSH. Cannot install SafetyNet!</error>' );
 		} else {
-			// SafetyNet could already be installed if the site was cloned from a template that had it installed.
-			$safety_net_installed = false;
-			$ssh_connection->exec(
-				'ls htdocs/wp-content/mu-plugins',
-				function ( $stream ) use ( &$safety_net_installed, $output ) {
-					if ( str_contains( $stream, 'safety-net' ) ) {
-						$output->writeln( '<comment>SafetyNet is already installed as a mu-plugin. Skipping installation...</comment>' );
-						$safety_net_installed = true;
-					}
-				}
+			$safety_net_installed = maybe_install_safety_net(
+				$ssh_connection,
+				$output,
+				static fn( string $command ) => run_pressable_site_wp_cli_command( $site_clone->id, $command )
 			);
-
-			if ( ! $safety_net_installed ) {
-				run_pressable_site_wp_cli_command( $site_clone->id, 'plugin install https://github.com/a8cteam51/safety-net/releases/latest/download/safety-net.zip' );
-				$ssh_connection->exec( 'mv -f htdocs/wp-content/plugins/safety-net htdocs/wp-content/mu-plugins/safety-net' );
-				$ssh_connection->exec(
-					'ls htdocs/wp-content/mu-plugins',
-					function ( $stream ) use ( $site_clone, $output ) {
-						if ( ! str_contains( $stream, 'safety-net' ) ) {
-							$output->writeln( '<error>Failed to install SafetyNet!</error>' );
-						}
-						if ( ! str_contains( $stream, 'load-safety-net.php' ) ) {
-							$sftp_connection = \Pressable_Connection_Helper::get_sftp_connection( $site_clone->id );
-							if ( \is_null( $sftp_connection ) ) {
-								$output->writeln( '<error>Failed to connect to the site via SFTP. Cannot copy SafetyNet loader!</error>' );
-							} else {
-								$result = $sftp_connection->put( '/htdocs/wp-content/mu-plugins/load-safety-net.php', file_get_contents( __DIR__ . '/../scaffold/load-safety-net.php' ) );
-								if ( ! $result ) {
-									$output->writeln( '<error>Failed to copy the SafetyNet loader!</error>' );
-								}
-							}
-							$sftp_connection?->disconnect();
-						}
-					}
-				);
-			}
 		}
 		$ssh_connection?->disconnect();
 
@@ -284,8 +252,22 @@ final class Pressable_Site_Clone extends Command {
 		run_pressable_site_wp_cli_command( $site_clone->id, "search-replace {$this->site->url} $site_clone->url" );
 		run_pressable_site_wp_cli_command( $site_clone->id, 'cache flush' );
 
+		// Asking the clone itself is only meaningful once it answers on its own URL, which the search-replace
+		// above is what makes true. A site that reports itself scrubbed is protected whatever the files showed.
+		if ( ! $this->skip_safety_net && ! $safety_net_installed ) {
+			$safety_net_installed = is_safety_net_confirmed_via_http( $site_clone->url );
+		}
+
 		if ( Command::SUCCESS !== $rotate_status ) {
 			$output->writeln( '<comment>⚠  Heads up: 1Password sync did not complete during this run. See the warning above for the password to record manually.</comment>' );
+		}
+
+		if ( ! $safety_net_installed ) {
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			$output->writeln( "<error>⚠  SafetyNet is NOT installed on $site_clone->url.</error>" );
+			$output->writeln( '<error>    The clone still holds unscrubbed production data. Install it manually before sharing the site.</error>' );
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			return Command::FAILURE;
 		}
 
 		return Command::SUCCESS;

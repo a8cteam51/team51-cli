@@ -210,7 +210,7 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 				exit( 1 );
 			}
 
-			$site_admins = decode_json_content( $GLOBALS['wp_cli_output'] );
+			$site_admins = decode_json_content( $GLOBALS['wp_cli_output'] ?? '' );
 			if ( null === $site_admins ) {
 				$output->writeln( "<error>Failed to decode administrator users for site ID {$ssh_user_data['id']} using SSH.</error>" );
 				exit( 1 );

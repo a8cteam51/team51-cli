@@ -366,14 +366,16 @@ function rotate_pressable_site_wp_user_password( string $site_id_or_url, string 
 	$credentials    = API_Helper::make_pressable_request( "site-wp-users/$site_id_or_url/$user/rotate-password", 'POST' );
 	if ( is_null( $credentials ) || is_null( $credentials->password ) ) {
 		$exit_code = run_pressable_site_wp_cli_command( $site_id_or_url, "user reset-password $user --skip-email --porcelain" );
-		if ( Command::SUCCESS === $exit_code ) {
-			$credentials = (object) array(
+		$password  = is_string( $GLOBALS['wp_cli_output'] ?? null ) ? trim( $GLOBALS['wp_cli_output'] ) : '';
+
+		// The password is only trusted when WP-CLI actually printed one. Without this an unreachable site
+		// yields an empty password that then overwrites a good 1Password entry.
+		$credentials = ( Command::SUCCESS === $exit_code && '' !== $password )
+			? (object) array(
 				'username' => $user,
-				'password' => $GLOBALS['wp_cli_output'],
-			);
-		} else {
-			$credentials = null;
-		}
+				'password' => $password,
+			)
+			: null;
 	}
 
 	return $credentials;
@@ -494,17 +496,19 @@ function wait_on_pressable_site_state( string $site_id_or_url, string $state, Ou
  *
  * @param   string          $site_id_or_url The ID or URL of the Pressable site to check the state of.
  * @param   OutputInterface $output         The output instance.
+ * @param   integer         $max_attempts   The maximum number of connection attempts, 5 seconds apart.
  *
  * @return  SSH2|null
  */
-function wait_on_pressable_site_ssh( string $site_id_or_url, OutputInterface $output ): ?SSH2 {
+function wait_on_pressable_site_ssh( string $site_id_or_url, OutputInterface $output, int $max_attempts = 60 ): ?SSH2 {
 	$site_id_or_url = pressable_maybe_resolve_site_alias( $site_id_or_url );
 	$output->writeln( "<comment>Waiting for Pressable site $site_id_or_url to accept SSH connections.</comment>" );
 
 	$progress_bar = new ProgressBar( $output );
 	$progress_bar->start();
 
-	for ( $try = 0, $delay = 5; true; $try++ ) { // Infinite loop until SSH connection is established.
+	$ssh_connection = null;
+	for ( $try = 0, $delay = 5; $try < $max_attempts; $try++ ) {
 		$ssh_connection = Pressable_Connection_Helper::get_ssh_connection( $site_id_or_url );
 		if ( ! is_null( $ssh_connection ) ) {
 			break;
@@ -516,6 +520,10 @@ function wait_on_pressable_site_ssh( string $site_id_or_url, OutputInterface $ou
 
 	$progress_bar->finish();
 	$output->writeln( '' ); // Empty line for UX purposes.
+
+	if ( is_null( $ssh_connection ) ) {
+		$output->writeln( "<error>Pressable site $site_id_or_url did not accept SSH connections after $max_attempts attempts.</error>" );
+	}
 
 	return $ssh_connection;
 }

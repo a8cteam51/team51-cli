@@ -183,45 +183,18 @@ final class WPCOM_Site_Clone extends Command {
 		run_wpcom_site_wp_cli_command( $staging_site->id, "search-replace {$this->site->URL} $staging_site_https_url" );
 		run_wpcom_site_wp_cli_command( $staging_site->id, 'cache flush' );
 
+		$safety_net_installed = true;
 		if ( $this->skip_safety_net ) {
 			$output->writeln( '<comment>Skipping the installation of SafetyNet as a mu-plugin.</comment>' );
-		} elseif ( \is_null( $ssh_connection ) ) {
-			$output->writeln( '<error>Failed to connect to the site via SSH. Cannot install SafetyNet!</error>' );
 		} else {
-			// SafetyNet could already be installed if the site was cloned from a template that had it installed.
-			$safety_net_installed = false;
-			$ssh_connection->exec(
-				'ls htdocs/wp-content/mu-plugins',
-				function ( $stream ) use ( &$safety_net_installed, $output ) {
-					if ( str_contains( $stream, 'safety-net' ) ) {
-						$output->writeln( '<comment>SafetyNet is already installed as a mu-plugin. Skipping installation...</comment>' );
-						$safety_net_installed = true;
-					}
-				}
+			$safety_net_installed = maybe_install_safety_net(
+				$ssh_connection,
+				$output,
+				static fn( string $command ) => run_wpcom_site_wp_cli_command( $transfer->blog_id, $command )
 			);
-
 			if ( ! $safety_net_installed ) {
-				run_wpcom_site_wp_cli_command( $transfer->blog_id, 'plugin install https://github.com/a8cteam51/safety-net/releases/latest/download/safety-net.zip' );
-				$ssh_connection->exec( 'mv -f htdocs/wp-content/plugins/safety-net htdocs/wp-content/mu-plugins/safety-net' );
-				$ssh_connection->exec(
-					'ls htdocs/wp-content/mu-plugins',
-					function ( $stream ) use ( $staging_site, $output ) {
-						if ( ! str_contains( $stream, 'safety-net' ) ) {
-							$output->writeln( '<error>Failed to install SafetyNet!</error>' );
-						}
-						if ( ! str_contains( $stream, 'load-safety-net.php' ) ) {
-							$sftp = \WPCOM_Connection_Helper::get_sftp_connection( $staging_site->id );
-							if ( \is_null( $sftp ) ) {
-								$output->writeln( '<error>Failed to connect to the site via SFTP. Cannot copy SafetyNet loader!</error>' );
-							} else {
-								$result = $sftp->put( '/htdocs/wp-content/mu-plugins/load-safety-net.php', file_get_contents( __DIR__ . '/../scaffold/load-safety-net.php' ) );
-								if ( ! $result ) {
-									$output->writeln( '<error>Failed to copy the SafetyNet loader!</error>' );
-								}
-							}
-						}
-					}
-				);
+				// A site that reports itself scrubbed is protected whatever the files showed.
+				$safety_net_installed = is_safety_net_confirmed_via_http( $staging_site_https_url );
 			}
 		}
 
@@ -260,6 +233,14 @@ final class WPCOM_Site_Clone extends Command {
 
 		if ( Command::SUCCESS !== $rotate_status ) {
 			$output->writeln( '<comment>⚠  Heads up: 1Password sync did not complete during this run. See the warning above for the password to record manually.</comment>' );
+		}
+
+		if ( ! $safety_net_installed ) {
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			$output->writeln( "<error>⚠  SafetyNet is NOT installed on $staging_site_https_url.</error>" );
+			$output->writeln( '<error>    The staging site still holds unscrubbed production data. Install it manually before sharing the site.</error>' );
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			return Command::FAILURE;
 		}
 
 		return Command::SUCCESS;

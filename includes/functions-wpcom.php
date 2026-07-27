@@ -414,10 +414,14 @@ function rotate_wpcom_site_wp_user_password( string $site_id_or_url, string $use
 	$credentials = null;
 
 	$exit_code = run_wpcom_site_wp_cli_command( $site_id_or_url, "user reset-password $user --skip-email --porcelain", true );
-	if ( Command::SUCCESS === $exit_code ) {
+	$password  = is_string( $GLOBALS['wp_cli_output'] ?? null ) ? trim( $GLOBALS['wp_cli_output'] ) : '';
+
+	// The password is only trusted when WP-CLI actually printed one. Without this an unreachable site yields
+	// an empty password that then overwrites a good 1Password entry.
+	if ( Command::SUCCESS === $exit_code && '' !== $password ) {
 		$credentials = (object) array(
 			'username' => $user,
-			'password' => $GLOBALS['wp_cli_output'],
+			'password' => $password,
 		);
 	}
 
@@ -525,10 +529,11 @@ function wait_until_wpcom_site_transfer_state( string $site_id_or_url, string $s
  *
  * @param   string          $site_id_or_url The ID or URL of the WordPress.com site to check the state of.
  * @param   OutputInterface $output         The output instance.
+ * @param   integer         $max_attempts   The maximum number of connection attempts, 5 seconds apart.
  *
  * @return  SSH2|null
  */
-function wait_on_wpcom_site_ssh( string $site_id_or_url, OutputInterface $output ): ?SSH2 {
+function wait_on_wpcom_site_ssh( string $site_id_or_url, OutputInterface $output, int $max_attempts = 60 ): ?SSH2 {
 	$output->writeln( "<comment>Waiting for WordPress.com site $site_id_or_url to accept SSH connections.</comment>" );
 
 	$progress_bar = new ProgressBar( $output );
@@ -539,7 +544,8 @@ function wait_on_wpcom_site_ssh( string $site_id_or_url, OutputInterface $output
 	sleep( 5 );
 	$progress_bar->advance();
 
-	for ( $try = 0, $delay = 5; true; $try++ ) { // Infinite loop until SSH connection is established.
+	$ssh_connection = null;
+	for ( $try = 0, $delay = 5; $try < $max_attempts; $try++ ) {
 		$ssh_connection = WPCOM_Connection_Helper::get_ssh_connection( $site_id_or_url );
 		if ( ! is_null( $ssh_connection ) ) {
 			break;
@@ -551,6 +557,10 @@ function wait_on_wpcom_site_ssh( string $site_id_or_url, OutputInterface $output
 
 	$progress_bar->finish();
 	$output->writeln( '' ); // Empty line for UX purposes.
+
+	if ( is_null( $ssh_connection ) ) {
+		$output->writeln( "<error>WordPress.com site $site_id_or_url did not accept SSH connections after $max_attempts attempts.</error>" );
+	}
 
 	return $ssh_connection;
 }
