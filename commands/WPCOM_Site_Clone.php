@@ -187,16 +187,11 @@ final class WPCOM_Site_Clone extends Command {
 		if ( $this->skip_safety_net ) {
 			$output->writeln( '<comment>Skipping the installation of SafetyNet as a mu-plugin.</comment>' );
 		} else {
-			$safety_net_installed = maybe_install_safety_net(
-				$ssh_connection,
-				$output,
-				// `blog_id` on the completed transfer is the staging site's own blog ID.
-				static fn( string $command ) => run_wpcom_site_wp_cli_command( $transfer->blog_id, $command )
-			);
-			if ( ! $safety_net_installed ) {
-				// A site that reports itself scrubbed is protected whatever the files showed.
-				$safety_net_installed = is_safety_net_confirmed_via_http( $staging_site_https_url );
-			}
+			maybe_install_safety_net( $ssh_connection, $output );
+
+			// The file check only proves the files are present; this endpoint is the authoritative signal that
+			// Safety Net actually booted and scrubbed, so it decides the final verdict on every run.
+			$safety_net_installed = is_safety_net_confirmed_via_http( $staging_site_https_url );
 		}
 
 		$ssh_connection?->disconnect();

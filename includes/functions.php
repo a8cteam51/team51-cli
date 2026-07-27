@@ -157,14 +157,17 @@ function parse_wp_cli_porcelain_password( mixed $output ): ?string {
 	}
 
 	$password = trim( $output );
-	if ( 1 !== preg_match( '/^\S+$/', $password ) ) {
-		return null;
-	}
 
+	// Checked before the shape test so prefixed message text is recognizably rejected as WP-CLI output rather
+	// than merely failing the single-token requirement.
 	foreach ( array( 'Error:', 'Warning:', 'Success:' ) as $prefix ) {
 		if ( str_starts_with( $password, $prefix ) ) {
 			return null;
 		}
+	}
+
+	if ( 1 !== preg_match( '/^\S+$/', $password ) ) {
+		return null;
 	}
 
 	return $password;

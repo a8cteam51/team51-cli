@@ -54,6 +54,10 @@ function is_safety_net_installed( SSH2 $ssh_connection ): ?bool {
  * @return  integer  The exit code of the download and unpack.
  */
 function install_safety_net_files( SSH2 $ssh_connection ): int {
+	// The command is silent until the trailing echo, and the connection's default read timeout is 10 seconds -
+	// a download slower than that would truncate the output and lose the INSTALL: marker.
+	$ssh_connection->setTimeout( 0 );
+
 	$result = $ssh_connection->exec(
 		"curl -fsSL '" . SAFETY_NET_ZIP_URL . "' -o /tmp/safety-net.zip 2>/dev/null"
 		. ' && unzip -o /tmp/safety-net.zip -d ' . SAFETY_NET_MU_PLUGINS_PATH . '/ >/dev/null 2>&1'
@@ -175,14 +179,15 @@ function is_safety_net_confirmed_via_http( string $site_url ): ?bool {
 /**
  * Installs Safety Net on a site if it is not already installed, then verifies that the files are in place.
  *
+ * If the download-and-unpack install fails - for example because the server has no `curl` or `unzip` - the
+ * install is retried through WP-CLI over the same connection.
+ *
  * @param   SSH2|null       $ssh_connection The SSH connection to the site, if one could be established.
  * @param   OutputInterface $output         The output instance.
- * @param   callable|null   $wp_cli_runner  Runs a WP-CLI command on the site and returns its exit code. Used
- *                                          as a fallback if the server has no `curl` or `unzip`.
  *
  * @return  boolean  Whether both Safety Net and its loader are in place afterwards.
  */
-function maybe_install_safety_net( ?SSH2 $ssh_connection, OutputInterface $output, ?callable $wp_cli_runner = null ): bool {
+function maybe_install_safety_net( ?SSH2 $ssh_connection, OutputInterface $output ): bool {
 	if ( is_null( $ssh_connection ) ) {
 		$output->writeln( '<error>Failed to connect to the site via SSH. Cannot install SafetyNet!</error>' );
 		return false;
@@ -201,24 +206,21 @@ function maybe_install_safety_net( ?SSH2 $ssh_connection, OutputInterface $outpu
 	$exit_code = install_safety_net_files( $ssh_connection );
 	if ( 0 !== $exit_code ) {
 		$output->writeln( "<comment>Downloading SafetyNet over SSH failed with exit code $exit_code.</comment>" );
+		$output->writeln( '<comment>Falling back to installing SafetyNet through WP-CLI...</comment>' );
 
-		if ( ! is_null( $wp_cli_runner ) ) {
-			$output->writeln( '<comment>Falling back to installing SafetyNet through WP-CLI...</comment>' );
+		// Run on the connection directly: the exit codes below are the remote ones, so each step reports its
+		// own failure. getExitStatus() returns false when the server sent no exit-status message, which is
+		// not a failure - reporting it as `exit code ` would read as one.
+		$ssh_connection->exec( 'wp plugin install ' . SAFETY_NET_ZIP_URL );
+		$install_code = $ssh_connection->getExitStatus();
+		if ( false !== $install_code && 0 !== $install_code ) {
+			$output->writeln( "<error>Installing SafetyNet through WP-CLI failed with exit code $install_code.</error>" );
+		}
 
-			// Both steps are reported separately so a failure here says whether the download or the move broke.
-			$install_code = $wp_cli_runner( 'plugin install ' . SAFETY_NET_ZIP_URL );
-			if ( 0 !== $install_code ) {
-				$output->writeln( "<error>Installing SafetyNet through WP-CLI failed with exit code $install_code.</error>" );
-			}
-
-			$ssh_connection->exec( 'mv -f /htdocs/wp-content/plugins/safety-net ' . SAFETY_NET_MU_PLUGINS_PATH . '/safety-net' );
-
-			// getExitStatus() returns false when the server sent no exit-status message, which is not a
-			// failure - reporting it as `exit code ` would read as one.
-			$move_code = $ssh_connection->getExitStatus();
-			if ( false !== $move_code && 0 !== $move_code ) {
-				$output->writeln( "<error>Moving SafetyNet into mu-plugins failed with exit code $move_code.</error>" );
-			}
+		$ssh_connection->exec( 'mv -f /htdocs/wp-content/plugins/safety-net ' . SAFETY_NET_MU_PLUGINS_PATH . '/safety-net' );
+		$move_code = $ssh_connection->getExitStatus();
+		if ( false !== $move_code && 0 !== $move_code ) {
+			$output->writeln( "<error>Moving SafetyNet into mu-plugins failed with exit code $move_code.</error>" );
 		}
 	}
 

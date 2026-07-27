@@ -235,11 +235,7 @@ final class Pressable_Site_Clone extends Command {
 		if ( $this->skip_safety_net ) {
 			$output->writeln( '<comment>Skipping the installation of SafetyNet as a mu-plugin.</comment>' );
 		} else {
-			$safety_net_installed = maybe_install_safety_net(
-				$ssh_connection,
-				$output,
-				static fn( string $command ) => run_pressable_site_wp_cli_command( $site_clone->id, $command )
-			);
+			$safety_net_installed = maybe_install_safety_net( $ssh_connection, $output );
 		}
 		$ssh_connection?->disconnect();
 
@@ -259,8 +255,10 @@ final class Pressable_Site_Clone extends Command {
 		run_pressable_site_wp_cli_command( $site_clone->id, 'cache flush' );
 
 		// Asking the clone itself is only meaningful once it answers on its own URL, which the search-replace
-		// above is what makes true. A site that reports itself scrubbed is protected whatever the files showed.
-		if ( ! $this->skip_safety_net && ! $safety_net_installed ) {
+		// above is what makes true. The file check only proves the files are present; this endpoint is the
+		// authoritative signal that Safety Net actually booted and scrubbed, so it decides the final verdict
+		// on every run - not just when the files were missing.
+		if ( ! $this->skip_safety_net ) {
 			$safety_net_installed = is_safety_net_confirmed_via_http( $site_clone->url );
 		}
 
