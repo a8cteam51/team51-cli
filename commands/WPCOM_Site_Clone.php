@@ -188,10 +188,6 @@ final class WPCOM_Site_Clone extends Command {
 			$output->writeln( '<comment>Skipping the installation of SafetyNet as a mu-plugin.</comment>' );
 		} else {
 			maybe_install_safety_net( $ssh_connection, $output );
-
-			// The file check only proves the files are present; this endpoint is the authoritative signal that
-			// Safety Net actually booted and scrubbed, so it decides the final verdict on every run.
-			$safety_net_installed = is_safety_net_confirmed_via_http( $staging_site_https_url );
 		}
 
 		$ssh_connection?->disconnect();
@@ -227,6 +223,13 @@ final class WPCOM_Site_Clone extends Command {
 
 		if ( Command::SUCCESS !== $rotate_status ) {
 			$output->writeln( '<comment>⚠  Heads up: the WP user password rotation did not complete cleanly. See the warning above for what to record or retry.</comment>' );
+		}
+
+		// Checked last - after the Jetpack token regeneration and the repository deployment that writes into
+		// wp-content - so the verdict reflects the site as it is handed off. The endpoint is the authoritative
+		// signal that Safety Net actually booted and scrubbed, so it decides on every run.
+		if ( ! $this->skip_safety_net ) {
+			$safety_net_installed = is_safety_net_confirmed_via_http( $staging_site_https_url );
 		}
 
 		if ( true !== $safety_net_installed ) {

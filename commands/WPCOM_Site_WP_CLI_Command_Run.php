@@ -98,8 +98,9 @@ final class WPCOM_Site_WP_CLI_Command_Run extends Command {
 		$output->writeln( "<fg=magenta;options=bold>Running the command `wp $this->wp_command` on {$this->site->name} (ID {$this->site->ID}, URL {$this->site->URL}).</>" );
 
 		// Callers read the output of the command they just ran out of this global, so a run that produces none
-		// must not leave the previous run's output behind for them to pick up.
-		$GLOBALS['wp_cli_output'] = null;
+		// must not leave the previous run's output behind for them to pick up. The callback below appends
+		// because phpseclib delivers the reply one packet at a time.
+		$GLOBALS['wp_cli_output'] = '';
 
 		$ssh = \WPCOM_Connection_Helper::get_ssh_connection( $this->site->ID );
 		if ( \is_null( $ssh ) ) {
@@ -114,7 +115,7 @@ final class WPCOM_Site_WP_CLI_Command_Run extends Command {
 			$ssh->exec(
 				"wp $this->wp_command",
 				function ( string $str ): void {
-					$GLOBALS['wp_cli_output'] = $str;
+					$GLOBALS['wp_cli_output'] .= $str;
 					if ( ! $this->skip_output ) {
 						echo "$str\n";
 					}

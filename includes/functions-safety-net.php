@@ -5,18 +5,34 @@ use Symfony\Component\Console\Output\OutputInterface;
 
 // region CONSTANTS
 
-// The mu-plugins directory sits at the same absolute path on both Pressable and WordPress.com Atomic servers.
-const SAFETY_NET_MU_PLUGINS_PATH = '/htdocs/wp-content/mu-plugins';
-
-// The file the loader requires. Testing for it rather than the directory keeps a half-unpacked archive from
-// reading as a working install.
-const SAFETY_NET_PLUGIN_ENTRY_FILE = SAFETY_NET_MU_PLUGINS_PATH . '/safety-net/safety-net.php';
-
 const SAFETY_NET_ZIP_URL = 'https://github.com/a8cteam51/safety-net/releases/latest/download/safety-net.zip';
 
 // endregion
 
 // region API
+
+/**
+ * Returns the site root directory as the SSH shell sees it.
+ *
+ * Every exec starts a fresh shell at the login directory, and both layouts exist in the wild: most servers
+ * expose the home-relative `htdocs` the previous install commands used, others only the absolute `/htdocs`.
+ * Probed once per connection so every command in an install run agrees on the prefix.
+ *
+ * @param   SSH2 $ssh_connection The SSH connection to the site.
+ *
+ * @return  string
+ */
+function get_ssh_site_root_path( SSH2 $ssh_connection ): string {
+	static $roots = array();
+
+	$key = spl_object_id( $ssh_connection );
+	if ( ! isset( $roots[ $key ] ) ) {
+		$result        = $ssh_connection->exec( "test -d htdocs/wp-content && echo 'ROOT:REL' || echo 'ROOT:ABS'" );
+		$roots[ $key ] = str_contains( is_string( $result ) ? $result : '', 'ROOT:REL' ) ? 'htdocs' : '/htdocs';
+	}
+
+	return $roots[ $key ];
+}
 
 /**
  * Returns whether both Safety Net and its loader are present in the mu-plugins directory of a site.
@@ -30,8 +46,9 @@ const SAFETY_NET_ZIP_URL = 'https://github.com/a8cteam51/safety-net/releases/lat
  * @return  boolean|null  True/false if it could be determined, null if the check produced no readable result.
  */
 function is_safety_net_installed( SSH2 $ssh_connection ): ?bool {
-	$loader = SAFETY_NET_MU_PLUGINS_PATH . '/load-safety-net.php';
-	$plugin = SAFETY_NET_PLUGIN_ENTRY_FILE;
+	$mu_plugins = get_ssh_site_root_path( $ssh_connection ) . '/wp-content/mu-plugins';
+	$loader     = "$mu_plugins/load-safety-net.php";
+	$plugin     = "$mu_plugins/safety-net/safety-net.php";
 
 	$result = $ssh_connection->exec( "test -f '$loader' && test -f '$plugin' && echo 'FILES:1' || echo 'FILES:0'" );
 	$result = is_string( $result ) ? trim( $result ) : '';
@@ -54,17 +71,23 @@ function is_safety_net_installed( SSH2 $ssh_connection ): ?bool {
  * @return  integer  The exit code of the download and unpack.
  */
 function install_safety_net_files( SSH2 $ssh_connection ): int {
+	$mu_plugins = get_ssh_site_root_path( $ssh_connection ) . '/wp-content/mu-plugins';
+
 	// The command is silent until the trailing echo, and the connection's default read timeout is 10 seconds -
-	// a download slower than that would truncate the output and lose the INSTALL: marker.
-	$ssh_connection->setTimeout( 0 );
+	// a download slower than that would truncate the output and lose the INSTALL: marker. The generous but
+	// finite budget is restored afterwards so later commands on this connection keep a ceiling.
+	$ssh_connection->setTimeout( 600 );
 
 	$result = $ssh_connection->exec(
 		"curl -fsSL '" . SAFETY_NET_ZIP_URL . "' -o /tmp/safety-net.zip 2>/dev/null"
-		. ' && unzip -o /tmp/safety-net.zip -d ' . SAFETY_NET_MU_PLUGINS_PATH . '/ >/dev/null 2>&1'
+		. " && unzip -o /tmp/safety-net.zip -d $mu_plugins/ >/dev/null 2>&1"
 		. ' ; INSTALL=$?'
 		. ' ; rm -f /tmp/safety-net.zip'
 		. ' ; echo "INSTALL:${INSTALL}"'
 	);
+
+	$ssh_connection->setTimeout( 10 );
+
 	$result = is_string( $result ) ? $result : '';
 
 	// The exit code is reported verbatim by the caller, so a missing `curl`/`unzip` (127) stays
@@ -91,8 +114,9 @@ function write_safety_net_loader( SSH2 $ssh_connection ): bool {
 		return false;
 	}
 
-	$loader = SAFETY_NET_MU_PLUGINS_PATH . '/load-safety-net.php';
-	$plugin = SAFETY_NET_PLUGIN_ENTRY_FILE;
+	$mu_plugins = get_ssh_site_root_path( $ssh_connection ) . '/wp-content/mu-plugins';
+	$loader     = "$mu_plugins/load-safety-net.php";
+	$plugin     = "$mu_plugins/safety-net/safety-net.php";
 
 	$ssh_connection->exec(
 		"if test -f '$plugin' ; then cat > '$loader' <<'TEAM51_SAFETY_NET_LOADER'\n"
@@ -116,7 +140,7 @@ function write_safety_net_loader( SSH2 $ssh_connection ): bool {
  *
  * @param   string $site_url The URL of the site to check.
  *
- * @return  boolean|null  Null if the site could not be reached.
+ * @return  boolean|null  Null if the site could not be reached or did not answer with a readable report.
  */
 function is_safety_net_confirmed_via_http( string $site_url ): ?bool {
 	if ( ! preg_match( '#^https?://#i', $site_url ) ) {
@@ -160,8 +184,11 @@ function is_safety_net_confirmed_via_http( string $site_url ): ?bool {
 		return null;
 	}
 
+	// A non-200 answer - a 403 from a private staging site, a 502 during warm-up - says the status could not
+	// be read, not that the site is unprotected, so it reports unknown just like an unreachable site does.
+	// Only a readable 200 report gets to say either way.
 	if ( 200 !== ( parse_http_headers( $response_headers )['http_code'] ?? 0 ) ) {
-		return false;
+		return null;
 	}
 
 	$report = json_decode( $body, true );
@@ -217,7 +244,8 @@ function maybe_install_safety_net( ?SSH2 $ssh_connection, OutputInterface $outpu
 			$output->writeln( "<error>Installing SafetyNet through WP-CLI failed with exit code $install_code.</error>" );
 		}
 
-		$ssh_connection->exec( 'mv -f /htdocs/wp-content/plugins/safety-net ' . SAFETY_NET_MU_PLUGINS_PATH . '/safety-net' );
+		$site_root = get_ssh_site_root_path( $ssh_connection );
+		$ssh_connection->exec( "mv -f $site_root/wp-content/plugins/safety-net $site_root/wp-content/mu-plugins/safety-net" );
 		$move_code = $ssh_connection->getExitStatus();
 		if ( false !== $move_code && 0 !== $move_code ) {
 			$output->writeln( "<error>Moving SafetyNet into mu-plugins failed with exit code $move_code.</error>" );

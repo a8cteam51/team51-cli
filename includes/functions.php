@@ -1,6 +1,7 @@
 <?php
 
 use Symfony\Component\Console\Exception\ExceptionInterface;
+use Symfony\Component\Console\Formatter\OutputFormatter;
 use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Input\InputInterface;
@@ -189,7 +190,8 @@ function report_unreadable_wp_cli_password( string $user, mixed $output ): void 
 	console_writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 	console_writeln( "<error>⚠  The password reset for $user ran, but its output could not be read as a password.</error>" );
 	console_writeln( '<error>    The site may already be using a new password. Raw output follows:</error>' );
-	console_writeln( '<fg=yellow;options=bold>' . ( is_string( $output ) ? trim( $output ) : '(no output captured)' ) . '</>' );
+	// Escaped so a password containing formatter syntax is printed verbatim instead of being parsed as tags.
+	console_writeln( '<fg=yellow;options=bold>' . OutputFormatter::escape( is_string( $output ) ? trim( $output ) : '(no output captured)' ) . '</>' );
 	console_writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 }
 

@@ -118,8 +118,9 @@ final class Pressable_Site_WP_CLI_Command_Run extends Command {
 
 		foreach ( $this->sites as $site ) {
 			// Callers read the output of the command they just ran out of this global, so a site that produces
-			// none - or that cannot be reached at all - must not leave the previous site's output behind.
-			$GLOBALS['wp_cli_output'] = null;
+			// none - or that cannot be reached at all - must not leave the previous site's output behind. The
+			// callback below appends because phpseclib delivers the reply one packet at a time.
+			$GLOBALS['wp_cli_output'] = '';
 
 			$output->writeln( "<fg=magenta;options=bold>Running the command `wp $this->wp_command` on $site->displayName (ID $site->id, URL $site->url).</>" );
 
@@ -138,7 +139,7 @@ final class Pressable_Site_WP_CLI_Command_Run extends Command {
 				$ssh->exec(
 					"wp $this->wp_command",
 					function ( string $str ): void {
-						$GLOBALS['wp_cli_output'] = $str;
+						$GLOBALS['wp_cli_output'] .= $str;
 						if ( ! $this->skip_output ) {
 							echo "$str\n";
 						}

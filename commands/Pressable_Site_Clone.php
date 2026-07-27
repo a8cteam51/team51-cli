@@ -235,7 +235,7 @@ final class Pressable_Site_Clone extends Command {
 		if ( $this->skip_safety_net ) {
 			$output->writeln( '<comment>Skipping the installation of SafetyNet as a mu-plugin.</comment>' );
 		} else {
-			$safety_net_installed = maybe_install_safety_net( $ssh_connection, $output );
+			maybe_install_safety_net( $ssh_connection, $output );
 		}
 		$ssh_connection?->disconnect();
 
