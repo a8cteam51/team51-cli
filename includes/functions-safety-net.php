@@ -212,8 +212,11 @@ function maybe_install_safety_net( ?SSH2 $ssh_connection, OutputInterface $outpu
 			}
 
 			$ssh_connection->exec( 'mv -f /htdocs/wp-content/plugins/safety-net ' . SAFETY_NET_MU_PLUGINS_PATH . '/safety-net' );
+
+			// getExitStatus() returns false when the server sent no exit-status message, which is not a
+			// failure - reporting it as `exit code ` would read as one.
 			$move_code = $ssh_connection->getExitStatus();
-			if ( 0 !== $move_code ) {
+			if ( false !== $move_code && 0 !== $move_code ) {
 				$output->writeln( "<error>Moving SafetyNet into mu-plugins failed with exit code $move_code.</error>" );
 			}
 		}

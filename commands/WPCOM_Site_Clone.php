@@ -190,6 +190,7 @@ final class WPCOM_Site_Clone extends Command {
 			$safety_net_installed = maybe_install_safety_net(
 				$ssh_connection,
 				$output,
+				// `blog_id` on the completed transfer is the staging site's own blog ID.
 				static fn( string $command ) => run_wpcom_site_wp_cli_command( $transfer->blog_id, $command )
 			);
 			if ( ! $safety_net_installed ) {
@@ -230,7 +231,7 @@ final class WPCOM_Site_Clone extends Command {
 		}
 
 		if ( Command::SUCCESS !== $rotate_status ) {
-			$output->writeln( '<comment>⚠  Heads up: 1Password sync did not complete during this run. See the warning above for the password to record manually.</comment>' );
+			$output->writeln( '<comment>⚠  Heads up: the WP user password rotation did not complete cleanly. See the warning above for what to record or retry.</comment>' );
 		}
 
 		if ( true !== $safety_net_installed ) {

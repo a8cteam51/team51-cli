@@ -215,7 +215,9 @@ final class Pressable_Site_Clone extends Command {
 
 		// A clone does not always inherit the concierge collaborator, and without it every SSH and SFTP
 		// connection below fails with `SFTP user not found.`
-		\Pressable_Connection_Helper::ensure_sftp_user( $site_clone->id );
+		if ( ! \Pressable_Connection_Helper::ensure_sftp_user( $site_clone->id ) ) {
+			$output->writeln( "<error>No usable SFTP user for $site_clone->url. The steps below that need SSH will fail.</error>" );
+		}
 
 		$ssh_connection = wait_on_pressable_site_ssh( $site_clone->id, $output );
 
@@ -263,7 +265,7 @@ final class Pressable_Site_Clone extends Command {
 		}
 
 		if ( Command::SUCCESS !== $rotate_status ) {
-			$output->writeln( '<comment>⚠  Heads up: 1Password sync did not complete during this run. See the warning above for the password to record manually.</comment>' );
+			$output->writeln( '<comment>⚠  Heads up: the WP user password rotation did not complete cleanly. See the warning above for what to record or retry.</comment>' );
 		}
 
 		if ( true !== $safety_net_installed ) {

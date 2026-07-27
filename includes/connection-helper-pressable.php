@@ -22,6 +22,11 @@ final class Pressable_Connection_Helper extends Abstract_Connection_Helper {
 	private const SFTP_USER_EMAIL = 'concierge@wordpress.com';
 
 	/**
+	 * How many times to look for an existing SFTP user before concluding the collaborator is missing.
+	 */
+	private const SFTP_USER_LOOKUP_ATTEMPTS = 3;
+
+	/**
 	 * How many times to re-check for the SFTP user after creating the collaborator.
 	 */
 	private const SFTP_USER_PROVISION_ATTEMPTS = 6;
@@ -42,8 +47,17 @@ final class Pressable_Connection_Helper extends Abstract_Connection_Helper {
 	 * @return  boolean  Whether the site has an SFTP user for the concierge collaborator.
 	 */
 	public static function ensure_sftp_user( string $site_identifier ): bool {
-		if ( ! \is_null( get_pressable_site_sftp_user( $site_identifier, self::SFTP_USER_EMAIL ) ) ) {
-			return true;
+		// Callers run this right after a site is created, which is exactly when a site that did inherit the
+		// collaborator has not had its SFTP user provisioned yet. Without this grace the normal path would
+		// treat one missed lookup as proof the collaborator is absent and POST a duplicate.
+		for ( $attempt = 1; $attempt <= self::SFTP_USER_LOOKUP_ATTEMPTS; $attempt++ ) {
+			if ( ! \is_null( get_pressable_site_sftp_user( $site_identifier, self::SFTP_USER_EMAIL ) ) ) {
+				return true;
+			}
+
+			if ( $attempt < self::SFTP_USER_LOOKUP_ATTEMPTS ) {
+				\sleep( 5 );
+			}
 		}
 
 		console_writeln( '⏳ No Pressable SFTP user found for ' . self::SFTP_USER_EMAIL . '. Creating the collaborator...' );

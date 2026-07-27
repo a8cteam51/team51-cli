@@ -137,7 +137,7 @@ final class Pressable_Site_WP_User_Password_Rotate extends Command {
 	 * @noinspection DisconnectedForeachInstructionInspection
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
-		$sync_failures = array();
+		$failures = array();
 
 		foreach ( $this->sites as $site ) {
 			$output->writeln( "<fg=magenta;options=bold>Rotating the WP user password of $this->wp_user_email on $site->displayName (ID $site->id, URL $site->url).</>" );
@@ -146,6 +146,7 @@ final class Pressable_Site_WP_User_Password_Rotate extends Command {
 			$credentials = $this->rotate_site_wp_user_password( $output, $site->id );
 			if ( \is_null( $credentials ) ) {
 				$output->writeln( '<error>Failed to rotate the WP user password.</error>' );
+				$failures[] = $site->displayName; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Pressable API field, not ours.
 				continue;
 			}
 
@@ -160,14 +161,14 @@ final class Pressable_Site_WP_User_Password_Rotate extends Command {
 				$output->writeln( '<error>    Record this password before it scrolls off:</error>' );
 				$output->writeln( "<fg=yellow;options=bold>    $credentials->password</>" );
 				$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
-				$sync_failures[] = $site->displayName; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- 1Password API field, not ours.
+				$failures[] = $site->displayName; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- 1Password API field, not ours.
 				continue;
 			}
 
 			$output->writeln( '<fg=green;options=bold>WP user password updated in 1Password.</>' );
 		}
 
-		return empty( $sync_failures ) ? Command::SUCCESS : Command::FAILURE;
+		return empty( $failures ) ? Command::SUCCESS : Command::FAILURE;
 	}
 
 	// endregion

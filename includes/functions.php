@@ -171,6 +171,26 @@ function parse_wp_cli_porcelain_password( mixed $output ): ?string {
 }
 
 /**
+ * Prints the raw output of a password reset whose result could not be read as a password.
+ *
+ * By the time the output is parsed the reset has already run, so this string is the only copy of whatever the
+ * site is now using. Passwords are otherwise kept off the console deliberately, but discarding one silently
+ * locks the user out with no record anywhere, which is the worse outcome of the two.
+ *
+ * @param   string $user   The user whose password was reset.
+ * @param   mixed  $output The raw WP-CLI output.
+ *
+ * @return  void
+ */
+function report_unreadable_wp_cli_password( string $user, mixed $output ): void {
+	console_writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+	console_writeln( "<error>⚠  The password reset for $user ran, but its output could not be read as a password.</error>" );
+	console_writeln( '<error>    The site may already be using a new password. Raw output follows:</error>' );
+	console_writeln( '<fg=yellow;options=bold>' . ( is_string( $output ) ? trim( $output ) : '(no output captured)' ) . '</>' );
+	console_writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+}
+
+/**
  * Encodes some given data into a JSON object.
  *
  * @param   mixed   $data  The data to encode.

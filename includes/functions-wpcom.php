@@ -416,6 +416,10 @@ function rotate_wpcom_site_wp_user_password( string $site_id_or_url, string $use
 	$exit_code = run_wpcom_site_wp_cli_command( $site_id_or_url, "user reset-password $user --skip-email --porcelain", true );
 	$password  = parse_wp_cli_porcelain_password( $GLOBALS['wp_cli_output'] ?? null );
 
+	if ( Command::SUCCESS === $exit_code && is_null( $password ) ) {
+		report_unreadable_wp_cli_password( $user, $GLOBALS['wp_cli_output'] ?? null );
+	}
+
 	// The password is only trusted when WP-CLI actually printed one. Without this an unreachable site, or a
 	// reset that failed and printed an error instead, overwrites a good 1Password entry. There is no API
 	// rotation to fall back from here, so this is the only guard on the value.
