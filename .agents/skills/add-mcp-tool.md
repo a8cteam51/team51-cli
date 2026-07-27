@@ -81,16 +81,17 @@ STDOUT is reserved for JSON-RPC. Never use `echo`, `print`, or write to STDOUT.
 - Debug output: `fwrite( STDERR, "[MCP] Debug message\n" );` (with phpcs:ignore if needed)
 - `console_writeln()` uses the global output, which is set to STDERR in MCP mode — safe to use
 
-### 7. Do NOT add high-risk tools
+### 7. High-risk tools: annotate, don't exclude
 
-The following are intentionally excluded from MCP:
+High-risk operations are **exposed** via MCP and gated by annotations rather than withheld. Already shipped: site creation (`pressable_create_site`, `wpcom_create_site`), site cloning, WP-CLI execution (`pressable_run_wp_cli_command`, `wpcom_run_wp_cli_command`), shell access (`pressable_open_site_shell`), collaborator removal, WP user password rotation, and DeployHQ project creation.
 
-- Site creation (Pressable or WPCOM)
-- User deletion
-- WP-CLI command execution
-- Deployment triggers
+When adding one:
 
-If the user requests one, explain that these operations are excluded by design and must be run via the CLI.
+- Set `readOnlyHint: false` and `destructiveHint: true`.
+- Put the risk in the human-readable `title` so it surfaces in the client's confirmation prompt — e.g. `'Run Pressable WP-CLI Command (High Risk)'`.
+- Set `idempotentHint: false` for anything that creates resources or executes arbitrary commands.
+
+Do not remove an existing tool on risk grounds alone; that is a team decision, not a cleanup.
 
 ## Verification
 

@@ -32,9 +32,11 @@ The **Team51 CLI** is a PHP command-line tool built by Automattic's Special Proj
 team51-cli/
 ├── team51-cli.php       # Entry point. Use `--mcp` to start MCP server instead of CLI.
 ├── mcp-server.php       # MCP server entry (also reachable via team51 --mcp)
+├── environment-guard.php # Pre-autoload platform gate. Required first by both entry points.
 ├── self-update.php      # Git self-update logic (trunk branch, 7-day check)
 ├── load-identity.php    # Loads OPSOASIS credentials from 1Password
 ├── install-osx          # Mac installation script (composer install + symlink)
+├── completion.sh        # Shell tab-completion script
 ├── composer.json        # Dependencies and scripts
 ├── .phpcs.xml           # PHPCS ruleset (extends team51-configs)
 ├── commands/            # All Symfony Console commands (one class per file)
@@ -50,7 +52,7 @@ team51-cli/
 │   └── enum-site-type.php
 ├── mcp/
 │   └── Team51McpTools.php       # MCP tool definitions (McpTool attribute)
-└── scaffold/            # Files to deploy (e.g. load-safety-net.php)
+└── scaffold/            # Files to deploy (load-safety-net.php, pattern-extract.php)
 ```
 
 ---
@@ -74,11 +76,11 @@ composer dump-autoload -o
 ### Lint / Format
 
 ```bash
-# Lint (PHPCS)
+# Lint (PHPCS) — reports only, never writes
 composer run lint:php
-# or: phpcbf --standard=.phpcs.xml --basepath=. . -s -v
+# or: phpcs --standard=.phpcs.xml --basepath=. . -s -v
 
-# Auto-fix
+# Auto-fix (PHPCBF) — rewrites files in place
 composer run format:php
 # or: phpcbf --standard=.phpcs.xml --basepath=. . -v
 ```
@@ -153,7 +155,7 @@ See `.agents/subagents/add-cli-command.md` for a detailed runbook.
 4. Use existing `get_*` functions from includes.
 5. Return arrays (or error arrays with `'error' => '...'`). No STDOUT — reserved for JSON-RPC.
 
-**MUST**: Do not add high-risk tools (site creation, user deletion, WP-CLI execution, deployments). See README MCP section.
+**MUST**: Annotate every write tool with `ToolAnnotations` (`readOnlyHint: false`, plus `destructiveHint: true` when the action is irreversible or impactful) so clients prompt before executing. Risk is gated by annotation, not by exclusion — high-risk tools (site creation, WP-CLI execution, collaborator removal, deployment project creation, shell access) are exposed and annotated. See README MCP section.
 
 **For full details**: `.agents/skills/add-mcp-tool.md`
 
@@ -169,6 +171,8 @@ These are intentional; do not "fix" them without team discussion.
 4. **No Composer in self-update**: `self-update.php` does not use Composer or other includes; it runs before autoload.
 5. **MCP identity laziness**: Identity is loaded on first MCP tool call, not at server startup, to avoid 1Password prompts when Cursor opens the project.
 6. **STDOUT reserved in MCP**: All MCP server output goes to STDERR except JSON-RPC on STDOUT.
+7. **Pre-autoload platform gate**: `environment-guard.php` runs from both entry points before the Composer autoloader and enforces the project floor (PHP 8.3+, `gd`/`json`/`posix`/`readline`). Install and self-update run `composer dump-autoload --ignore-platform-reqs`, which drops Composer's generated `platform_check.php`, so this is the *only* platform check at startup. It uses built-in functions only, and checks the project floor — not what installed dependencies require.
+8. **MCP risk is annotation-gated**: High-risk tools are exposed rather than withheld; `ToolAnnotations` drive client-side confirmation. Do not remove a tool on risk grounds alone.
 
 ---
 
@@ -187,6 +191,8 @@ These are intentional; do not "fix" them without team discussion.
 6. **Command name vs class name** — The `AsCommand` name (e.g. `pressable:clone-site`) is what users type. The class name (e.g. `Pressable_Site_Clone`) is the file/class.
 
 7. **team51-configs as dev dependency** — PHPCS extends `vendor/a8cteam51/team51-configs/...`. Run `composer install` with dev dependencies.
+
+8. **`.dev` file vs `--dev` flag** — These are different mechanisms. `--dev` skips the update check for a single invocation. An untracked `.dev` file in the project root (`self-update.php:113`) suppresses the 7-day update buffer *persistently*, so the CLI silently stops picking up trunk changes. If a CLI seems stale, check for `.dev` before debugging self-update; `rm .dev` restores normal behaviour.
 
 ---
 
