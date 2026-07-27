@@ -8,6 +8,10 @@ use Symfony\Component\Console\Output\OutputInterface;
 // The mu-plugins directory sits at the same absolute path on both Pressable and WordPress.com Atomic servers.
 const SAFETY_NET_MU_PLUGINS_PATH = '/htdocs/wp-content/mu-plugins';
 
+// The file the loader requires. Testing for it rather than the directory keeps a half-unpacked archive from
+// reading as a working install.
+const SAFETY_NET_PLUGIN_ENTRY_FILE = SAFETY_NET_MU_PLUGINS_PATH . '/safety-net/safety-net.php';
+
 const SAFETY_NET_ZIP_URL = 'https://github.com/a8cteam51/safety-net/releases/latest/download/safety-net.zip';
 
 // endregion
@@ -18,7 +22,8 @@ const SAFETY_NET_ZIP_URL = 'https://github.com/a8cteam51/safety-net/releases/lat
  * Returns whether both Safety Net and its loader are present in the mu-plugins directory of a site.
  *
  * Both artifacts are checked separately because the loader alone is inert: it only requires Safety Net if the
- * plugin directory exists next to it, so a site carrying just the loader is not protected.
+ * plugin is there next to it, so a site carrying just the loader is not protected. The plugin is identified by
+ * the exact entry file the loader requires, so a half-unpacked directory does not read as a working install.
  *
  * @param   SSH2 $ssh_connection The SSH connection to the site.
  *
@@ -26,9 +31,9 @@ const SAFETY_NET_ZIP_URL = 'https://github.com/a8cteam51/safety-net/releases/lat
  */
 function is_safety_net_installed( SSH2 $ssh_connection ): ?bool {
 	$loader = SAFETY_NET_MU_PLUGINS_PATH . '/load-safety-net.php';
-	$plugin = SAFETY_NET_MU_PLUGINS_PATH . '/safety-net';
+	$plugin = SAFETY_NET_PLUGIN_ENTRY_FILE;
 
-	$result = $ssh_connection->exec( "test -f '$loader' && test -d '$plugin' && echo 'FILES:1' || echo 'FILES:0'" );
+	$result = $ssh_connection->exec( "test -f '$loader' && test -f '$plugin' && echo 'FILES:1' || echo 'FILES:0'" );
 	$result = is_string( $result ) ? trim( $result ) : '';
 
 	return match ( true ) {
@@ -82,10 +87,10 @@ function write_safety_net_loader( SSH2 $ssh_connection ): bool {
 	}
 
 	$loader = SAFETY_NET_MU_PLUGINS_PATH . '/load-safety-net.php';
-	$plugin = SAFETY_NET_MU_PLUGINS_PATH . '/safety-net';
+	$plugin = SAFETY_NET_PLUGIN_ENTRY_FILE;
 
 	$ssh_connection->exec(
-		"if test -d '$plugin' ; then cat > '$loader' <<'TEAM51_SAFETY_NET_LOADER'\n"
+		"if test -f '$plugin' ; then cat > '$loader' <<'TEAM51_SAFETY_NET_LOADER'\n"
 		. rtrim( $loader_contents ) . "\n"
 		. "TEAM51_SAFETY_NET_LOADER\n"
 		. "else rm -f '$loader' ; fi\n"
