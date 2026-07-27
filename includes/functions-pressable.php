@@ -367,11 +367,11 @@ function rotate_pressable_site_wp_user_password( string $site_id_or_url, string 
 	if ( is_null( $credentials ) || is_null( $credentials->password ) ) {
 		// Skipping the output keeps the freshly reset password out of the console and any log capturing it.
 		$exit_code = run_pressable_site_wp_cli_command( $site_id_or_url, "user reset-password $user --skip-email --porcelain", true );
-		$password  = is_string( $GLOBALS['wp_cli_output'] ?? null ) ? trim( $GLOBALS['wp_cli_output'] ) : '';
+		$password  = parse_wp_cli_porcelain_password( $GLOBALS['wp_cli_output'] ?? null );
 
-		// The password is only trusted when WP-CLI actually printed one. Without this an unreachable site
-		// yields an empty password that then overwrites a good 1Password entry.
-		$credentials = ( Command::SUCCESS === $exit_code && '' !== $password )
+		// The password is only trusted when WP-CLI actually printed one. Without this an unreachable site, or
+		// a reset that failed and printed an error instead, overwrites a good 1Password entry.
+		$credentials = ( Command::SUCCESS === $exit_code && ! is_null( $password ) )
 			? (object) array(
 				'username' => $user,
 				'password' => $password,
@@ -466,19 +466,22 @@ function create_pressable_site_clone( string $site_id_or_url, string $name, ?str
  * @param   string          $site_id_or_url The ID or URL of the Pressable site to check the state of.
  * @param   string          $state          The state to wait for the site to exit.
  * @param   OutputInterface $output         The output instance.
+ * @param   integer         $max_attempts   The maximum number of state checks before giving up.
  *
  * @return  stdClass|null
  */
-function wait_on_pressable_site_state( string $site_id_or_url, string $state, OutputInterface $output ): ?stdClass {
+function wait_on_pressable_site_state( string $site_id_or_url, string $state, OutputInterface $output, int $max_attempts = 120 ): ?stdClass {
 	$site_id_or_url = pressable_maybe_resolve_site_alias( $site_id_or_url );
 	$output->writeln( "<comment>Waiting for Pressable site $site_id_or_url to exit $state state.</comment>" );
 
 	$progress_bar = new ProgressBar( $output );
 	$progress_bar->start();
 
-	for ( $try = 0, $delay = 'deploying' === $state ? 3 : 10; true; $try++ ) {
+	$exited = false;
+	for ( $try = 0, $delay = 'deploying' === $state ? 3 : 10; $try < $max_attempts; $try++ ) {
 		$site = get_pressable_site( $site_id_or_url );
 		if ( is_null( $site ) || $state !== $site->state ) {
+			$exited = true;
 			break;
 		}
 
@@ -488,6 +491,11 @@ function wait_on_pressable_site_state( string $site_id_or_url, string $state, Ou
 
 	$progress_bar->finish();
 	$output->writeln( '' ); // Empty line for UX purposes.
+
+	if ( ! $exited ) {
+		$output->writeln( "<error>Pressable site $site_id_or_url did not exit $state state after $max_attempts checks.</error>" );
+		return null;
+	}
 
 	return $site;
 }

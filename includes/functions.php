@@ -139,6 +139,38 @@ function decode_json_content( string $json, bool $associative = false, int $flag
 }
 
 /**
+ * Returns the password printed by a `wp user reset-password --porcelain` run, or null if it did not print one.
+ *
+ * The WP-CLI runners report the exit code of the local console command, not the remote `wp` exit status, and
+ * phpseclib folds stderr into the captured output unless quiet mode is on - which it never is. A failed reset
+ * therefore leaves an `Error: ...` sentence where the password should be, and storing that as a credential
+ * would overwrite a good 1Password entry while the site keeps its old password. `--porcelain` prints nothing
+ * but a single whitespace-free token, so anything else is rejected.
+ *
+ * @param   mixed $output The captured WP-CLI output.
+ *
+ * @return  string|null
+ */
+function parse_wp_cli_porcelain_password( mixed $output ): ?string {
+	if ( ! is_string( $output ) ) {
+		return null;
+	}
+
+	$password = trim( $output );
+	if ( 1 !== preg_match( '/^\S+$/', $password ) ) {
+		return null;
+	}
+
+	foreach ( array( 'Error:', 'Warning:', 'Success:' ) as $prefix ) {
+		if ( str_starts_with( $password, $prefix ) ) {
+			return null;
+		}
+	}
+
+	return $password;
+}
+
+/**
  * Encodes some given data into a JSON object.
  *
  * @param   mixed   $data  The data to encode.

@@ -213,6 +213,10 @@ final class Pressable_Site_Clone extends Command {
 			return Command::FAILURE;
 		}
 
+		// A clone does not always inherit the concierge collaborator, and without it every SSH and SFTP
+		// connection below fails with `SFTP user not found.`
+		\Pressable_Connection_Helper::ensure_sftp_user( $site_clone->id );
+
 		$ssh_connection = wait_on_pressable_site_ssh( $site_clone->id, $output );
 
 		// Run a few commands to set up the site.

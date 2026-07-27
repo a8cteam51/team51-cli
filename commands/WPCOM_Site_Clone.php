@@ -229,8 +229,6 @@ final class WPCOM_Site_Clone extends Command {
 			}
 		}
 
-		$output->writeln( "<fg=green;options=bold>Staging site created successfully at $staging_site_https_url.</>" );
-
 		if ( Command::SUCCESS !== $rotate_status ) {
 			$output->writeln( '<comment>⚠  Heads up: 1Password sync did not complete during this run. See the warning above for the password to record manually.</comment>' );
 		}
@@ -246,6 +244,8 @@ final class WPCOM_Site_Clone extends Command {
 			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 			return Command::FAILURE;
 		}
+
+		$output->writeln( "<fg=green;options=bold>Staging site created successfully at $staging_site_https_url.</>" );
 
 		return Command::SUCCESS;
 	}

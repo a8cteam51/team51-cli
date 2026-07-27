@@ -414,11 +414,12 @@ function rotate_wpcom_site_wp_user_password( string $site_id_or_url, string $use
 	$credentials = null;
 
 	$exit_code = run_wpcom_site_wp_cli_command( $site_id_or_url, "user reset-password $user --skip-email --porcelain", true );
-	$password  = is_string( $GLOBALS['wp_cli_output'] ?? null ) ? trim( $GLOBALS['wp_cli_output'] ) : '';
+	$password  = parse_wp_cli_porcelain_password( $GLOBALS['wp_cli_output'] ?? null );
 
-	// The password is only trusted when WP-CLI actually printed one. Without this an unreachable site yields
-	// an empty password that then overwrites a good 1Password entry.
-	if ( Command::SUCCESS === $exit_code && '' !== $password ) {
+	// The password is only trusted when WP-CLI actually printed one. Without this an unreachable site, or a
+	// reset that failed and printed an error instead, overwrites a good 1Password entry. There is no API
+	// rotation to fall back from here, so this is the only guard on the value.
+	if ( Command::SUCCESS === $exit_code && ! is_null( $password ) ) {
 		$credentials = (object) array(
 			'username' => $user,
 			'password' => $password,
@@ -499,18 +500,21 @@ function wait_until_wpcom_agency_site_state( string $agency_site_id, string $sta
  * @param   string          $site_id_or_url The ID or URL of the WordPress.com site to check the state of.
  * @param   string          $state          The state to wait for the site to reach.
  * @param   OutputInterface $output         The output instance.
+ * @param   integer         $max_attempts   The maximum number of status checks before giving up.
  *
  * @return  stdClass|null
  */
-function wait_until_wpcom_site_transfer_state( string $site_id_or_url, string $state, OutputInterface $output ): ?stdClass {
+function wait_until_wpcom_site_transfer_state( string $site_id_or_url, string $state, OutputInterface $output, int $max_attempts = 120 ): ?stdClass {
 	$output->writeln( "<comment>Waiting for the transfer of WordPress.com site $site_id_or_url to reach the `$state` state.</comment>" );
 
 	$progress_bar = new ProgressBar( $output );
 	$progress_bar->start();
 
-	for ( $try = 0, $delay = 5; true; $try++ ) {
+	$reached = false;
+	for ( $try = 0, $delay = 5; $try < $max_attempts; $try++ ) {
 		$transfer = get_wpcom_site_transfer_status( $site_id_or_url );
 		if ( is_null( $transfer ) || $state === $transfer->status ) {
+			$reached = true;
 			break;
 		}
 
@@ -520,6 +524,11 @@ function wait_until_wpcom_site_transfer_state( string $site_id_or_url, string $s
 
 	$progress_bar->finish();
 	$output->writeln( '' ); // Empty line for UX purposes.
+
+	if ( ! $reached ) {
+		$output->writeln( "<error>The transfer of WordPress.com site $site_id_or_url did not reach the `$state` state after $max_attempts checks.</error>" );
+		return null;
+	}
 
 	return $transfer;
 }

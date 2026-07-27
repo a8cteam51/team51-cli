@@ -22,14 +22,48 @@ final class Pressable_Connection_Helper extends Abstract_Connection_Helper {
 	private const SFTP_USER_EMAIL = 'concierge@wordpress.com';
 
 	/**
-	 * How many lookups may fail before the collaborator is assumed missing rather than still provisioning.
-	 */
-	private const SFTP_USER_LOOKUP_GRACE_ATTEMPTS = 3;
-
-	/**
 	 * How many times to re-check for the SFTP user after creating the collaborator.
 	 */
 	private const SFTP_USER_PROVISION_ATTEMPTS = 6;
+
+	// endregion
+
+	// region METHODS
+
+	/**
+	 * Makes sure the site has an SFTP user for the concierge collaborator, creating one if it does not.
+	 *
+	 * Opening a connection deliberately does not do this: creating a collaborator is a write, and granting
+	 * access to a site should not be a side effect of a read-only command connecting to it. Commands that
+	 * provision a site call this once, explicitly, before they start connecting.
+	 *
+	 * @param   string $site_identifier The site to provision the SFTP user on.
+	 *
+	 * @return  boolean  Whether the site has an SFTP user for the concierge collaborator.
+	 */
+	public static function ensure_sftp_user( string $site_identifier ): bool {
+		if ( ! \is_null( get_pressable_site_sftp_user( $site_identifier, self::SFTP_USER_EMAIL ) ) ) {
+			return true;
+		}
+
+		console_writeln( '⏳ No Pressable SFTP user found for ' . self::SFTP_USER_EMAIL . '. Creating the collaborator...' );
+		if ( \is_null( create_pressable_site_collaborator( $site_identifier, self::SFTP_USER_EMAIL ) ) ) {
+			console_writeln( '❌ Could not create the Pressable site collaborator.' );
+			return false;
+		}
+
+		// Pressable provisions the SFTP user asynchronously, so it is not returned by the API right away.
+		for ( $attempt = 1; $attempt <= self::SFTP_USER_PROVISION_ATTEMPTS; $attempt++ ) {
+			\sleep( 5 );
+
+			if ( ! \is_null( get_pressable_site_sftp_user( $site_identifier, self::SFTP_USER_EMAIL ) ) ) {
+				return true;
+			}
+		}
+
+		console_writeln( '❌ The Pressable site SFTP user was created but did not become available in time.' );
+		return false;
+	}
 
 	// endregion
 
@@ -39,17 +73,19 @@ final class Pressable_Connection_Helper extends Abstract_Connection_Helper {
 	 * {@inheritdoc}
 	 */
 	protected static function get_credentials( string $site_identifier ): ?stdClass {
-		static $cache = array();
+		static $cache    = array();
+		static $reported = array();
 
 		if ( empty( $cache[ $site_identifier ] ) ) {
 			$sftp_user = get_pressable_site_sftp_user( $site_identifier, self::SFTP_USER_EMAIL );
 			if ( \is_null( $sftp_user ) ) {
-				// Callers retry in a loop, so the reason is reported once by the provisioning attempt rather
-				// than on every pass.
-				$sftp_user = self::provision_sftp_user( $site_identifier );
-			}
+				// Reported once per site: the caller waiting on a new site retries this in a loop, and the
+				// reason does not change between passes.
+				if ( ! isset( $reported[ $site_identifier ] ) ) {
+					$reported[ $site_identifier ] = true;
+					console_writeln( '❌ Could not find the Pressable site SFTP user.' );
+				}
 
-			if ( \is_null( $sftp_user ) ) {
 				return null;
 			}
 
@@ -57,61 +93,6 @@ final class Pressable_Connection_Helper extends Abstract_Connection_Helper {
 		}
 
 		return $cache[ $site_identifier ];
-	}
-
-	/**
-	 * Creates the concierge collaborator on a site and waits for its SFTP user to be provisioned.
-	 *
-	 * A freshly cloned site does not always inherit the collaborator, which used to leave every SSH and SFTP
-	 * connection to it failing with `SFTP user not found.` until someone added the collaborator by hand.
-	 *
-	 * The far more common reason for that error is simply that the clone's own SFTP user has not finished
-	 * provisioning yet - it usually appears within a few seconds - so the lookup is retried here before
-	 * concluding the collaborator is missing. The grace is spent inside this call rather than across repeated
-	 * `get_credentials()` calls, because most callers open a single connection and never retry.
-	 *
-	 * Runs at most once per site: the one caller that does retry in a loop must not create a collaborator per
-	 * pass, and must not pay for the grace again once it has been spent.
-	 *
-	 * @param   string $site_identifier The site to provision the SFTP user on.
-	 *
-	 * @return  stdClass|null
-	 */
-	private static function provision_sftp_user( string $site_identifier ): ?stdClass {
-		static $attempted = array();
-
-		if ( isset( $attempted[ $site_identifier ] ) ) {
-			return null;
-		}
-		$attempted[ $site_identifier ] = true;
-
-		for ( $attempt = 1; $attempt < self::SFTP_USER_LOOKUP_GRACE_ATTEMPTS; $attempt++ ) {
-			\sleep( 5 );
-
-			$sftp_user = get_pressable_site_sftp_user( $site_identifier, self::SFTP_USER_EMAIL );
-			if ( ! \is_null( $sftp_user ) ) {
-				return $sftp_user;
-			}
-		}
-
-		console_writeln( '⏳ No Pressable SFTP user found for ' . self::SFTP_USER_EMAIL . '. Creating the collaborator...' );
-		if ( \is_null( create_pressable_site_collaborator( $site_identifier, self::SFTP_USER_EMAIL ) ) ) {
-			console_writeln( '❌ Could not create the Pressable site collaborator.' );
-			return null;
-		}
-
-		// Pressable provisions the SFTP user asynchronously, so it is not returned by the API right away.
-		for ( $attempt = 1; $attempt <= self::SFTP_USER_PROVISION_ATTEMPTS; $attempt++ ) {
-			\sleep( 5 );
-
-			$sftp_user = get_pressable_site_sftp_user( $site_identifier, self::SFTP_USER_EMAIL );
-			if ( ! \is_null( $sftp_user ) ) {
-				return $sftp_user;
-			}
-		}
-
-		console_writeln( '❌ The Pressable site SFTP user was created but did not become available in time.' );
-		return null;
 	}
 
 	// endregion
