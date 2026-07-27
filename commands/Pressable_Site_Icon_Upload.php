@@ -71,7 +71,9 @@ final class Pressable_Site_Icon_Upload extends Command {
 		$output->writeln( '<comment>Getting site icon URL...</comment>' );
 		run_pressable_site_wp_cli_command( $this->site->id, "--skip-themes --skip-plugins eval 'echo get_site_icon_url(180);'", true );
 
-		$site_icon_url = $GLOBALS['wp_cli_output'];
+		// The captured reply may carry notices or warnings ahead of the URL, which is always the last line.
+		$output_lines  = preg_split( '/\R/', trim( (string) ( $GLOBALS['wp_cli_output'] ?? '' ) ) );
+		$site_icon_url = trim( (string) end( $output_lines ) );
 		if ( ! filter_var( $site_icon_url, FILTER_VALIDATE_URL ) ) {
 			$output->writeln( '<error>Site has no icon set. Aborting.</error>' );
 			return Command::FAILURE;

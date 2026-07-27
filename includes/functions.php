@@ -175,6 +175,21 @@ function parse_wp_cli_porcelain_password( mixed $output ): ?string {
 }
 
 /**
+ * Returns whether some captured WP-CLI output is a fatal WP-CLI error message.
+ *
+ * A reply that starts with `Error:` means WP-CLI halted before doing anything - unlike a `Warning:`, which
+ * precedes the command's real output - so callers can tell "the command never ran" apart from "the command ran
+ * but its output is unreadable".
+ *
+ * @param   mixed $output The captured WP-CLI output.
+ *
+ * @return  boolean
+ */
+function is_wp_cli_error_output( mixed $output ): bool {
+	return is_string( $output ) && str_starts_with( ltrim( $output ), 'Error:' );
+}
+
+/**
  * Prints the raw output of a password reset whose result could not be read as a password.
  *
  * By the time the output is parsed the reset has already run, so this string is the only copy of whatever the

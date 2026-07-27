@@ -23,15 +23,25 @@ const SAFETY_NET_ZIP_URL = 'https://github.com/a8cteam51/safety-net/releases/lat
  * @return  string
  */
 function get_ssh_site_root_path( SSH2 $ssh_connection ): string {
-	static $roots = array();
+	// A WeakMap rather than an id-keyed array: PHP reuses object ids, so a later connection could otherwise
+	// inherit the root probed for a different site.
+	static $roots = null;
 
-	$key = spl_object_id( $ssh_connection );
-	if ( ! isset( $roots[ $key ] ) ) {
-		$result        = $ssh_connection->exec( "test -d htdocs/wp-content && echo 'ROOT:REL' || echo 'ROOT:ABS'" );
-		$roots[ $key ] = str_contains( is_string( $result ) ? $result : '', 'ROOT:REL' ) ? 'htdocs' : '/htdocs';
+	$roots ??= new WeakMap();
+	if ( ! isset( $roots[ $ssh_connection ] ) ) {
+		$result = $ssh_connection->exec( "test -d htdocs/wp-content && echo 'ROOT:REL' || echo 'ROOT:ABS'" );
+		$result = is_string( $result ) ? $result : '';
+
+		// An unreadable probe is not cached, and falls back to the common layout rather than pinning the rare
+		// one for the rest of the connection's life.
+		if ( ! str_contains( $result, 'ROOT:' ) ) {
+			return 'htdocs';
+		}
+
+		$roots[ $ssh_connection ] = str_contains( $result, 'ROOT:REL' ) ? 'htdocs' : '/htdocs';
 	}
 
-	return $roots[ $key ];
+	return $roots[ $ssh_connection ];
 }
 
 /**
@@ -66,21 +76,23 @@ function is_safety_net_installed( SSH2 $ssh_connection ): ?bool {
  * Nothing here boots WordPress. A freshly cloned site kills any WordPress-booting command with SIGSYS under
  * Pressable's SSH seccomp profile - `wp plugin install` included - so the release zip is unpacked in place.
  *
- * @param   SSH2 $ssh_connection The SSH connection to the site.
+ * @param   SSH2        $ssh_connection The SSH connection to the site.
+ * @param   string|null $failure_output Receives whatever `curl`/`unzip` printed when the install failed.
  *
  * @return  integer  The exit code of the download and unpack.
  */
-function install_safety_net_files( SSH2 $ssh_connection ): int {
+function install_safety_net_files( SSH2 $ssh_connection, ?string &$failure_output = null ): int {
 	$mu_plugins = get_ssh_site_root_path( $ssh_connection ) . '/wp-content/mu-plugins';
 
-	// The command is silent until the trailing echo, and the connection's default read timeout is 10 seconds -
-	// a download slower than that would truncate the output and lose the INSTALL: marker. The generous but
-	// finite budget is restored afterwards so later commands on this connection keep a ceiling.
+	// The command produces no output before the trailing echo unless something fails, and the connection's
+	// default read timeout is 10 seconds - a download slower than that would truncate the output and lose the
+	// INSTALL: marker. The generous but finite budget is restored afterwards so later commands on this
+	// connection keep a ceiling.
 	$ssh_connection->setTimeout( 600 );
 
 	$result = $ssh_connection->exec(
-		"curl -fsSL '" . SAFETY_NET_ZIP_URL . "' -o /tmp/safety-net.zip 2>/dev/null"
-		. " && unzip -o /tmp/safety-net.zip -d $mu_plugins/ >/dev/null 2>&1"
+		"{ curl -fsSL '" . SAFETY_NET_ZIP_URL . "' -o /tmp/safety-net.zip"
+		. " && unzip -o -q /tmp/safety-net.zip -d '$mu_plugins/' ; } 2>&1"
 		. ' ; INSTALL=$?'
 		. ' ; rm -f /tmp/safety-net.zip'
 		. ' ; echo "INSTALL:${INSTALL}"'
@@ -93,7 +105,13 @@ function install_safety_net_files( SSH2 $ssh_connection ): int {
 	// The exit code is reported verbatim by the caller, so a missing `curl`/`unzip` (127) stays
 	// distinguishable from a download that failed. -1 means the marker never came back, which is a different
 	// problem again: the command did not run to completion.
-	return preg_match( '/INSTALL:(\d+)/', $result, $matches ) ? (int) $matches[1] : -1;
+	$exit_code = preg_match( '/INSTALL:(\d+)/', $result, $matches ) ? (int) $matches[1] : -1;
+
+	if ( 0 !== $exit_code ) {
+		$failure_output = trim( (string) preg_replace( '/INSTALL:\d+\s*$/', '', $result ) );
+	}
+
+	return $exit_code;
 }
 
 /**
@@ -161,12 +179,14 @@ function is_safety_net_confirmed_via_http( string $site_url ): ?bool {
 		)
 	);
 
-	$body             = false;
-	$response_headers = array();
+	$body        = false;
+	$status_code = 0;
 
+	// Retried on any non-200 as well as on transport failure: a freshly created hostname may not resolve on
+	// the first try, and a clone still warming up answers 502 - both usually clear within seconds.
 	for ( $attempt = 1; $attempt <= 2; $attempt++ ) {
 		if ( 1 < $attempt ) {
-			sleep( 5 ); // A freshly created hostname may not resolve on the first try.
+			sleep( 5 );
 		}
 
 		$body = @file_get_contents( rtrim( $site_url, '/' ) . '/wp-json/safety-net/v1/status?_=' . time(), false, $context ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
@@ -174,8 +194,9 @@ function is_safety_net_confirmed_via_http( string $site_url ): ?bool {
 		$response_headers = function_exists( 'http_get_last_response_headers' )
 			? ( http_get_last_response_headers() ?? array() )
 			: ( $http_response_header ?? array() );
+		$status_code      = parse_http_headers( $response_headers )['http_code'] ?? 0;
 
-		if ( is_string( $body ) ) {
+		if ( is_string( $body ) && 200 === $status_code ) {
 			break;
 		}
 	}
@@ -187,7 +208,7 @@ function is_safety_net_confirmed_via_http( string $site_url ): ?bool {
 	// A non-200 answer - a 403 from a private staging site, a 502 during warm-up - says the status could not
 	// be read, not that the site is unprotected, so it reports unknown just like an unreachable site does.
 	// Only a readable 200 report gets to say either way.
-	if ( 200 !== ( parse_http_headers( $response_headers )['http_code'] ?? 0 ) ) {
+	if ( 200 !== $status_code ) {
 		return null;
 	}
 
@@ -230,10 +251,19 @@ function maybe_install_safety_net( ?SSH2 $ssh_connection, OutputInterface $outpu
 		$output->writeln( '<comment>Could not read the mu-plugins directory. Attempting the SafetyNet installation anyway...</comment>' );
 	}
 
-	$exit_code = install_safety_net_files( $ssh_connection );
+	$failure_output = null;
+
+	$exit_code = install_safety_net_files( $ssh_connection, $failure_output );
 	if ( 0 !== $exit_code ) {
 		$output->writeln( "<comment>Downloading SafetyNet over SSH failed with exit code $exit_code.</comment>" );
+		if ( '' !== (string) $failure_output ) {
+			$output->writeln( '<comment>' . \Symfony\Component\Console\Formatter\OutputFormatter::escape( $failure_output ) . '</comment>' );
+		}
 		$output->writeln( '<comment>Falling back to installing SafetyNet through WP-CLI...</comment>' );
+
+		// Downloading the release and booting WordPress regularly outlasts the 10-second read ceiling the
+		// download step restored, so it is lifted for the fallback and put back after.
+		$ssh_connection->setTimeout( 600 );
 
 		// Run on the connection directly: the exit codes below are the remote ones, so each step reports its
 		// own failure. getExitStatus() returns false when the server sent no exit-status message, which is
@@ -245,11 +275,13 @@ function maybe_install_safety_net( ?SSH2 $ssh_connection, OutputInterface $outpu
 		}
 
 		$site_root = get_ssh_site_root_path( $ssh_connection );
-		$ssh_connection->exec( "mv -f $site_root/wp-content/plugins/safety-net $site_root/wp-content/mu-plugins/safety-net" );
+		$ssh_connection->exec( "mv -f '$site_root/wp-content/plugins/safety-net' '$site_root/wp-content/mu-plugins/safety-net'" );
 		$move_code = $ssh_connection->getExitStatus();
 		if ( false !== $move_code && 0 !== $move_code ) {
 			$output->writeln( "<error>Moving SafetyNet into mu-plugins failed with exit code $move_code.</error>" );
 		}
+
+		$ssh_connection->setTimeout( 10 );
 	}
 
 	if ( ! write_safety_net_loader( $ssh_connection ) ) {
