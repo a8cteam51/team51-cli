@@ -94,9 +94,11 @@ function install_safety_net_files( SSH2 $ssh_connection, ?string &$failure_outpu
 	$ssh_connection->setTimeout( 600 );
 
 	// The archive lands at a mktemp-allocated path rather than a fixed, predictable one that anything else
-	// with write access to /tmp could pre-create between the download and the unpack.
+	// with write access to /tmp could pre-create between the download and the unpack. A missing or failing
+	// mktemp falls back to a per-process name instead of an empty target that would fail every install and
+	// push all clones onto the WP-CLI fallback.
 	$result = $ssh_connection->exec(
-		'ZIP=$(mktemp)'
+		'ZIP=$(mktemp) || ZIP=/tmp/safety-net.$$.zip'
 		. " ; { curl -fsSL '" . SAFETY_NET_ZIP_URL . '\' -o "$ZIP"'
 		. ' && unzip -o -q "$ZIP" -d \'' . $mu_plugins . '/\' ; } 2>&1'
 		. ' ; INSTALL=$?'

@@ -157,24 +157,25 @@ function parse_wp_cli_porcelain_password( mixed $output ): ?string {
 		return null;
 	}
 
-	// The reply accumulates every packet, stderr included, so a notice arriving ahead of the token must not
-	// fail a reset that succeeded. `--porcelain` prints the token last, so the last non-empty line is judged.
-	$output_lines = array_values( array_filter( array_map( 'trim', preg_split( '/\R/', $output ) ), static fn( string $line ): bool => '' !== $line ) );
-	$password     = empty( $output_lines ) ? '' : end( $output_lines );
+	// The reply accumulates every packet, stderr included, so noise on either side of the token must not fail
+	// a reset that succeeded. The lines are walked in reverse - `--porcelain` prints the token last, but a
+	// message can still trail it - and the nearest-to-last line that is not a WP-CLI message and has the
+	// single-token shape is the password.
+	$output_lines = array_reverse( array_filter( array_map( 'trim', preg_split( '/\R/', $output ) ), static fn( string $line ): bool => '' !== $line ) );
 
-	// Checked before the shape test so prefixed message text is recognizably rejected as WP-CLI output rather
-	// than merely failing the single-token requirement.
-	foreach ( array( 'Error:', 'Warning:', 'Success:' ) as $prefix ) {
-		if ( str_starts_with( $password, $prefix ) ) {
-			return null;
+	foreach ( $output_lines as $output_line ) {
+		foreach ( array( 'Error:', 'Warning:', 'Success:' ) as $prefix ) {
+			if ( str_starts_with( $output_line, $prefix ) ) {
+				continue 2;
+			}
+		}
+
+		if ( 1 === preg_match( '/^\S+$/', $output_line ) ) {
+			return $output_line;
 		}
 	}
 
-	if ( 1 !== preg_match( '/^\S+$/', $password ) ) {
-		return null;
-	}
-
-	return $password;
+	return null;
 }
 
 /**

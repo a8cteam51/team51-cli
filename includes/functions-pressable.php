@@ -380,10 +380,10 @@ function rotate_pressable_site_wp_user_password( string $site_id_or_url, string 
 
 		// Whenever output was captured but no credentials are returned - a garbled token, or a connection that
 		// broke after the reset already ran and printed one - that output is the only copy of whatever the
-		// site now uses, so it is surfaced rather than dropped. A fatal WP-CLI error is the exception: it
-		// means the reset never ran, so there is no credential to preserve and the caller's failure message
-		// covers it.
-		if ( is_null( $credentials ) && '' !== trim( (string) ( $GLOBALS['wp_cli_output'] ?? '' ) ) && ! is_wp_cli_error_output( $GLOBALS['wp_cli_output'] ) ) {
+		// site now uses, so it is surfaced rather than dropped. Suppressed only when a fatal WP-CLI error is
+		// present AND no token was recoverable: that combination means the reset never ran, whereas an error
+		// alongside a token means it did and the token must not be lost.
+		if ( is_null( $credentials ) && '' !== trim( (string) ( $GLOBALS['wp_cli_output'] ?? '' ) ) && ( ! is_null( $password ) || ! is_wp_cli_error_output( $GLOBALS['wp_cli_output'] ) ) ) {
 			report_unreadable_wp_cli_password( $user, $GLOBALS['wp_cli_output'] );
 		}
 	}
