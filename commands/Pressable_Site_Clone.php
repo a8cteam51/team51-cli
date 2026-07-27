@@ -231,7 +231,6 @@ final class Pressable_Site_Clone extends Command {
 		);
 		run_pressable_site_wp_cli_command( $site_clone->id, 'config set WP_ENVIRONMENT_TYPE development --type=constant' );
 
-		$safety_net_installed = true;
 		if ( $this->skip_safety_net ) {
 			$output->writeln( '<comment>Skipping the installation of SafetyNet as a mu-plugin.</comment>' );
 		} else {
@@ -258,12 +257,13 @@ final class Pressable_Site_Clone extends Command {
 		// above is what makes true. The file check only proves the files are present; this endpoint is the
 		// authoritative signal that Safety Net actually booted and scrubbed, so it decides the final verdict
 		// on every run - not just when the files were missing.
-		if ( ! $this->skip_safety_net ) {
-			$safety_net_installed = is_safety_net_confirmed_via_http( $site_clone->url );
-		}
+		$safety_net_installed = $this->skip_safety_net ? true : is_safety_net_confirmed_via_http( $site_clone->url );
 
 		if ( Command::SUCCESS !== $rotate_status ) {
-			$output->writeln( '<comment>⚠  Heads up: the WP user password rotation did not complete cleanly. See the warning above for what to record or retry.</comment>' );
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			$output->writeln( '<error>⚠  The WP user password rotation did not complete cleanly.</error>' );
+			$output->writeln( '<error>    See the warning above for the password to record or the rotation to retry.</error>' );
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 		}
 
 		if ( true !== $safety_net_installed ) {

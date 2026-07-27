@@ -157,7 +157,10 @@ function parse_wp_cli_porcelain_password( mixed $output ): ?string {
 		return null;
 	}
 
-	$password = trim( $output );
+	// The reply accumulates every packet, stderr included, so a notice arriving ahead of the token must not
+	// fail a reset that succeeded. `--porcelain` prints the token last, so the last non-empty line is judged.
+	$output_lines = array_values( array_filter( array_map( 'trim', preg_split( '/\R/', $output ) ), static fn( string $line ): bool => '' !== $line ) );
+	$password     = empty( $output_lines ) ? '' : end( $output_lines );
 
 	// Checked before the shape test so prefixed message text is recognizably rejected as WP-CLI output rather
 	// than merely failing the single-token requirement.
@@ -177,16 +180,26 @@ function parse_wp_cli_porcelain_password( mixed $output ): ?string {
 /**
  * Returns whether some captured WP-CLI output is a fatal WP-CLI error message.
  *
- * A reply that starts with `Error:` means WP-CLI halted before doing anything - unlike a `Warning:`, which
- * precedes the command's real output - so callers can tell "the command never ran" apart from "the command ran
- * but its output is unreadable".
+ * An `Error:` line means WP-CLI halted before doing anything - unlike a `Warning:`, which precedes the
+ * command's real output - so callers can tell "the command never ran" apart from "the command ran but its
+ * output is unreadable". Every line is scanned because the accumulated reply may carry notices ahead of it.
  *
  * @param   mixed $output The captured WP-CLI output.
  *
  * @return  boolean
  */
 function is_wp_cli_error_output( mixed $output ): bool {
-	return is_string( $output ) && str_starts_with( ltrim( $output ), 'Error:' );
+	if ( ! is_string( $output ) ) {
+		return false;
+	}
+
+	foreach ( preg_split( '/\R/', $output ) as $line ) {
+		if ( str_starts_with( trim( $line ), 'Error:' ) ) {
+			return true;
+		}
+	}
+
+	return false;
 }
 
 /**

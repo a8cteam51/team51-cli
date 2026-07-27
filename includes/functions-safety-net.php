@@ -7,6 +7,9 @@ use Symfony\Component\Console\Output\OutputInterface;
 
 const SAFETY_NET_ZIP_URL = 'https://github.com/a8cteam51/safety-net/releases/latest/download/safety-net.zip';
 
+// The read ceiling restored after long-running commands; mirrors the default the connection is built with.
+const SAFETY_NET_SSH_DEFAULT_TIMEOUT = 10;
+
 // endregion
 
 // region API
@@ -90,15 +93,18 @@ function install_safety_net_files( SSH2 $ssh_connection, ?string &$failure_outpu
 	// connection keep a ceiling.
 	$ssh_connection->setTimeout( 600 );
 
+	// The archive lands at a mktemp-allocated path rather than a fixed, predictable one that anything else
+	// with write access to /tmp could pre-create between the download and the unpack.
 	$result = $ssh_connection->exec(
-		"{ curl -fsSL '" . SAFETY_NET_ZIP_URL . "' -o /tmp/safety-net.zip"
-		. " && unzip -o -q /tmp/safety-net.zip -d '$mu_plugins/' ; } 2>&1"
+		'ZIP=$(mktemp)'
+		. " ; { curl -fsSL '" . SAFETY_NET_ZIP_URL . '\' -o "$ZIP"'
+		. ' && unzip -o -q "$ZIP" -d \'' . $mu_plugins . '/\' ; } 2>&1'
 		. ' ; INSTALL=$?'
-		. ' ; rm -f /tmp/safety-net.zip'
+		. ' ; rm -f "$ZIP"'
 		. ' ; echo "INSTALL:${INSTALL}"'
 	);
 
-	$ssh_connection->setTimeout( 10 );
+	$ssh_connection->setTimeout( SAFETY_NET_SSH_DEFAULT_TIMEOUT );
 
 	$result = is_string( $result ) ? $result : '';
 
@@ -156,11 +162,12 @@ function write_safety_net_loader( SSH2 $ssh_connection ): bool {
  * hostname may not resolve yet - so callers can say they could not verify instead of asserting the site holds
  * unscrubbed data. A site that does answer fails closed on anything unexpected.
  *
- * @param   string $site_url The URL of the site to check.
+ * @param   string  $site_url     The URL of the site to check.
+ * @param   integer $max_attempts The maximum number of probes, 5 seconds apart.
  *
  * @return  boolean|null  Null if the site could not be reached or did not answer with a readable report.
  */
-function is_safety_net_confirmed_via_http( string $site_url ): ?bool {
+function is_safety_net_confirmed_via_http( string $site_url, int $max_attempts = 12 ): ?bool {
 	if ( ! preg_match( '#^https?://#i', $site_url ) ) {
 		$site_url = "https://$site_url";
 	}
@@ -183,8 +190,10 @@ function is_safety_net_confirmed_via_http( string $site_url ): ?bool {
 	$status_code = 0;
 
 	// Retried on any non-200 as well as on transport failure: a freshly created hostname may not resolve on
-	// the first try, and a clone still warming up answers 502 - both usually clear within seconds.
-	for ( $attempt = 1; $attempt <= 2; $attempt++ ) {
+	// the first try, and a clone still warming up answers 502 - both usually clear within seconds. This check
+	// is the sole authority on the clone's verdict, so it gets patience comparable to the other waits on the
+	// path rather than failing a 20-minute provisioning run on one hiccup.
+	for ( $attempt = 1; $attempt <= $max_attempts; $attempt++ ) {
 		if ( 1 < $attempt ) {
 			sleep( 5 );
 		}
@@ -281,7 +290,7 @@ function maybe_install_safety_net( ?SSH2 $ssh_connection, OutputInterface $outpu
 			$output->writeln( "<error>Moving SafetyNet into mu-plugins failed with exit code $move_code.</error>" );
 		}
 
-		$ssh_connection->setTimeout( 10 );
+		$ssh_connection->setTimeout( SAFETY_NET_SSH_DEFAULT_TIMEOUT );
 	}
 
 	if ( ! write_safety_net_loader( $ssh_connection ) ) {

@@ -183,7 +183,6 @@ final class WPCOM_Site_Clone extends Command {
 		run_wpcom_site_wp_cli_command( $staging_site->id, "search-replace {$this->site->URL} $staging_site_https_url" );
 		run_wpcom_site_wp_cli_command( $staging_site->id, 'cache flush' );
 
-		$safety_net_installed = true;
 		if ( $this->skip_safety_net ) {
 			$output->writeln( '<comment>Skipping the installation of SafetyNet as a mu-plugin.</comment>' );
 		} else {
@@ -222,15 +221,16 @@ final class WPCOM_Site_Clone extends Command {
 		}
 
 		if ( Command::SUCCESS !== $rotate_status ) {
-			$output->writeln( '<comment>⚠  Heads up: the WP user password rotation did not complete cleanly. See the warning above for what to record or retry.</comment>' );
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			$output->writeln( '<error>⚠  The WP user password rotation did not complete cleanly.</error>' );
+			$output->writeln( '<error>    See the warning above for the password to record or the rotation to retry.</error>' );
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 		}
 
 		// Checked last - after the Jetpack token regeneration and the repository deployment that writes into
 		// wp-content - so the verdict reflects the site as it is handed off. The endpoint is the authoritative
 		// signal that Safety Net actually booted and scrubbed, so it decides on every run.
-		if ( ! $this->skip_safety_net ) {
-			$safety_net_installed = is_safety_net_confirmed_via_http( $staging_site_https_url );
-		}
+		$safety_net_installed = $this->skip_safety_net ? true : is_safety_net_confirmed_via_http( $staging_site_https_url );
 
 		if ( true !== $safety_net_installed ) {
 			$headline = \is_null( $safety_net_installed )

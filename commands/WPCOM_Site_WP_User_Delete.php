@@ -216,7 +216,21 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 				exit( 1 );
 			}
 
-			$site_admins = decode_json_content( $wp_cli_output );
+			// The accumulated reply may carry notices or warnings around the JSON, so the payload is the line
+			// that decodes - not the reply as a whole.
+			$site_admins = null;
+			foreach ( \preg_split( '/\R/', trim( $wp_cli_output ) ) as $output_line ) {
+				$output_line = trim( $output_line );
+				if ( '' === $output_line || ( ! \str_starts_with( $output_line, '[' ) && ! \str_starts_with( $output_line, '{' ) ) ) {
+					continue;
+				}
+
+				$site_admins = \json_decode( $output_line );
+				if ( null !== $site_admins ) {
+					break;
+				}
+			}
+
 			if ( null === $site_admins ) {
 				$output->writeln( "<error>Failed to decode administrator users for site ID {$ssh_user_data['id']} using SSH.</error>" );
 				exit( 1 );
