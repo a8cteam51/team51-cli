@@ -262,10 +262,14 @@ final class Pressable_Site_Clone extends Command {
 			$output->writeln( '<comment>⚠  Heads up: 1Password sync did not complete during this run. See the warning above for the password to record manually.</comment>' );
 		}
 
-		if ( ! $safety_net_installed ) {
+		if ( true !== $safety_net_installed ) {
+			$headline = \is_null( $safety_net_installed )
+				? "⚠  Could not verify SafetyNet on $site_clone->url."
+				: "⚠  SafetyNet is NOT installed on $site_clone->url.";
+
 			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
-			$output->writeln( "<error>⚠  SafetyNet is NOT installed on $site_clone->url.</error>" );
-			$output->writeln( '<error>    The clone still holds unscrubbed production data. Install it manually before sharing the site.</error>' );
+			$output->writeln( "<error>$headline</error>" );
+			$output->writeln( '<error>    Treat the clone as holding unscrubbed production data until you have checked it.</error>' );
 			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 			return Command::FAILURE;
 		}

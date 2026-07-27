@@ -235,10 +235,14 @@ final class WPCOM_Site_Clone extends Command {
 			$output->writeln( '<comment>⚠  Heads up: 1Password sync did not complete during this run. See the warning above for the password to record manually.</comment>' );
 		}
 
-		if ( ! $safety_net_installed ) {
+		if ( true !== $safety_net_installed ) {
+			$headline = \is_null( $safety_net_installed )
+				? "⚠  Could not verify SafetyNet on $staging_site_https_url."
+				: "⚠  SafetyNet is NOT installed on $staging_site_https_url.";
+
 			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
-			$output->writeln( "<error>⚠  SafetyNet is NOT installed on $staging_site_https_url.</error>" );
-			$output->writeln( '<error>    The staging site still holds unscrubbed production data. Install it manually before sharing the site.</error>' );
+			$output->writeln( "<error>$headline</error>" );
+			$output->writeln( '<error>    Treat the staging site as holding unscrubbed production data until you have checked it.</error>' );
 			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 			return Command::FAILURE;
 		}

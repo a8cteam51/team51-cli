@@ -63,9 +63,10 @@ function install_safety_net_files( SSH2 $ssh_connection ): int {
 	);
 	$result = is_string( $result ) ? $result : '';
 
-	// A `curl` or `unzip` missing from the image exits 127, which distinguishes a broken environment from a
-	// download that failed because the release could not be reached.
-	return preg_match( '/INSTALL:(\d+)/', $result, $matches ) ? (int) $matches[1] : 1;
+	// The exit code is reported verbatim by the caller, so a missing `curl`/`unzip` (127) stays
+	// distinguishable from a download that failed. -1 means the marker never came back, which is a different
+	// problem again: the command did not run to completion.
+	return preg_match( '/INSTALL:(\d+)/', $result, $matches ) ? (int) $matches[1] : -1;
 }
 
 /**
@@ -103,13 +104,17 @@ function write_safety_net_loader( SSH2 $ssh_connection ): bool {
  * Returns whether a site reports that Safety Net has actually run and scrubbed it.
  *
  * This is the authoritative check: unlike the file listing, it confirms that Safety Net booted and did its
- * work. Fails closed on anything unexpected, and never follows a redirect off the site being verified.
+ * work. Never follows a redirect off the site being verified.
+ *
+ * A site that could not be reached at all is reported as unknown rather than unprotected - a brand-new clone
+ * hostname may not resolve yet - so callers can say they could not verify instead of asserting the site holds
+ * unscrubbed data. A site that does answer fails closed on anything unexpected.
  *
  * @param   string $site_url The URL of the site to check.
  *
- * @return  boolean
+ * @return  boolean|null  Null if the site could not be reached.
  */
-function is_safety_net_confirmed_via_http( string $site_url ): bool {
+function is_safety_net_confirmed_via_http( string $site_url ): ?bool {
 	if ( ! preg_match( '#^https?://#i', $site_url ) ) {
 		$site_url = "https://$site_url";
 	}
@@ -128,14 +133,29 @@ function is_safety_net_confirmed_via_http( string $site_url ): bool {
 		)
 	);
 
-	$body = @file_get_contents( rtrim( $site_url, '/' ) . '/wp-json/safety-net/v1/status?_=' . time(), false, $context ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
-	if ( ! is_string( $body ) ) {
-		return false;
+	$body             = false;
+	$response_headers = array();
+
+	for ( $attempt = 1; $attempt <= 2; $attempt++ ) {
+		if ( 1 < $attempt ) {
+			sleep( 5 ); // A freshly created hostname may not resolve on the first try.
+		}
+
+		$body = @file_get_contents( rtrim( $site_url, '/' ) . '/wp-json/safety-net/v1/status?_=' . time(), false, $context ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+
+		$response_headers = function_exists( 'http_get_last_response_headers' )
+			? ( http_get_last_response_headers() ?? array() )
+			: ( $http_response_header ?? array() );
+
+		if ( is_string( $body ) ) {
+			break;
+		}
 	}
 
-	$response_headers = function_exists( 'http_get_last_response_headers' )
-		? ( http_get_last_response_headers() ?? array() )
-		: ( $http_response_header ?? array() );
+	if ( ! is_string( $body ) ) {
+		return null;
+	}
+
 	if ( 200 !== ( parse_http_headers( $response_headers )['http_code'] ?? 0 ) ) {
 		return false;
 	}
@@ -185,8 +205,17 @@ function maybe_install_safety_net( ?SSH2 $ssh_connection, OutputInterface $outpu
 		if ( ! is_null( $wp_cli_runner ) ) {
 			$output->writeln( '<comment>Falling back to installing SafetyNet through WP-CLI...</comment>' );
 
-			$wp_cli_runner( 'plugin install ' . SAFETY_NET_ZIP_URL );
+			// Both steps are reported separately so a failure here says whether the download or the move broke.
+			$install_code = $wp_cli_runner( 'plugin install ' . SAFETY_NET_ZIP_URL );
+			if ( 0 !== $install_code ) {
+				$output->writeln( "<error>Installing SafetyNet through WP-CLI failed with exit code $install_code.</error>" );
+			}
+
 			$ssh_connection->exec( 'mv -f /htdocs/wp-content/plugins/safety-net ' . SAFETY_NET_MU_PLUGINS_PATH . '/safety-net' );
+			$move_code = $ssh_connection->getExitStatus();
+			if ( 0 !== $move_code ) {
+				$output->writeln( "<error>Moving SafetyNet into mu-plugins failed with exit code $move_code.</error>" );
+			}
 		}
 	}
 
@@ -194,7 +223,12 @@ function maybe_install_safety_net( ?SSH2 $ssh_connection, OutputInterface $outpu
 		$output->writeln( '<error>Could not read the SafetyNet loader scaffold!</error>' );
 	}
 
-	if ( true !== is_safety_net_installed( $ssh_connection ) ) {
+	$installed = is_safety_net_installed( $ssh_connection );
+	if ( is_null( $installed ) ) {
+		$output->writeln( '<error>Could not verify the SafetyNet installation.</error>' );
+		return false;
+	}
+	if ( false === $installed ) {
 		$output->writeln( '<error>Failed to install SafetyNet!</error>' );
 		return false;
 	}

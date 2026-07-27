@@ -365,7 +365,8 @@ function rotate_pressable_site_wp_user_password( string $site_id_or_url, string 
 	$site_id_or_url = pressable_maybe_resolve_site_alias( $site_id_or_url );
 	$credentials    = API_Helper::make_pressable_request( "site-wp-users/$site_id_or_url/$user/rotate-password", 'POST' );
 	if ( is_null( $credentials ) || is_null( $credentials->password ) ) {
-		$exit_code = run_pressable_site_wp_cli_command( $site_id_or_url, "user reset-password $user --skip-email --porcelain" );
+		// Skipping the output keeps the freshly reset password out of the console and any log capturing it.
+		$exit_code = run_pressable_site_wp_cli_command( $site_id_or_url, "user reset-password $user --skip-email --porcelain", true );
 		$password  = is_string( $GLOBALS['wp_cli_output'] ?? null ) ? trim( $GLOBALS['wp_cli_output'] ) : '';
 
 		// The password is only trusted when WP-CLI actually printed one. Without this an unreachable site
