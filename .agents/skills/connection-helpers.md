@@ -90,7 +90,7 @@ if ( 0 !== $exit_code ) {
 }
 ```
 
-For streaming/callback style, `exec()` can accept a callback. See `Pressable_Site_Clone.php` for examples.
+For streaming/callback style, `exec()` can accept a callback. See `Pressable_Site_WP_CLI_Command_Run.php` or `SSH_Worker.php` for examples.
 
 ### 5. SFTP put
 
@@ -138,5 +138,5 @@ See `connection-helper-pressable.php` and `connection-helper-wpcom.php` for refe
 
 ## Example Commands
 
-- **SSH**: `Pressable_Site_Clone` (SafetyNet install + loader via heredoc), `Pressable_Site_WP_CLI_Command_Run`, `Pressable_Site_Shell_Open`, `WPCOM_Site_WP_CLI_Command_Run`
+- **SSH**: `includes/functions-safety-net.php` (SafetyNet install + loader via heredoc, used by both clone commands), `Pressable_Site_WP_CLI_Command_Run`, `Pressable_Site_Shell_Open`, `WPCOM_Site_WP_CLI_Command_Run`
 - **SFTP**: `Pressable_Site_Icon_Upload`, `Pressable_Site_Plugins_Download`, `GitHub_Pattern_To_Repo_Export`
