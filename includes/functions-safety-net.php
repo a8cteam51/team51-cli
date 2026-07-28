@@ -7,9 +7,6 @@ use Symfony\Component\Console\Output\OutputInterface;
 
 const SAFETY_NET_ZIP_URL = 'https://github.com/a8cteam51/safety-net/releases/latest/download/safety-net.zip';
 
-// The read ceiling restored after long-running commands; mirrors the default the connection is built with.
-const SAFETY_NET_SSH_DEFAULT_TIMEOUT = 10;
-
 // endregion
 
 // region API
@@ -94,19 +91,25 @@ function install_safety_net_files( SSH2 $ssh_connection, ?string &$failure_outpu
 	$ssh_connection->setTimeout( 600 );
 
 	// The archive lands at a mktemp-allocated path rather than a fixed, predictable one that anything else
-	// with write access to /tmp could pre-create between the download and the unpack. A missing or failing
-	// mktemp falls back to a per-process name instead of an empty target that would fail every install and
-	// push all clones onto the WP-CLI fallback.
+	// with write access to /tmp could pre-create between the download and the unpack. If mktemp is missing the
+	// fallback name is created under `set -C`, so a pre-existing file aborts the allocation instead of being
+	// written through; an unusable target reports 126 rather than silently failing the download.
+	//
+	// The stale plugin directory is cleared only after the archive is in hand, and before the unpack, because
+	// `unzip -o` merges into whatever is already there and would leave files from an older release behind.
 	$result = $ssh_connection->exec(
-		'ZIP=$(mktemp) || ZIP=/tmp/safety-net.$$.zip'
-		. " ; { curl -fsSL '" . SAFETY_NET_ZIP_URL . '\' -o "$ZIP"'
+		'ZIP=$(mktemp 2>/dev/null) || { ZIP=/tmp/safety-net.$$.zip ; ( set -C ; : > "$ZIP" ) 2>/dev/null || ZIP="" ; }'
+		. ' ; if [ -z "$ZIP" ] ; then INSTALL=126 ; else'
+		. " { curl -fsSL '" . SAFETY_NET_ZIP_URL . '\' -o "$ZIP"'
+		. " && rm -rf '$mu_plugins/safety-net'"
 		. ' && unzip -o -q "$ZIP" -d \'' . $mu_plugins . '/\' ; } 2>&1'
 		. ' ; INSTALL=$?'
 		. ' ; rm -f "$ZIP"'
+		. ' ; fi'
 		. ' ; echo "INSTALL:${INSTALL}"'
 	);
 
-	$ssh_connection->setTimeout( SAFETY_NET_SSH_DEFAULT_TIMEOUT );
+	$ssh_connection->setTimeout( Abstract_Connection_Helper::SSH_TIMEOUT );
 
 	$result = is_string( $result ) ? $result : '';
 
@@ -285,14 +288,21 @@ function maybe_install_safety_net( ?SSH2 $ssh_connection, OutputInterface $outpu
 			$output->writeln( "<error>Installing SafetyNet through WP-CLI failed with exit code $install_code.</error>" );
 		}
 
-		$site_root = get_ssh_site_root_path( $ssh_connection );
-		$ssh_connection->exec( "mv -f '$site_root/wp-content/plugins/safety-net' '$site_root/wp-content/mu-plugins/safety-net'" );
+		// `mv` moves the source *into* an existing destination directory rather than replacing it, which would
+		// nest the plugin one level too deep - and exit 0 while doing so. The destination is cleared first,
+		// but only once the source is known to exist, so a failed install never destroys what is already
+		// there without a replacement.
+		$site_root   = get_ssh_site_root_path( $ssh_connection );
+		$plugin_src  = "$site_root/wp-content/plugins/safety-net";
+		$plugin_dest = "$site_root/wp-content/mu-plugins/safety-net";
+
+		$ssh_connection->exec( "test -d '$plugin_src' && rm -rf '$plugin_dest' && mv -f '$plugin_src' '$plugin_dest'" );
 		$move_code = $ssh_connection->getExitStatus();
 		if ( false !== $move_code && 0 !== $move_code ) {
 			$output->writeln( "<error>Moving SafetyNet into mu-plugins failed with exit code $move_code.</error>" );
 		}
 
-		$ssh_connection->setTimeout( SAFETY_NET_SSH_DEFAULT_TIMEOUT );
+		$ssh_connection->setTimeout( Abstract_Connection_Helper::SSH_TIMEOUT );
 	}
 
 	if ( ! write_safety_net_loader( $ssh_connection ) ) {

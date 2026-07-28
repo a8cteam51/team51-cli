@@ -145,8 +145,10 @@ function decode_json_content( string $json, bool $associative = false, int $flag
  * The WP-CLI runners report the exit code of the local console command, not the remote `wp` exit status, and
  * phpseclib folds stderr into the captured output unless quiet mode is on - which it never is. A failed reset
  * therefore leaves an `Error: ...` sentence where the password should be, and storing that as a credential
- * would overwrite a good 1Password entry while the site keeps its old password. `--porcelain` prints nothing
- * but a single whitespace-free token, so anything else is rejected.
+ * would overwrite a good 1Password entry while the site keeps its old password. `--porcelain` prints the
+ * password as a single whitespace-free token and nothing else, so the reply is read from the end backwards:
+ * recognized WP-CLI messages are stepped over, and the first line past them yields the password only if it
+ * has that shape.
  *
  * @param   mixed $output The captured WP-CLI output.
  *
@@ -157,10 +159,11 @@ function parse_wp_cli_porcelain_password( mixed $output ): ?string {
 		return null;
 	}
 
-	// The reply accumulates every packet, stderr included, so noise on either side of the token must not fail
-	// a reset that succeeded. The lines are walked in reverse - `--porcelain` prints the token last, but a
-	// message can still trail it - and the nearest-to-last line that is not a WP-CLI message and has the
-	// single-token shape is the password.
+	// The reply accumulates every packet, stderr included, so a recognized WP-CLI message trailing the token
+	// must not fail a reset that succeeded. The lines are walked in reverse, skipping those messages; the
+	// first line that is not one of them is the candidate, and it is the password only if it has the
+	// single-token shape. Anything else - an unrecognized notice, a shell diagnostic - fails closed rather
+	// than letting the search reach past it to an earlier line that merely looks like a token.
 	$output_lines = array_reverse( array_filter( array_map( 'trim', preg_split( '/\R/', $output ) ), static fn( string $line ): bool => '' !== $line ) );
 
 	foreach ( $output_lines as $output_line ) {
@@ -170,9 +173,7 @@ function parse_wp_cli_porcelain_password( mixed $output ): ?string {
 			}
 		}
 
-		if ( 1 === preg_match( '/^\S+$/', $output_line ) ) {
-			return $output_line;
-		}
+		return 1 === preg_match( '/^\S+$/', $output_line ) ? $output_line : null;
 	}
 
 	return null;

@@ -215,11 +215,14 @@ final class Pressable_Site_Clone extends Command {
 
 		// A clone does not always inherit the concierge collaborator, and without it every SSH and SFTP
 		// connection below fails with `SFTP user not found.`
-		if ( ! \Pressable_Connection_Helper::ensure_sftp_user( $site_clone->id ) ) {
+		$sftp_user_ready = \Pressable_Connection_Helper::ensure_sftp_user( $site_clone->id );
+		if ( ! $sftp_user_ready ) {
 			$output->writeln( "<error>No usable SFTP user for $site_clone->url. The steps below that need SSH will fail.</error>" );
 		}
 
-		$ssh_connection = wait_on_pressable_site_ssh( $site_clone->id, $output );
+		// Without credentials the wait cannot succeed, so it is cut short: the run should end at the reason
+		// above rather than five minutes later at a timeout.
+		$ssh_connection = wait_on_pressable_site_ssh( $site_clone->id, $output, $sftp_user_ready ? 60 : 6 );
 
 		// Run a few commands to set up the site.
 		$rotate_status = run_app_command(
