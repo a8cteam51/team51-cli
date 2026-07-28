@@ -133,7 +133,11 @@ final class Pressable_Site_Create extends Command {
 			return Command::FAILURE;
 		}
 
-		wait_on_pressable_site_ssh( $site->id, $output )?->disconnect();
+		// This wait used to block until the site answered, so everything below it could assume SSH worked. It
+		// is bounded now, so the outcome has to be carried to the end: the setup steps that need SSH cannot
+		// succeed without it, and the command must not report success as though they had.
+		$ssh_connection = wait_on_pressable_site_ssh( $site->id, $output );
+		$ssh_connection?->disconnect();
 
 		// Run a few commands to set up the site.
 		$rotate_status = run_app_command(
@@ -166,6 +170,14 @@ final class Pressable_Site_Create extends Command {
 					}
 				}
 			}
+		}
+
+		if ( \is_null( $ssh_connection ) ) {
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			$output->writeln( "<error>⚠  Site $this->name (ID $site->id) was created but never became reachable over SSH.</error>" );
+			$output->writeln( '<error>    The setup steps that need SSH did not run. Finish them manually.</error>' );
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			return Command::FAILURE;
 		}
 
 		$output->writeln( "<fg=green;options=bold>Site $this->name created successfully.</>" );

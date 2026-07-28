@@ -135,7 +135,11 @@ final class WPCOM_Site_Create extends Command {
 			return Command::FAILURE;
 		}
 
-		wait_on_wpcom_site_ssh( $transfer->blog_id, $output )?->disconnect();
+		// This wait used to block until the site answered, so everything below it could assume SSH worked. It
+		// is bounded now, so the outcome has to be carried to the end: the setup steps that need SSH cannot
+		// succeed without it, and the command must not report success as though they had.
+		$ssh_connection = wait_on_wpcom_site_ssh( $transfer->blog_id, $output );
+		$ssh_connection?->disconnect();
 
 		// The site is ready but the API doesn't support setting the name during creation so we have to update it.
 		$update = update_wpcom_site( $transfer->blog_id, array( 'blogname' => "$this->name-production" ) );
@@ -174,6 +178,14 @@ final class WPCOM_Site_Create extends Command {
 				$output->writeln( '<error>Site was created, but connecting the GitHub deployment (including webhook setup) failed.</error>' );
 				return Command::FAILURE;
 			}
+		}
+
+		if ( \is_null( $ssh_connection ) ) {
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			$output->writeln( "<error>⚠  Site $this->name (ID $transfer->blog_id) was created but never became reachable over SSH.</error>" );
+			$output->writeln( '<error>    The setup steps that need SSH did not run. Finish them manually.</error>' );
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			return Command::FAILURE;
 		}
 
 		$output->writeln( "<fg=green;options=bold>Site $this->name created successfully.</>" );
