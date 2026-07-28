@@ -92,19 +92,23 @@ function install_safety_net_files( SSH2 $ssh_connection, ?string &$failure_outpu
 
 	// The archive lands at a mktemp-allocated path rather than a fixed, predictable one that anything else
 	// with write access to /tmp could pre-create between the download and the unpack. If mktemp is missing the
-	// fallback name is created under `set -C`, so a pre-existing file aborts the allocation instead of being
-	// written through; an unusable target reports 126 rather than silently failing the download.
+	// fallback names are created with `set -C`/`mkdir`, so a pre-existing target aborts the allocation instead
+	// of being written through; an unusable target reports 126 rather than silently failing the download.
 	//
-	// The stale plugin directory is cleared only after the archive is in hand, and before the unpack, because
-	// `unzip -o` merges into whatever is already there and would leave files from an older release behind.
+	// The archive is unpacked into a staging directory and swapped in only once the unpack has succeeded, so
+	// a host without `unzip` - or a corrupt archive - never destroys an installed copy it cannot replace. The
+	// swap also clears the destination first, because `unzip -o`/`mv` into an existing directory merge rather
+	// than replace and would leave files from an older release behind.
 	$result = $ssh_connection->exec(
 		'ZIP=$(mktemp 2>/dev/null) || { ZIP=/tmp/safety-net.$$.zip ; ( set -C ; : > "$ZIP" ) 2>/dev/null || ZIP="" ; }'
-		. ' ; if [ -z "$ZIP" ] ; then INSTALL=126 ; else'
+		. ' ; DIR=$(mktemp -d 2>/dev/null) || { DIR=/tmp/safety-net-stage.$$ ; mkdir "$DIR" 2>/dev/null || DIR="" ; }'
+		. ' ; if [ -z "$ZIP" ] || [ -z "$DIR" ] ; then INSTALL=126 ; rm -rf "$ZIP" "$DIR" 2>/dev/null ; else'
 		. " { curl -fsSL '" . SAFETY_NET_ZIP_URL . '\' -o "$ZIP"'
+		. ' && unzip -o -q "$ZIP" -d "$DIR/"'
 		. " && rm -rf '$mu_plugins/safety-net'"
-		. ' && unzip -o -q "$ZIP" -d \'' . $mu_plugins . '/\' ; } 2>&1'
+		. ' && mv -f "$DIR/safety-net" \'' . $mu_plugins . '/safety-net\' ; } 2>&1'
 		. ' ; INSTALL=$?'
-		. ' ; rm -f "$ZIP"'
+		. ' ; rm -rf "$ZIP" "$DIR"'
 		. ' ; fi'
 		. ' ; echo "INSTALL:${INSTALL}"'
 	);
@@ -288,25 +292,30 @@ function maybe_install_safety_net( ?SSH2 $ssh_connection, OutputInterface $outpu
 		$ssh_connection->setTimeout( 600 );
 
 		// Run on the connection directly: the exit codes below are the remote ones, so each step reports its
-		// own failure. getExitStatus() returns false when the server sent no exit-status message, which is
-		// not a failure - reporting it as `exit code ` would read as one.
+		// own failure. getExitStatus() returns false when the channel closed without an exit-status message -
+		// which is what a signal kill produces, the SIGSYS case this fallback exists for - so that outcome is
+		// named rather than treated as success.
 		$ssh_connection->exec( 'wp plugin install ' . SAFETY_NET_ZIP_URL );
 		$install_code = $ssh_connection->getExitStatus();
-		if ( false !== $install_code && 0 !== $install_code ) {
+		if ( false === $install_code ) {
+			$output->writeln( '<error>Installing SafetyNet through WP-CLI returned no exit status; it may have been killed.</error>' );
+		} elseif ( 0 !== $install_code ) {
 			$output->writeln( "<error>Installing SafetyNet through WP-CLI failed with exit code $install_code.</error>" );
 		}
 
 		// `mv` moves the source *into* an existing destination directory rather than replacing it, which would
 		// nest the plugin one level too deep - and exit 0 while doing so. The destination is cleared first,
 		// but only once the source is known to exist, so a failed install never destroys what is already
-		// there without a replacement.
+		// there without a replacement. A missing source is reported as such, not as a failed move.
 		$site_root   = get_ssh_site_root_path( $ssh_connection );
 		$plugin_src  = "$site_root/wp-content/plugins/safety-net";
 		$plugin_dest = "$site_root/wp-content/mu-plugins/safety-net";
 
-		$ssh_connection->exec( "test -d '$plugin_src' && rm -rf '$plugin_dest' && mv -f '$plugin_src' '$plugin_dest'" );
-		$move_code = $ssh_connection->getExitStatus();
-		if ( false !== $move_code && 0 !== $move_code ) {
+		$move_output = $ssh_connection->exec( "if test -d '$plugin_src' ; then rm -rf '$plugin_dest' && mv -f '$plugin_src' '$plugin_dest' ; else echo 'MOVE:skipped' ; fi" );
+		$move_code   = $ssh_connection->getExitStatus();
+		if ( is_string( $move_output ) && str_contains( $move_output, 'MOVE:skipped' ) ) {
+			$output->writeln( '<comment>Nothing to move into mu-plugins: WP-CLI did not produce the plugin directory.</comment>' );
+		} elseif ( false !== $move_code && 0 !== $move_code ) {
 			$output->writeln( "<error>Moving SafetyNet into mu-plugins failed with exit code $move_code.</error>" );
 		}
 

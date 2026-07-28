@@ -175,7 +175,10 @@ final class Pressable_Site_Create extends Command {
 		// Printed before the reachability verdict: an unreachable site is exactly when the rotation is most
 		// likely to have failed, and its pointer to a possibly-unrecorded password must not be skipped.
 		if ( Command::SUCCESS !== $rotate_status ) {
-			$output->writeln( '<comment>⚠  Heads up: 1Password sync did not complete during this run. See the warning above for the password to record manually.</comment>' );
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			$output->writeln( '<error>⚠  The WP user password rotation did not complete cleanly.</error>' );
+			$output->writeln( '<error>    See the warning above for the password to record or the rotation to retry.</error>' );
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 		}
 
 		if ( \is_null( $ssh_connection ) ) {

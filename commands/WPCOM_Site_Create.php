@@ -162,6 +162,16 @@ final class WPCOM_Site_Create extends Command {
 			'plugin install https://github.com/a8cteam51/a8csp-atlantis/releases/latest/download/a8csp-atlantis.zip --activate',
 		);
 
+		// Printed before anything that can end the run early - the repository connect below returns FAILURE on
+		// its own, and the reachability verdict follows - so the pointer to a possibly-unrecorded password is
+		// never dropped.
+		if ( Command::SUCCESS !== $rotate_status ) {
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			$output->writeln( '<error>⚠  The WP user password rotation did not complete cleanly.</error>' );
+			$output->writeln( '<error>    See the warning above for the password to record or the rotation to retry.</error>' );
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+		}
+
 		// Create a GitHub Deployment project for the site.
 		if ( ! \is_null( $this->gh_repository ) ) {
 			$status = run_app_command(
@@ -178,12 +188,6 @@ final class WPCOM_Site_Create extends Command {
 				$output->writeln( '<error>Site was created, but connecting the GitHub deployment (including webhook setup) failed.</error>' );
 				return Command::FAILURE;
 			}
-		}
-
-		// Printed before the reachability verdict: an unreachable site is exactly when the rotation is most
-		// likely to have failed, and its pointer to a possibly-unrecorded password must not be skipped.
-		if ( Command::SUCCESS !== $rotate_status ) {
-			$output->writeln( '<comment>⚠  Heads up: 1Password sync did not complete during this run. See the warning above for the password to record manually.</comment>' );
 		}
 
 		if ( \is_null( $ssh_connection ) ) {

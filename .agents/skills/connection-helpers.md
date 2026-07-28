@@ -65,9 +65,12 @@ Right after cloning or creating a site, the server may accept connections but no
 
 ```php
 $ssh = wait_on_pressable_site_ssh( $site_id, $output );
+if ( \is_null( $ssh ) ) {
+    // The site never became reachable — handle it; do not proceed as though it had.
+}
 ```
 
-This loops until `get_ssh_connection()` succeeds and the server responds to `ls -la`. SFTP is typically ready sooner than SSH for new sites.
+This retries `get_ssh_connection()` (which also verifies the server responds to `ls -la`) up to `$max_attempts` times (default 60, 5 seconds apart), then reports the timeout and returns `null` — callers must handle that. SFTP is typically ready sooner than SSH for new sites.
 
 ### 3. SFTP path convention
 
@@ -93,13 +96,16 @@ For streaming/callback style, `exec()` can accept a callback. See `Pressable_Sit
 
 ```php
 $result = $sftp->put(
-    '/htdocs/wp-content/mu-plugins/load-safety-net.php',
-    file_get_contents( __DIR__ . '/../scaffold/load-safety-net.php' )
+    '/htdocs/wp-content/uploads/example.png',
+    file_get_contents( $local_path )
 );
 if ( ! $result ) {
     // Upload failed
 }
 ```
+
+For writing a small text file over an existing SSH connection, a quoted heredoc avoids opening a second
+(SFTP) connection — see `write_safety_net_loader()` in `includes/functions-safety-net.php` for the pattern.
 
 ### 6. Credential handling (internal)
 
@@ -132,5 +138,5 @@ See `connection-helper-pressable.php` and `connection-helper-wpcom.php` for refe
 
 ## Example Commands
 
-- **SSH**: `Pressable_Site_Clone`, `Pressable_Site_WP_CLI_Command_Run`, `Pressable_Site_Shell_Open`, `WPCOM_Site_WP_CLI_Command_Run`
-- **SFTP**: `Pressable_Site_Clone` (SafetyNet loader), `Pressable_Site_Icon_Upload`, `WPCOM_Site_Clone`, `GitHub_Pattern_To_Repo_Export`
+- **SSH**: `Pressable_Site_Clone` (SafetyNet install + loader via heredoc), `Pressable_Site_WP_CLI_Command_Run`, `Pressable_Site_Shell_Open`, `WPCOM_Site_WP_CLI_Command_Run`
+- **SFTP**: `Pressable_Site_Icon_Upload`, `Pressable_Site_Plugins_Download`, `GitHub_Pattern_To_Repo_Export`
