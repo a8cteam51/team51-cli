@@ -114,12 +114,20 @@ final class Pressable_Site_WP_CLI_Command_Run extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
+		$failed = false;
+
 		foreach ( $this->sites as $site ) {
+			// Callers read the output of the command they just ran out of this global, so a site that produces
+			// none - or that cannot be reached at all - must not leave the previous site's output behind. The
+			// callback below appends because phpseclib delivers the reply one packet at a time.
+			$GLOBALS['wp_cli_output'] = '';
+
 			$output->writeln( "<fg=magenta;options=bold>Running the command `wp $this->wp_command` on $site->displayName (ID $site->id, URL $site->url).</>" );
 
 			$ssh = \Pressable_Connection_Helper::get_ssh_connection( $site->id );
 			if ( \is_null( $ssh ) ) {
 				$output->writeln( '<error>Could not connect to the SSH server.</error>' );
+				$failed = true;
 				continue;
 			}
 
@@ -131,7 +139,7 @@ final class Pressable_Site_WP_CLI_Command_Run extends Command {
 				$ssh->exec(
 					"wp $this->wp_command",
 					function ( string $str ): void {
-						$GLOBALS['wp_cli_output'] = $str;
+						$GLOBALS['wp_cli_output'] .= $str;
 						if ( ! $this->skip_output ) {
 							echo "$str\n";
 						}
@@ -139,13 +147,14 @@ final class Pressable_Site_WP_CLI_Command_Run extends Command {
 				);
 			} catch ( \RuntimeException $exception ) {
 				$output->writeln( "<error>Something went wrong. Please double-check if things worked out. This is what we know: {$exception->getMessage()}</error>" );
+				$failed = true;
 				continue;
 			} finally {
 				$ssh->disconnect();
 			}
 		}
 
-		return Command::SUCCESS;
+		return $failed ? Command::FAILURE : Command::SUCCESS;
 	}
 
 	// endregion

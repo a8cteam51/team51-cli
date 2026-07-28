@@ -133,7 +133,7 @@ final class WPCOM_Site_WP_User_Password_Rotate extends Command {
 	 * @noinspection DisconnectedForeachInstructionInspection
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
-		$sync_failures = array();
+		$failures = array();
 
 		foreach ( $this->sites as $site ) {
 			if ( empty( $site->name ) ) {
@@ -150,6 +150,7 @@ final class WPCOM_Site_WP_User_Password_Rotate extends Command {
 			$credentials = $this->rotate_site_wp_user_password( $output, $site->ID );
 			if ( \is_null( $credentials ) ) {
 				$output->writeln( '<error>Failed to rotate the WP user password.</error>' );
+				$failures[] = $site->name;
 				continue;
 			}
 
@@ -164,14 +165,14 @@ final class WPCOM_Site_WP_User_Password_Rotate extends Command {
 				$output->writeln( '<error>    Record this password before it scrolls off:</error>' );
 				$output->writeln( "<fg=yellow;options=bold>    $credentials->password</>" );
 				$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
-				$sync_failures[] = $site->name;
+				$failures[] = $site->name;
 				continue;
 			}
 
 			$output->writeln( '<fg=green;options=bold>WP user password updated in 1Password.</>' );
 		}
 
-		return empty( $sync_failures ) ? Command::SUCCESS : Command::FAILURE;
+		return empty( $failures ) ? Command::SUCCESS : Command::FAILURE;
 	}
 
 	// endregion

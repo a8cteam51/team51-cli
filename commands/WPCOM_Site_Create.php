@@ -135,7 +135,11 @@ final class WPCOM_Site_Create extends Command {
 			return Command::FAILURE;
 		}
 
-		wait_on_wpcom_site_ssh( $transfer->blog_id, $output )?->disconnect();
+		// This wait used to block until the site answered, so everything below it could assume SSH worked. It
+		// is bounded now, so the outcome has to be carried to the end: the setup steps that need SSH cannot
+		// succeed without it, and the command must not report success as though they had.
+		$ssh_connection = wait_on_wpcom_site_ssh( $transfer->blog_id, $output );
+		$ssh_connection?->disconnect();
 
 		// The site is ready but the API doesn't support setting the name during creation so we have to update it.
 		$update = update_wpcom_site( $transfer->blog_id, array( 'blogname' => "$this->name-production" ) );
@@ -153,10 +157,42 @@ final class WPCOM_Site_Create extends Command {
 				'--user' => 'concierge@wordpress.com',
 			)
 		);
-		run_wpcom_site_wp_cli_command(
+		$atlantis_status = run_wpcom_site_wp_cli_command(
 			$transfer->blog_id,
 			'plugin install https://github.com/a8cteam51/a8csp-atlantis/releases/latest/download/a8csp-atlantis.zip --activate',
 		);
+
+		// The runner's exit code only says whether the connection worked, never how the remote `wp` ended, so
+		// the install's real outcome is read from the captured reply. Both checks are deliberate: the missing
+		// Success: line catches a `wp` killed before printing anything, and the Error: scan catches an
+		// activation fatal that arrives after the install's own Success: line already printed.
+		$atlantis_output = (string) ( $GLOBALS['wp_cli_output'] ?? '' );
+		if ( Command::SUCCESS === $atlantis_status && ( is_wp_cli_error_output( $atlantis_output ) || ! is_wp_cli_success_output( $atlantis_output ) ) ) {
+			$atlantis_status = Command::FAILURE;
+		}
+
+		// Printed before anything that can end the run early - the repository connect below returns FAILURE on
+		// its own, and the reachability verdict follows - so the pointer to a possibly-unrecorded password is
+		// never dropped.
+		if ( Command::SUCCESS !== $rotate_status ) {
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			$output->writeln( '<error>⚠  The WP user password rotation did not complete cleanly.</error>' );
+			$output->writeln( '<error>    See the warning above for the password to record or the rotation to retry.</error>' );
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+		}
+
+		// Reported before the repository connect below, whose own failure returns early: a run where both
+		// failed must name both. The expired wait alone proves nothing about this step - it opened its own
+		// connection - so the wait's outcome is context, and the verdict itself lands at the end.
+		if ( Command::SUCCESS !== $atlantis_status ) {
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			$output->writeln( "<error>⚠  Site $this->name (ID $transfer->blog_id) was created, but installing the a8csp-atlantis plugin failed.</error>" );
+			if ( \is_null( $ssh_connection ) ) {
+				$output->writeln( '<error>    The site did not accept SSH connections during setup; it may still be provisioning.</error>' );
+			}
+			$output->writeln( '<error>    Install the plugin manually.</error>' );
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+		}
 
 		// Create a GitHub Deployment project for the site.
 		if ( ! \is_null( $this->gh_repository ) ) {
@@ -176,11 +212,11 @@ final class WPCOM_Site_Create extends Command {
 			}
 		}
 
-		$output->writeln( "<fg=green;options=bold>Site $this->name created successfully.</>" );
-
-		if ( Command::SUCCESS !== $rotate_status ) {
-			$output->writeln( '<comment>⚠  Heads up: 1Password sync did not complete during this run. See the warning above for the password to record manually.</comment>' );
+		if ( Command::SUCCESS !== $atlantis_status ) {
+			return Command::FAILURE;
 		}
+
+		$output->writeln( "<fg=green;options=bold>Site $this->name created successfully.</>" );
 
 		return Command::SUCCESS;
 	}

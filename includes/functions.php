@@ -1,6 +1,7 @@
 <?php
 
 use Symfony\Component\Console\Exception\ExceptionInterface;
+use Symfony\Component\Console\Formatter\OutputFormatter;
 use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Input\InputInterface;
@@ -136,6 +137,116 @@ function decode_json_content( string $json, bool $associative = false, int $flag
 		console_writeln( $exception->getTraceAsString() );
 		return null;
 	}
+}
+
+/**
+ * Returns the password printed by a `wp user reset-password --porcelain` run, or null if it did not print one.
+ *
+ * The WP-CLI runners report the exit code of the local console command, not the remote `wp` exit status, and
+ * phpseclib folds stderr into the captured output unless quiet mode is on - which it never is. A failed reset
+ * therefore leaves an `Error: ...` sentence where the password should be, and storing that as a credential
+ * would overwrite a good 1Password entry while the site keeps its old password. `--porcelain` prints the
+ * password as a single whitespace-free token and nothing else, so the reply is read from the end backwards:
+ * recognized WP-CLI messages are stepped over, and the first line past them yields the password only if it
+ * has that shape.
+ *
+ * @param   mixed $output The captured WP-CLI output.
+ *
+ * @return  string|null
+ */
+function parse_wp_cli_porcelain_password( mixed $output ): ?string {
+	if ( ! is_string( $output ) ) {
+		return null;
+	}
+
+	// The reply accumulates every packet, stderr included, so a recognized WP-CLI message trailing the token
+	// must not fail a reset that succeeded. The lines are walked in reverse, skipping those messages; the
+	// first line that is not one of them is the candidate, and it is the password only if it has the
+	// single-token shape. Anything else - an unrecognized notice, a shell diagnostic - fails closed rather
+	// than letting the search reach past it to an earlier line that merely looks like a token.
+	$output_lines = array_reverse( array_filter( array_map( 'trim', preg_split( '/\R/', $output ) ), static fn( string $line ): bool => '' !== $line ) );
+
+	foreach ( $output_lines as $output_line ) {
+		foreach ( array( 'Error:', 'Warning:', 'Success:' ) as $prefix ) {
+			if ( str_starts_with( $output_line, $prefix ) ) {
+				continue 2;
+			}
+		}
+
+		return 1 === preg_match( '/^\S+$/', $output_line ) ? $output_line : null;
+	}
+
+	return null;
+}
+
+/**
+ * Returns whether some captured WP-CLI output is a fatal WP-CLI error message.
+ *
+ * An `Error:` line means WP-CLI halted before doing anything - unlike a `Warning:`, which precedes the
+ * command's real output - so callers can tell "the command never ran" apart from "the command ran but its
+ * output is unreadable". Every line is scanned because the accumulated reply may carry notices ahead of it.
+ *
+ * @param   mixed $output The captured WP-CLI output.
+ *
+ * @return  boolean
+ */
+function is_wp_cli_error_output( mixed $output ): bool {
+	if ( ! is_string( $output ) ) {
+		return false;
+	}
+
+	foreach ( preg_split( '/\R/', $output ) as $line ) {
+		if ( str_starts_with( trim( $line ), 'Error:' ) ) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+/**
+ * Returns whether some captured WP-CLI output contains a WP-CLI success message.
+ *
+ * Anchored to line starts, like its error counterpart, so a `Success:` occurring mid-line - in a URL, a
+ * plugin title, or an echoed diagnostic - does not read as one.
+ *
+ * @param   mixed $output The captured WP-CLI output.
+ *
+ * @return  boolean
+ */
+function is_wp_cli_success_output( mixed $output ): bool {
+	if ( ! is_string( $output ) ) {
+		return false;
+	}
+
+	foreach ( preg_split( '/\R/', $output ) as $line ) {
+		if ( str_starts_with( trim( $line ), 'Success:' ) ) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+/**
+ * Prints the raw output of a password reset whose result could not be read as a password.
+ *
+ * By the time the output is parsed the reset has already run, so this string is the only copy of whatever the
+ * site is now using. Passwords are otherwise kept off the console deliberately, but discarding one silently
+ * locks the user out with no record anywhere, which is the worse outcome of the two.
+ *
+ * @param   string $user   The user whose password was reset.
+ * @param   mixed  $output The raw WP-CLI output.
+ *
+ * @return  void
+ */
+function report_unreadable_wp_cli_password( string $user, mixed $output ): void {
+	console_writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+	console_writeln( "<error>⚠  The password reset for $user ran, but its output could not be read as a password.</error>" );
+	console_writeln( '<error>    The site may already be using a new password. Raw output follows:</error>' );
+	// Escaped so a password containing formatter syntax is printed verbatim instead of being parsed as tags.
+	console_writeln( '<fg=yellow;options=bold>' . OutputFormatter::escape( is_string( $output ) ? trim( $output ) : '(no output captured)' ) . '</>' );
+	console_writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 }
 
 /**

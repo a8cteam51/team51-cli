@@ -43,6 +43,7 @@
       "includes/functions-github.php",
       "includes/functions-jetpack.php",
       "includes/functions-pressable.php",
+      "includes/functions-safety-net.php",
       "includes/functions-wporg.php",
       "includes/functions-wpcom.php",
       "includes/parallel-process.php",
