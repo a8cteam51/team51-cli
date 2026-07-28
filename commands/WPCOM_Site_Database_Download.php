@@ -77,17 +77,17 @@ final class WPCOM_Site_Database_Download extends Command {
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		$output->writeln( "<fg=magenta;options=bold>Downloading the database from WPCOM site {$this->site->name} (ID {$this->site->ID}, URL {$this->site->URL}) to {$this->destination}.</>" );
 
-		$site_slug            = slugify( (string) $this->site->name );
-		$timestamp            = \gmdate( 'Y-m-d-H-i-s' );
-		$dump_filename        = "team51-wpcom-db-$site_slug-$timestamp.sql.gz";
-		$remote_dump_paths    = array(
+		$site_slug           = slugify( (string) $this->site->name );
+		$timestamp           = \gmdate( 'Y-m-d-H-i-s' );
+		$dump_filename       = "team51-wpcom-db-$site_slug-$timestamp.sql.gz";
+		$remote_dump_paths   = array(
 			"/tmp/$dump_filename",
 			"tmp/$dump_filename",
 		);
-		$remote_cleanup_error = false;
-		$download_successful  = false;
-		$download_valid       = false;
-		$remote_size          = null;
+		$dump_failed         = false;
+		$download_successful = false;
+		$download_valid      = false;
+		$remote_size         = null;
 
 		// Keep the compressed dump next to the destination so the decompression step below is a plain
 		// local file copy. The temp name is scoped to this process because a plain `<destination>.gz`
@@ -115,12 +115,19 @@ final class WPCOM_Site_Database_Download extends Command {
 				. 'gzip -f "${dump_path%.gz}"; '
 				. 'exit $?';
 			$dump_ssh->exec( $dump_command );
-			if ( 0 !== $dump_ssh->getExitStatus() ) {
-				$output->writeln( '<error>Failed to create the remote database dump.</error>' );
-				return Command::FAILURE;
-			}
+			$dump_failed = ( 0 !== $dump_ssh->getExitStatus() );
 		} finally {
 			$dump_ssh->disconnect();
+		}
+
+		if ( $dump_failed ) {
+			// `wp db export` may have written the plaintext dump before `gzip` failed, so sweep before leaving.
+			$output->writeln( '<error>Failed to create the remote database dump.</error>' );
+			if ( ! $this->remove_remote_dumps( $remote_dump_paths ) ) {
+				$output->writeln( "<error>Anything it left behind is still on the server at {$remote_dump_paths[0]} or its .sql counterpart; remove it manually.</error>" );
+			}
+
+			return Command::FAILURE;
 		}
 
 		$sftp = \WPCOM_Connection_Helper::get_sftp_connection( (string) $this->site->ID );
@@ -141,8 +148,8 @@ final class WPCOM_Site_Database_Download extends Command {
 					}
 				}
 
-				// Compare against the remote size so a short transfer fails while the remote dump,
-				// which is deleted immediately below, is still recoverable.
+				// Compare against the remote size so a short transfer is caught while the remote dump,
+				// which is only deleted once the local copy is known good, can still be re-fetched.
 				$download_valid = $download_successful && \is_file( $local_gz_path ) && 0 < \filesize( $local_gz_path )
 					&& ( \is_null( $remote_size ) || \filesize( $local_gz_path ) === $remote_size );
 			} finally {
@@ -150,51 +157,35 @@ final class WPCOM_Site_Database_Download extends Command {
 			}
 		}
 
-		// Always cleanup: the dump exists on the server from this point on, whatever happened above.
-		$cleanup_ssh = \WPCOM_Connection_Helper::get_ssh_connection( (string) $this->site->ID );
-		if ( \is_null( $cleanup_ssh ) ) {
-			$remote_cleanup_error = true;
-		} else {
-			try {
-				$cleanup_ssh->setTimeout( 0 );
-				$cleanup_command = 'rm -f '
-					. escapeshellarg( $remote_dump_paths[0] )
-					. ' '
-					. escapeshellarg( $remote_dump_paths[1] )
-					. ' 2>&1';
-				$cleanup_ssh->exec( $cleanup_command );
-				if ( 0 !== $cleanup_ssh->getExitStatus() ) {
-					$remote_cleanup_error = true;
-				}
-			} finally {
-				$cleanup_ssh->disconnect();
-			}
-		}
-
 		if ( \is_null( $sftp ) ) {
-			$output->writeln( '<error>Failed to connect to the site via SFTP.</error>' );
+			$output->writeln( "<error>Failed to connect to the site via SFTP. The dump is still at {$remote_dump_paths[0]} on the server.</error>" );
 			return Command::FAILURE;
 		}
 
 		if ( ! $download_successful ) {
 			$this->discard_temp_archive( $keep_compressed, $local_gz_path );
-			$output->writeln( '<error>Failed to download the database dump via SFTP.</error>' );
+			$output->writeln( "<error>Failed to download the database dump via SFTP. The dump is still at {$remote_dump_paths[0]} on the server.</error>" );
 			return Command::FAILURE;
 		}
 
 		if ( ! $download_valid ) {
 			$this->discard_temp_archive( $keep_compressed, $local_gz_path );
-			$output->writeln( '<error>Downloaded database dump is truncated or empty.</error>' );
+			$output->writeln( "<error>Downloaded database dump is truncated. The remote dump has been kept at {$remote_dump_paths[0]} so the transfer can be retried without re-exporting.</error>" );
 			return Command::FAILURE;
 		}
 
-		if ( ! $keep_compressed && ! decompress_gzip_file( $local_gz_path, $this->destination ) ) {
-			$output->writeln( "<error>Failed to decompress the downloaded dump. The compressed file is still at $local_gz_path.</error>" );
-			return Command::FAILURE;
+		if ( ! $keep_compressed ) {
+			if ( ! decompress_gzip_file( $local_gz_path, $this->destination ) ) {
+				$output->writeln( "<error>Failed to decompress the downloaded dump. The compressed copy is at $local_gz_path and the remote dump at {$remote_dump_paths[0]}.</error>" );
+				return Command::FAILURE;
+			}
+
+			$this->discard_temp_archive( $keep_compressed, $local_gz_path );
 		}
 
-		if ( $remote_cleanup_error ) {
-			$output->writeln( '<error>Database downloaded, but failed to clean up the temporary remote dump.</error>' );
+		// Only now is the local copy known good, so the remote dump can go.
+		if ( ! $this->remove_remote_dumps( $remote_dump_paths ) ) {
+			$output->writeln( "<error>Database downloaded to {$this->destination}, but the temporary remote dump at {$remote_dump_paths[0]} could not be removed. Delete it manually - it holds password hashes and customer data.</error>" );
 			return Command::FAILURE;
 		}
 
@@ -218,6 +209,37 @@ final class WPCOM_Site_Database_Download extends Command {
 	private function discard_temp_archive( bool $keep_compressed, string $local_gz_path ): void {
 		if ( ! $keep_compressed && \is_file( $local_gz_path ) ) {
 			\unlink( $local_gz_path );
+		}
+	}
+
+	/**
+	 * Removes the temporary dump from the server. Targets the plaintext `.sql` as well as the gzipped
+	 * path, because a failure between `wp db export` and `gzip` leaves the uncompressed dump - password
+	 * hashes, auth tokens and customer PII - sitting in a shared /tmp with nothing else to clean it up.
+	 *
+	 * @param   string[] $remote_dump_paths The candidate remote paths of the gzipped dump.
+	 *
+	 * @return  boolean
+	 */
+	private function remove_remote_dumps( array $remote_dump_paths ): bool {
+		$cleanup_ssh = \WPCOM_Connection_Helper::get_ssh_connection( (string) $this->site->ID );
+		if ( \is_null( $cleanup_ssh ) ) {
+			return false;
+		}
+
+		try {
+			$cleanup_ssh->setTimeout( 0 );
+
+			$targets = array();
+			foreach ( $remote_dump_paths as $path ) {
+				$targets[] = escapeshellarg( $path );
+				$targets[] = escapeshellarg( \preg_replace( '/\.gz$/', '', $path ) );
+			}
+
+			$cleanup_ssh->exec( 'rm -f ' . \implode( ' ', $targets ) . ' 2>&1' );
+			return 0 === $cleanup_ssh->getExitStatus();
+		} finally {
+			$cleanup_ssh->disconnect();
 		}
 	}
 
