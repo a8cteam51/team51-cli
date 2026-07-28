@@ -82,7 +82,8 @@ function is_safety_net_installed( SSH2 $ssh_connection ): ?bool {
  * @return  integer  The exit code of the download and unpack.
  */
 function install_safety_net_files( SSH2 $ssh_connection, ?string &$failure_output = null ): int {
-	$mu_plugins = get_ssh_site_root_path( $ssh_connection ) . '/wp-content/mu-plugins';
+	$site_root  = get_ssh_site_root_path( $ssh_connection );
+	$mu_plugins = "$site_root/wp-content/mu-plugins";
 
 	// The command produces no output before the trailing echo unless something fails, and the connection's
 	// default read timeout is 10 seconds - a download slower than that would truncate the output and lose the
@@ -97,10 +98,12 @@ function install_safety_net_files( SSH2 $ssh_connection, ?string &$failure_outpu
 	//
 	// The archive is unpacked into a staging directory and swapped in only once the staged copy is proven to
 	// be the replacement: `unzip` exiting 0 does not guarantee a `safety-net/` root (a re-rooted release
-	// archive extracts cleanly without one), so the directory itself is tested before anything is destroyed,
-	// and the mu-plugins parent is created first because `mv` - unlike the `unzip -d` this replaced - does
-	// not create it. The swap clears the destination because `unzip -o`/`mv` into an existing directory merge
-	// rather than replace and would leave files from an older release behind.
+	// archive extracts cleanly without one), so the directory itself is tested before anything is destroyed.
+	// The site root is required to already hold a `wp-content` before the mu-plugins parent is created inside
+	// it - `mv`, unlike the `unzip -d` this replaced, creates nothing - so a mis-resolved prefix stops the
+	// chain instead of fabricating a directory tree the site never reads. The swap clears the destination
+	// because `unzip -o`/`mv` into an existing directory merge rather than replace and would leave files from
+	// an older release behind.
 	$result = $ssh_connection->exec(
 		'ZIP=$(mktemp 2>/dev/null) || { ZIP=/tmp/safety-net.$$.zip ; ( set -C ; : > "$ZIP" ) 2>/dev/null || ZIP="" ; }'
 		. ' ; DIR=$(mktemp -d 2>/dev/null) || { DIR=/tmp/safety-net-stage.$$ ; mkdir "$DIR" 2>/dev/null || DIR="" ; }'
@@ -108,6 +111,7 @@ function install_safety_net_files( SSH2 $ssh_connection, ?string &$failure_outpu
 		. " { curl -fsSL '" . SAFETY_NET_ZIP_URL . '\' -o "$ZIP"'
 		. ' && unzip -o -q "$ZIP" -d "$DIR/"'
 		. ' && test -d "$DIR/safety-net"'
+		. " && test -d '$site_root/wp-content'"
 		. " && mkdir -p '$mu_plugins'"
 		. " && rm -rf '$mu_plugins/safety-net'"
 		. ' && mv -f "$DIR/safety-net" \'' . $mu_plugins . '/safety-net\' ; } 2>&1'

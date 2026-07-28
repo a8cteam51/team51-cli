@@ -147,7 +147,7 @@ final class Pressable_Site_Create extends Command {
 				'--user' => 'concierge@wordpress.com',
 			)
 		);
-		run_pressable_site_wp_cli_command(
+		$atlantis_status = run_pressable_site_wp_cli_command(
 			$site->id,
 			'plugin install https://github.com/a8cteam51/a8csp-atlantis/releases/latest/download/a8csp-atlantis.zip --activate',
 		);
@@ -181,10 +181,16 @@ final class Pressable_Site_Create extends Command {
 			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 		}
 
-		if ( \is_null( $ssh_connection ) ) {
+		// The expired wait alone proves nothing about the steps that followed - each opens its own connection,
+		// and a site can become reachable after the wait gives up - so the verdict rests on what actually
+		// happened to the captured SSH-dependent setup step, with the wait's outcome as context.
+		if ( Command::SUCCESS !== $atlantis_status ) {
 			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
-			$output->writeln( "<error>⚠  Site $this->name (ID $site->id) was created but never became reachable over SSH.</error>" );
-			$output->writeln( '<error>    The setup steps that need SSH did not run. Finish them manually.</error>' );
+			$output->writeln( "<error>⚠  Site $this->name (ID $site->id) was created, but installing the a8csp-atlantis plugin failed.</error>" );
+			if ( \is_null( $ssh_connection ) ) {
+				$output->writeln( '<error>    The site did not accept SSH connections during setup; it may still be provisioning.</error>' );
+			}
+			$output->writeln( '<error>    Install the plugin manually.</error>' );
 			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 			return Command::FAILURE;
 		}

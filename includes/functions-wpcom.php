@@ -506,21 +506,26 @@ function wait_until_wpcom_agency_site_state( string $agency_site_id, string $sta
 /**
  * Periodically checks on the transfer status of a WordPress.com Atomic site until it reaches a given state.
  *
- * @param   string          $site_id_or_url The ID or URL of the WordPress.com site to check the state of.
- * @param   string          $state          The state to wait for the site to reach.
- * @param   OutputInterface $output         The output instance.
- * @param   integer         $max_attempts   The maximum number of status checks before giving up.
+ * @param   string          $site_id_or_url   The ID or URL of the WordPress.com site to check the state of.
+ * @param   string          $state            The state to wait for the site to reach.
+ * @param   OutputInterface $output           The output instance.
+ * @param   integer         $max_wait_seconds How long to keep checking before giving up.
  *
  * @return  stdClass|null
  */
-function wait_until_wpcom_site_transfer_state( string $site_id_or_url, string $state, OutputInterface $output, int $max_attempts = 120 ): ?stdClass {
+function wait_until_wpcom_site_transfer_state( string $site_id_or_url, string $state, OutputInterface $output, int $max_wait_seconds = 1200 ): ?stdClass {
 	$output->writeln( "<comment>Waiting for the transfer of WordPress.com site $site_id_or_url to reach the `$state` state.</comment>" );
 
 	$progress_bar = new ProgressBar( $output );
 	$progress_bar->start();
 
+	// Budgeted by wall clock, matching the Pressable state wait, so the give-up message can say how long the
+	// command actually waited. A transfer copies the whole site, so the budget is deliberately generous.
+	$delay        = 5;
+	$max_attempts = (int) ceil( $max_wait_seconds / $delay );
+
 	$reached = false;
-	for ( $try = 0, $delay = 5; $try < $max_attempts; $try++ ) {
+	for ( $try = 0; $try < $max_attempts; $try++ ) {
 		$transfer = get_wpcom_site_transfer_status( $site_id_or_url );
 		if ( is_null( $transfer ) || $state === $transfer->status ) {
 			$reached = true;
@@ -535,7 +540,8 @@ function wait_until_wpcom_site_transfer_state( string $site_id_or_url, string $s
 	$output->writeln( '' ); // Empty line for UX purposes.
 
 	if ( ! $reached ) {
-		$output->writeln( "<error>The transfer of WordPress.com site $site_id_or_url did not reach the `$state` state after $max_attempts checks.</error>" );
+		$minutes = (int) round( $max_wait_seconds / 60 );
+		$output->writeln( "<error>The transfer of WordPress.com site $site_id_or_url did not reach the `$state` state within $minutes minutes.</error>" );
 		return null;
 	}
 
