@@ -623,4 +623,111 @@ function get_file_handle( string $filename, string $extension, string $mode = 'w
 	return $handle;
 }
 
+/**
+ * Reads the uncompressed size gzip stores in the last four bytes of an archive.
+ *
+ * @param   string $path The path to the gzipped file.
+ *
+ * @return  integer|null Null when the trailer cannot be read.
+ */
+function read_gzip_uncompressed_size( string $path ): ?int {
+	$handle = fopen( $path, 'rb' );
+	if ( false === $handle ) {
+		return null;
+	}
+
+	$size = null;
+	if ( 0 === fseek( $handle, -4, SEEK_END ) ) {
+		$trailer = fread( $handle, 4 );
+		if ( is_string( $trailer ) && 4 === strlen( $trailer ) ) {
+			$unpacked = unpack( 'V', $trailer );
+			$size     = false === $unpacked ? null : $unpacked[1];
+		}
+	}
+
+	fclose( $handle );
+	return $size;
+}
+
+/**
+ * Decompresses a gzip file, streaming it so that database dumps larger than the memory limit still work.
+ * The destination is only replaced once the whole stream has been written, and the source is left for
+ * the caller to remove.
+ *
+ * @param   string $source      The path to the gzipped file.
+ * @param   string $destination The path to write the decompressed file to.
+ *
+ * @return  boolean
+ */
+function decompress_gzip_file( string $source, string $destination ): bool {
+	$in = gzopen( $source, 'rb' );
+	if ( false === $in ) {
+		return false;
+	}
+
+	// Stream into a sibling file and rename it into place at the end. Opening $destination directly
+	// would truncate whatever is already there before a single byte has been read, so a failure
+	// halfway through would destroy a good dump the caller never asked to replace.
+	$partial = $destination . '.' . getmypid() . '.part';
+
+	$out = fopen( $partial, 'wb' );
+	if ( false === $out ) {
+		gzclose( $in );
+		return false;
+	}
+
+	// A decompressed database dump holds password hashes, auth tokens and PII, and unlike the remote
+	// copy it persists indefinitely. rename() preserves the mode, so the destination inherits this.
+	chmod( $partial, 0600 );
+
+	$failed        = false;
+	$written_total = 0;
+	while ( ! gzeof( $in ) ) {
+		$chunk = gzread( $in, 1048576 );
+		if ( false === $chunk ) {
+			$failed = true;
+			break;
+		}
+
+		// A disk that fills mid-write returns a short byte count rather than false, so comparing
+		// against false alone would treat a truncated dump as a complete one.
+		$written = fwrite( $out, $chunk );
+		if ( false === $written || strlen( $chunk ) !== $written ) {
+			$failed = true;
+			break;
+		}
+
+		$written_total += $written;
+	}
+
+	gzclose( $in );
+
+	// gzread() reports no error on an archive whose stream simply stops early, so a truncated download
+	// would otherwise decompress "successfully" into a partial dump. Compare what was written against
+	// the uncompressed size gzip records in the last four bytes. Single-member archives only, which is
+	// what gzip produces; a concatenated archive would report only its final member's size.
+	// An unreadable trailer fails closed: a valid member always has one, so its absence means the
+	// archive is damaged rather than that the check does not apply.
+	$expected_size = read_gzip_uncompressed_size( $source );
+	if ( is_null( $expected_size ) || ( $written_total % 4294967296 ) !== $expected_size ) {
+		$failed = true;
+	}
+
+	// Buffered bytes are flushed on close, so a write error can surface here rather than above.
+	if ( ! fclose( $out ) ) {
+		$failed = true;
+	}
+
+	// A partial dump is worse than none: it imports without error and leaves the database half-populated.
+	if ( $failed || ! rename( $partial, $destination ) ) {
+		if ( is_file( $partial ) ) {
+			unlink( $partial );
+		}
+
+		return false;
+	}
+
+	return true;
+}
+
 // endregion
