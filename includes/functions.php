@@ -623,4 +623,47 @@ function get_file_handle( string $filename, string $extension, string $mode = 'w
 	return $handle;
 }
 
+/**
+ * Decompresses a gzip file, streaming it so that database dumps larger than the memory limit still work.
+ * The source file is removed once the destination has been written.
+ *
+ * @param   string $source      The path to the gzipped file.
+ * @param   string $destination The path to write the decompressed file to.
+ *
+ * @return  boolean
+ */
+function decompress_gzip_file( string $source, string $destination ): bool {
+	$in = gzopen( $source, 'rb' );
+	if ( false === $in ) {
+		return false;
+	}
+
+	$out = fopen( $destination, 'wb' );
+	if ( false === $out ) {
+		gzclose( $in );
+		return false;
+	}
+
+	$failed = false;
+	while ( ! gzeof( $in ) ) {
+		$chunk = gzread( $in, 1048576 );
+		if ( false === $chunk || false === fwrite( $out, $chunk ) ) {
+			$failed = true;
+			break;
+		}
+	}
+
+	gzclose( $in );
+	fclose( $out );
+
+	if ( $failed ) {
+		// A partial dump is worse than none: it imports without error and leaves the database half-populated.
+		unlink( $destination );
+		return false;
+	}
+
+	unlink( $source );
+	return true;
+}
+
 // endregion
