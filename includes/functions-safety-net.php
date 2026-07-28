@@ -203,7 +203,10 @@ function is_safety_net_confirmed_via_http( string $site_url, int $max_attempts =
 			sleep( 5 );
 		}
 
-		$body = @file_get_contents( rtrim( $site_url, '/' ) . '/wp-json/safety-net/v1/status?_=' . time(), false, $context ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		// The `?rest_route=` form routes regardless of the permalink structure; the pretty `/wp-json/` prefix
+		// only exists when permalinks are enabled, and a clone of a plain-permalink site would 404 on it and
+		// fail verification on every run.
+		$body = @file_get_contents( rtrim( $site_url, '/' ) . '/?rest_route=/safety-net/v1/status&_=' . time(), false, $context ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
 
 		$response_headers = function_exists( 'http_get_last_response_headers' )
 			? ( http_get_last_response_headers() ?? array() )
@@ -269,7 +272,12 @@ function maybe_install_safety_net( ?SSH2 $ssh_connection, OutputInterface $outpu
 
 	$exit_code = install_safety_net_files( $ssh_connection, $failure_output );
 	if ( 0 !== $exit_code ) {
-		$output->writeln( "<comment>Downloading SafetyNet over SSH failed with exit code $exit_code.</comment>" );
+		// -1 is the no-marker sentinel, not an exit status: the command did not run to completion.
+		$output->writeln(
+			-1 === $exit_code
+				? '<comment>Downloading SafetyNet over SSH produced no readable result.</comment>'
+				: "<comment>Downloading SafetyNet over SSH failed with exit code $exit_code.</comment>"
+		);
 		if ( '' !== (string) $failure_output ) {
 			$output->writeln( '<comment>' . \Symfony\Component\Console\Formatter\OutputFormatter::escape( $failure_output ) . '</comment>' );
 		}

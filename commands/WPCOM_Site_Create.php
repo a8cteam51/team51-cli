@@ -180,6 +180,12 @@ final class WPCOM_Site_Create extends Command {
 			}
 		}
 
+		// Printed before the reachability verdict: an unreachable site is exactly when the rotation is most
+		// likely to have failed, and its pointer to a possibly-unrecorded password must not be skipped.
+		if ( Command::SUCCESS !== $rotate_status ) {
+			$output->writeln( '<comment>⚠  Heads up: 1Password sync did not complete during this run. See the warning above for the password to record manually.</comment>' );
+		}
+
 		if ( \is_null( $ssh_connection ) ) {
 			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 			$output->writeln( "<error>⚠  Site $this->name (ID $transfer->blog_id) was created but never became reachable over SSH.</error>" );
@@ -189,10 +195,6 @@ final class WPCOM_Site_Create extends Command {
 		}
 
 		$output->writeln( "<fg=green;options=bold>Site $this->name created successfully.</>" );
-
-		if ( Command::SUCCESS !== $rotate_status ) {
-			$output->writeln( '<comment>⚠  Heads up: 1Password sync did not complete during this run. See the warning above for the password to record manually.</comment>' );
-		}
 
 		return Command::SUCCESS;
 	}
