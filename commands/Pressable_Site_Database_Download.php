@@ -120,11 +120,12 @@ final class Pressable_Site_Database_Download extends Command {
 				. 'wp db export "${dump_path%.gz}" --add-drop-table --single-transaction && '
 				. 'gzip -f "${dump_path%.gz}"; '
 				. 'exit $?';
-			$dump_output  = (string) $dump_ssh->exec( $dump_command );
-			$dump_failed  = ( 0 !== $dump_ssh->getExitStatus() );
-			// A MySQL error, an exhausted /tmp and a failed gzip are indistinguishable without this,
+			// exec() already folds the channel's stderr into its return value - quiet mode, which would
+			// suppress that, is never enabled here - so getStdError() would only repeat it.
+			// Without this a MySQL error, an exhausted /tmp and a failed gzip are indistinguishable,
 			// and the operator has already paid the full export time by the time it fails.
-			$dump_error = \trim( $dump_output . "\n" . (string) $dump_ssh->getStdError() );
+			$dump_error  = \trim( (string) $dump_ssh->exec( $dump_command ) );
+			$dump_failed = ( 0 !== $dump_ssh->getExitStatus() );
 		} finally {
 			$dump_ssh->disconnect();
 		}
@@ -177,6 +178,7 @@ final class Pressable_Site_Database_Download extends Command {
 		}
 
 		if ( \is_null( $sftp ) ) {
+			$this->discard_temp_archive( $output, $local_gz_path );
 			$output->writeln( "<error>Failed to connect to the site via SFTP. The dump is still at $used_remote_path on the server.</error>" );
 			return Command::FAILURE;
 		}
@@ -251,9 +253,12 @@ final class Pressable_Site_Database_Download extends Command {
 	 */
 	private function create_owner_only_file( OutputInterface $output, string $path ): void {
 		$handle = \fopen( $path, 'wb' );
-		if ( false !== $handle ) {
-			\fclose( $handle );
+		if ( false === $handle ) {
+			$output->writeln( "<comment>Could not pre-create $path. The transfer will create it with default permissions.</comment>" );
+			return;
 		}
+
+		\fclose( $handle );
 
 		// A filesystem that cannot honour the mode - exFAT, an SMB mount - would otherwise make this
 		// hardening a silent no-op.
