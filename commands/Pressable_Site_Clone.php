@@ -243,7 +243,7 @@ final class Pressable_Site_Clone extends Command {
 			);
 
 			if ( ! $safety_net_installed ) {
-				run_pressable_site_wp_cli_command( $site_clone->id, 'plugin install https://github.com/a8cteam51/safety-net/releases/latest/download/safety-net.zip' );
+				run_pressable_site_wp_cli_command( $site_clone->id, 'plugin install https://github.com/a8cteam51/safety-net/releases/latest/download/safety-net.zip --skip-plugins --skip-themes' );
 				$ssh_connection->exec( 'mv -f htdocs/wp-content/plugins/safety-net htdocs/wp-content/mu-plugins/safety-net' );
 				$ssh_connection->exec(
 					'ls htdocs/wp-content/mu-plugins',
@@ -280,8 +280,6 @@ final class Pressable_Site_Clone extends Command {
 			);
 		}
 
-		// Done last because it seems to cause issues sometimes with the connection breaking off.
-		run_pressable_site_wp_cli_command( $site_clone->id, "search-replace {$this->site->url} $site_clone->url" );
 		run_pressable_site_wp_cli_command( $site_clone->id, 'cache flush' );
 
 		if ( Command::SUCCESS !== $rotate_status ) {
