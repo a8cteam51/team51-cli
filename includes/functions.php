@@ -647,14 +647,26 @@ function decompress_gzip_file( string $source, string $destination ): bool {
 	$failed = false;
 	while ( ! gzeof( $in ) ) {
 		$chunk = gzread( $in, 1048576 );
-		if ( false === $chunk || false === fwrite( $out, $chunk ) ) {
+		if ( false === $chunk ) {
+			$failed = true;
+			break;
+		}
+
+		// A disk that fills mid-write returns a short byte count rather than false, so comparing
+		// against false alone would treat a truncated dump as a complete one.
+		$written = fwrite( $out, $chunk );
+		if ( false === $written || strlen( $chunk ) !== $written ) {
 			$failed = true;
 			break;
 		}
 	}
 
 	gzclose( $in );
-	fclose( $out );
+
+	// Buffered bytes are flushed on close, so a write error can surface here rather than above.
+	if ( ! fclose( $out ) ) {
+		$failed = true;
+	}
 
 	if ( $failed ) {
 		// A partial dump is worse than none: it imports without error and leaves the database half-populated.

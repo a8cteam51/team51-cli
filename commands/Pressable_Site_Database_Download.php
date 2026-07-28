@@ -54,6 +54,8 @@ final class Pressable_Site_Database_Download extends Command {
 
 	/**
 	 * {@inheritDoc}
+	 *
+	 * @throws  \InvalidArgumentException If the destination directory does not exist or is not writable.
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
 		$this->site = get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
@@ -61,6 +63,12 @@ final class Pressable_Site_Database_Download extends Command {
 
 		$this->destination = get_string_input( $input, 'destination', fn() => $this->prompt_destination_input( $input, $output ) );
 		$input->setOption( 'destination', $this->destination );
+
+		// Fail here rather than after spending minutes on the remote export and transfer.
+		$destination_dir = \dirname( $this->destination );
+		if ( ! \is_dir( $destination_dir ) || ! \is_writable( $destination_dir ) ) {
+			throw new \InvalidArgumentException( "The destination directory $destination_dir does not exist or is not writable." );
+		}
 	}
 
 	/**
@@ -77,15 +85,15 @@ final class Pressable_Site_Database_Download extends Command {
 			"tmp/$dump_filename",
 		);
 		$remote_cleanup_error = false;
-		$dump_created         = false;
 		$download_successful  = false;
 		$download_valid       = false;
+		$remote_size          = null;
 
 		// Keep the compressed dump next to the destination so the decompression step below is a plain
-		// local file copy. Downloading straight to the destination would leave a gzipped file behind
-		// under a `.sql` name if the process died between transfer and decompression.
+		// local file copy. The temp name is scoped to this process because a plain `<destination>.gz`
+		// would overwrite - and then delete - a compressed dump the user deliberately kept earlier.
 		$keep_compressed = \str_ends_with( \strtolower( $this->destination ), '.gz' );
-		$local_gz_path   = $keep_compressed ? $this->destination : $this->destination . '.gz';
+		$local_gz_path   = $keep_compressed ? $this->destination : $this->destination . '.' . \getmypid() . '.gz';
 
 		$dump_ssh = \Pressable_Connection_Helper::get_ssh_connection( (string) $this->site->id );
 		if ( \is_null( $dump_ssh ) ) {
@@ -98,11 +106,14 @@ final class Pressable_Site_Database_Download extends Command {
 
 			// Run wp from the login directory: wp-cli resolves the site path from the host's own
 			// config there, and cd-ing into htdocs first breaks that resolution.
+			// umask 077 because, unlike a plugin archive, this dump holds password hashes, auth tokens
+			// and customer PII, and it sits in a shared /tmp for the whole export and transfer.
 			// --single-transaction keeps the export from locking a live production database.
-			$dump_command = 'if [ -d /tmp ]; then dump_path=' . escapeshellarg( $remote_dump_paths[0] ) . '; else dump_path=' . escapeshellarg( $remote_dump_paths[1] ) . '; fi; '
+			$dump_command = 'umask 077; '
+				. 'if [ -d /tmp ]; then dump_path=' . escapeshellarg( $remote_dump_paths[0] ) . '; else dump_path=' . escapeshellarg( $remote_dump_paths[1] ) . '; fi; '
 				. 'wp db export "${dump_path%.gz}" --add-drop-table --single-transaction && '
 				. 'gzip -f "${dump_path%.gz}"; '
-				. 'exit $? 2>&1';
+				. 'exit $?';
 			$dump_ssh->exec( $dump_command );
 			if ( 0 !== $dump_ssh->getExitStatus() ) {
 				$output->writeln( '<error>Failed to create the remote database dump.</error>' );
@@ -112,45 +123,51 @@ final class Pressable_Site_Database_Download extends Command {
 			$dump_ssh->disconnect();
 		}
 
-		$dump_created = true;
-
 		$sftp = \Pressable_Connection_Helper::get_sftp_connection( (string) $this->site->id );
 		if ( ! \is_null( $sftp ) ) {
 			try {
 				$sftp->setTimeout( 0 );
 
 				foreach ( $remote_dump_paths as $sftp_path ) {
+					$remote_stat = $sftp->stat( $sftp_path );
+					if ( false === $remote_stat ) {
+						continue;
+					}
+
 					if ( $sftp->get( $sftp_path, $local_gz_path ) ) {
 						$download_successful = true;
+						$remote_size         = $remote_stat['size'] ?? null;
 						break;
 					}
 				}
 
-				$download_valid = $download_successful && \is_file( $local_gz_path ) && 0 < \filesize( $local_gz_path );
+				// Compare against the remote size so a short transfer fails while the remote dump,
+				// which is deleted immediately below, is still recoverable.
+				$download_valid = $download_successful && \is_file( $local_gz_path ) && 0 < \filesize( $local_gz_path )
+					&& ( \is_null( $remote_size ) || \filesize( $local_gz_path ) === $remote_size );
 			} finally {
 				$sftp->disconnect();
 			}
 		}
 
-		if ( $dump_created ) { // Always cleanup after dump creation.
-			$cleanup_ssh = \Pressable_Connection_Helper::get_ssh_connection( (string) $this->site->id );
-			if ( \is_null( $cleanup_ssh ) ) {
-				$remote_cleanup_error = true;
-			} else {
-				try {
-					$cleanup_ssh->setTimeout( 0 );
-					$cleanup_command = 'rm -f '
-						. escapeshellarg( $remote_dump_paths[0] )
-						. ' '
-						. escapeshellarg( $remote_dump_paths[1] )
-						. ' 2>&1';
-					$cleanup_ssh->exec( $cleanup_command );
-					if ( 0 !== $cleanup_ssh->getExitStatus() ) {
-						$remote_cleanup_error = true;
-					}
-				} finally {
-					$cleanup_ssh->disconnect();
+		// Always cleanup: the dump exists on the server from this point on, whatever happened above.
+		$cleanup_ssh = \Pressable_Connection_Helper::get_ssh_connection( (string) $this->site->id );
+		if ( \is_null( $cleanup_ssh ) ) {
+			$remote_cleanup_error = true;
+		} else {
+			try {
+				$cleanup_ssh->setTimeout( 0 );
+				$cleanup_command = 'rm -f '
+					. escapeshellarg( $remote_dump_paths[0] )
+					. ' '
+					. escapeshellarg( $remote_dump_paths[1] )
+					. ' 2>&1';
+				$cleanup_ssh->exec( $cleanup_command );
+				if ( 0 !== $cleanup_ssh->getExitStatus() ) {
+					$remote_cleanup_error = true;
 				}
+			} finally {
+				$cleanup_ssh->disconnect();
 			}
 		}
 
@@ -160,12 +177,14 @@ final class Pressable_Site_Database_Download extends Command {
 		}
 
 		if ( ! $download_successful ) {
+			$this->discard_temp_archive( $keep_compressed, $local_gz_path );
 			$output->writeln( '<error>Failed to download the database dump via SFTP.</error>' );
 			return Command::FAILURE;
 		}
 
 		if ( ! $download_valid ) {
-			$output->writeln( '<error>Downloaded database dump appears invalid or empty.</error>' );
+			$this->discard_temp_archive( $keep_compressed, $local_gz_path );
+			$output->writeln( '<error>Downloaded database dump is truncated or empty.</error>' );
 			return Command::FAILURE;
 		}
 
@@ -186,6 +205,21 @@ final class Pressable_Site_Database_Download extends Command {
 	// endregion
 
 	// region HELPERS
+
+	/**
+	 * Removes the process-scoped compressed download after a failure. Skipped when the user asked to
+	 * keep the compressed file, since that path is their own destination rather than a temp file.
+	 *
+	 * @param   boolean $keep_compressed Whether the destination is itself the compressed file.
+	 * @param   string  $local_gz_path   The path the archive was downloaded to.
+	 *
+	 * @return  void
+	 */
+	private function discard_temp_archive( bool $keep_compressed, string $local_gz_path ): void {
+		if ( ! $keep_compressed && \is_file( $local_gz_path ) ) {
+			\unlink( $local_gz_path );
+		}
+	}
 
 	/**
 	 * Prompts the user for a site.
