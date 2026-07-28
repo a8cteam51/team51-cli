@@ -89,6 +89,7 @@ final class Pressable_Site_Database_Download extends Command {
 			"tmp/$dump_filename",
 		);
 		$dump_failed         = false;
+		$dump_error          = '';
 		$download_successful = false;
 		$download_valid      = false;
 		$remote_size         = null;
@@ -119,8 +120,11 @@ final class Pressable_Site_Database_Download extends Command {
 				. 'wp db export "${dump_path%.gz}" --add-drop-table --single-transaction && '
 				. 'gzip -f "${dump_path%.gz}"; '
 				. 'exit $?';
-			$dump_ssh->exec( $dump_command );
-			$dump_failed = ( 0 !== $dump_ssh->getExitStatus() );
+			$dump_output  = (string) $dump_ssh->exec( $dump_command );
+			$dump_failed  = ( 0 !== $dump_ssh->getExitStatus() );
+			// A MySQL error, an exhausted /tmp and a failed gzip are indistinguishable without this,
+			// and the operator has already paid the full export time by the time it fails.
+			$dump_error = \trim( $dump_output . "\n" . (string) $dump_ssh->getStdError() );
 		} finally {
 			$dump_ssh->disconnect();
 		}
@@ -128,12 +132,19 @@ final class Pressable_Site_Database_Download extends Command {
 		if ( $dump_failed ) {
 			// `wp db export` may have written the plaintext dump before `gzip` failed, so sweep before leaving.
 			$output->writeln( '<error>Failed to create the remote database dump.</error>' );
+			if ( '' !== $dump_error ) {
+				$output->writeln( "<error>$dump_error</error>" );
+			}
 			if ( ! $this->remove_remote_dumps( $remote_dump_paths ) ) {
 				$output->writeln( "<error>Anything it left behind is still on the server at {$remote_dump_paths[0]} or its .sql counterpart; remove it manually.</error>" );
 			}
 
 			return Command::FAILURE;
 		}
+
+		// Create the temp file 0600 up front: SFTP truncates an existing file rather than recreating it,
+		// so chmod-ing afterwards would leave the archive world-readable for the whole transfer.
+		$this->create_owner_only_file( $output, $local_gz_path );
 
 		$sftp = \Pressable_Connection_Helper::get_sftp_connection( (string) $this->site->id );
 		if ( ! \is_null( $sftp ) ) {
@@ -150,7 +161,6 @@ final class Pressable_Site_Database_Download extends Command {
 					$used_remote_path = $sftp_path;
 
 					if ( $sftp->get( $sftp_path, $local_gz_path ) ) {
-						\chmod( $local_gz_path, 0600 );
 						$download_successful = true;
 						$remote_size         = $remote_stat['size'] ?? null;
 						break;
@@ -227,6 +237,28 @@ final class Pressable_Site_Database_Download extends Command {
 	private function discard_temp_archive( OutputInterface $output, string $local_gz_path ): void {
 		if ( \is_file( $local_gz_path ) && ! \unlink( $local_gz_path ) ) {
 			$output->writeln( "<comment>Could not remove the temporary archive at $local_gz_path. Delete it manually - it holds a copy of the database.</comment>" );
+		}
+	}
+
+	/**
+	 * Creates an empty file readable only by its owner, so the dump is never briefly exposed to other
+	 * users of the machine while it downloads.
+	 *
+	 * @param   OutputInterface $output The output object.
+	 * @param   string          $path   The file to create.
+	 *
+	 * @return  void
+	 */
+	private function create_owner_only_file( OutputInterface $output, string $path ): void {
+		$handle = \fopen( $path, 'wb' );
+		if ( false !== $handle ) {
+			\fclose( $handle );
+		}
+
+		// A filesystem that cannot honour the mode - exFAT, an SMB mount - would otherwise make this
+		// hardening a silent no-op.
+		if ( ! \chmod( $path, 0600 ) ) {
+			$output->writeln( "<comment>Could not restrict permissions on $path. Other users of this machine may be able to read the dump.</comment>" );
 		}
 	}
 

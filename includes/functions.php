@@ -706,8 +706,10 @@ function decompress_gzip_file( string $source, string $destination ): bool {
 	// would otherwise decompress "successfully" into a partial dump. Compare what was written against
 	// the uncompressed size gzip records in the last four bytes. Single-member archives only, which is
 	// what gzip produces; a concatenated archive would report only its final member's size.
+	// An unreadable trailer fails closed: a valid member always has one, so its absence means the
+	// archive is damaged rather than that the check does not apply.
 	$expected_size = read_gzip_uncompressed_size( $source );
-	if ( ! is_null( $expected_size ) && ( $written_total % 4294967296 ) !== $expected_size ) {
+	if ( is_null( $expected_size ) || ( $written_total % 4294967296 ) !== $expected_size ) {
 		$failed = true;
 	}
 
