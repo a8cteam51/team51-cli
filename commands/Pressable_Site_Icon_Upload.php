@@ -75,6 +75,14 @@ final class Pressable_Site_Icon_Upload extends Command {
 			return Command::FAILURE;
 		}
 
+		// A fatal inside the eval is a broken site, not a site without an icon - reported as such so the
+		// operator keeps investigating.
+		if ( is_wp_cli_error_output( $GLOBALS['wp_cli_output'] ?? null ) ) {
+			$output->writeln( '<error>Reading the site icon URL failed:</error>' );
+			$output->writeln( '<error>' . \Symfony\Component\Console\Formatter\OutputFormatter::escape( trim( (string) ( $GLOBALS['wp_cli_output'] ?? '' ) ) ) . '</error>' );
+			return Command::FAILURE;
+		}
+
 		// The captured reply may carry notices or warnings ahead of the URL, which is always the last line.
 		$output_lines  = preg_split( '/\R/', trim( (string) ( $GLOBALS['wp_cli_output'] ?? '' ) ) );
 		$site_icon_url = trim( (string) end( $output_lines ) );

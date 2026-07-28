@@ -491,12 +491,22 @@ function wait_on_pressable_site_state( string $site_id_or_url, string $state, Ou
 	$delay        = 'deploying' === $state ? 3 : 10;
 	$max_attempts = (int) ceil( $max_wait_seconds / $delay );
 
-	$exited = false;
+	// A transient failed lookup is retried rather than treated as terminal - one null from the API against a
+	// freshly created site must not throw away the whole budget - and only a few in a row give up.
+	$exited       = false;
+	$null_lookups = 0;
 	for ( $try = 0; $try < $max_attempts; $try++ ) {
 		$site = get_pressable_site( $site_id_or_url );
-		if ( is_null( $site ) || $state !== $site->state ) {
-			$exited = true;
-			break;
+		if ( is_null( $site ) ) {
+			if ( 3 <= ++$null_lookups ) {
+				break;
+			}
+		} else {
+			$null_lookups = 0;
+			if ( $state !== $site->state ) {
+				$exited = true;
+				break;
+			}
 		}
 
 		$progress_bar->advance();
@@ -508,7 +518,11 @@ function wait_on_pressable_site_state( string $site_id_or_url, string $state, Ou
 
 	if ( ! $exited ) {
 		$minutes = (int) round( $max_wait_seconds / 60 );
-		$output->writeln( "<error>Pressable site $site_id_or_url did not exit $state state within $minutes minutes. The site exists and may still be provisioning.</error>" );
+		$output->writeln(
+			3 <= $null_lookups
+				? "<error>Pressable site $site_id_or_url could not be looked up ($null_lookups consecutive failed lookups).</error>"
+				: "<error>Pressable site $site_id_or_url did not exit $state state within $minutes minutes. The site exists and may still be provisioning.</error>"
+		);
 		return null;
 	}
 

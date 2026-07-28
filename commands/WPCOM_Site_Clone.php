@@ -220,7 +220,13 @@ final class WPCOM_Site_Clone extends Command {
 					$deployment_failed = true;
 				}
 			} else {
-				$output->writeln( '<comment>Jetpack user token not regenerated. Skipping deployment of GitHub repository. Manual deployment will be needed.</comment>' );
+				// A requested deployment that was skipped is still a deployment that did not happen, and the
+				// run must not exit 0 as though it had.
+				$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+				$output->writeln( '<error>⚠  Jetpack user token not regenerated. Skipping deployment of the GitHub repository.</error>' );
+				$output->writeln( '<error>    Deploy it manually.</error>' );
+				$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+				$deployment_failed = true;
 			}
 		}
 

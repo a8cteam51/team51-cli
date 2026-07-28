@@ -492,12 +492,22 @@ function wait_until_wpcom_agency_site_state( string $agency_site_id, string $sta
 	$delay        = 'provisioning' === $state ? 3 : 5;
 	$max_attempts = (int) ceil( $max_wait_seconds / $delay );
 
-	$reached = false;
+	// A transient failed lookup is retried rather than treated as terminal - one null from the API against a
+	// freshly created site must not throw away the whole budget - and only a few in a row give up.
+	$reached      = false;
+	$null_lookups = 0;
 	for ( $try = 0; $try < $max_attempts; $try++ ) {
 		$site = get_wpcom_agency_site( $agency_site_id );
-		if ( is_null( $site ) || $state === $site->features->wpcom_atomic->state ) {
-			$reached = true;
-			break;
+		if ( is_null( $site ) ) {
+			if ( 3 <= ++$null_lookups ) {
+				break;
+			}
+		} else {
+			$null_lookups = 0;
+			if ( $state === $site->features->wpcom_atomic->state ) {
+				$reached = true;
+				break;
+			}
 		}
 
 		$progress_bar->advance();
@@ -509,7 +519,11 @@ function wait_until_wpcom_agency_site_state( string $agency_site_id, string $sta
 
 	if ( ! $reached ) {
 		$minutes = (int) round( $max_wait_seconds / 60 );
-		$output->writeln( "<error>WordPress.com agency site $agency_site_id did not reach the `$state` state within $minutes minutes. The site exists and may still be provisioning.</error>" );
+		$output->writeln(
+			3 <= $null_lookups
+				? "<error>WordPress.com agency site $agency_site_id could not be looked up ($null_lookups consecutive failed lookups).</error>"
+				: "<error>WordPress.com agency site $agency_site_id did not reach the `$state` state within $minutes minutes. The site exists and may still be provisioning.</error>"
+		);
 		return null;
 	}
 
@@ -537,12 +551,22 @@ function wait_until_wpcom_site_transfer_state( string $site_id_or_url, string $s
 	$delay        = 5;
 	$max_attempts = (int) ceil( $max_wait_seconds / $delay );
 
-	$reached = false;
+	// A transient failed lookup is retried rather than treated as terminal - one null from the API against a
+	// freshly created site must not throw away the whole budget - and only a few in a row give up.
+	$reached      = false;
+	$null_lookups = 0;
 	for ( $try = 0; $try < $max_attempts; $try++ ) {
 		$transfer = get_wpcom_site_transfer_status( $site_id_or_url );
-		if ( is_null( $transfer ) || $state === $transfer->status ) {
-			$reached = true;
-			break;
+		if ( is_null( $transfer ) ) {
+			if ( 3 <= ++$null_lookups ) {
+				break;
+			}
+		} else {
+			$null_lookups = 0;
+			if ( $state === $transfer->status ) {
+				$reached = true;
+				break;
+			}
 		}
 
 		$progress_bar->advance();
@@ -554,7 +578,11 @@ function wait_until_wpcom_site_transfer_state( string $site_id_or_url, string $s
 
 	if ( ! $reached ) {
 		$minutes = (int) round( $max_wait_seconds / 60 );
-		$output->writeln( "<error>The transfer of WordPress.com site $site_id_or_url did not reach the `$state` state within $minutes minutes.</error>" );
+		$output->writeln(
+			3 <= $null_lookups
+				? "<error>The transfer of WordPress.com site $site_id_or_url could not be looked up ($null_lookups consecutive failed lookups).</error>"
+				: "<error>The transfer of WordPress.com site $site_id_or_url did not reach the `$state` state within $minutes minutes.</error>"
+		);
 		return null;
 	}
 
