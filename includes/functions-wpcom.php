@@ -475,21 +475,28 @@ function update_wpcom_site( string $site_id_or_url, array $settings ): ?stdClass
 /**
  * Periodically checks the status of a WordPress.com agency site until it reaches a given state.
  *
- * @param   string          $agency_site_id The ID of the Agency site to check the state of.
- * @param   string          $state          The state to wait for the site to reach.
- * @param   OutputInterface $output         The output instance.
+ * @param   string          $agency_site_id   The ID of the Agency site to check the state of.
+ * @param   string          $state            The state to wait for the site to reach.
+ * @param   OutputInterface $output           The output instance.
+ * @param   integer         $max_wait_seconds How long to keep checking before giving up.
  *
  * @return  stdClass|null
  */
-function wait_until_wpcom_agency_site_state( string $agency_site_id, string $state, OutputInterface $output ): ?stdClass {
+function wait_until_wpcom_agency_site_state( string $agency_site_id, string $state, OutputInterface $output, int $max_wait_seconds = 1200 ): ?stdClass {
 	$output->writeln( "<comment>Waiting for WordPress.com agency site $agency_site_id to reach the `$state` state.</comment>" );
 
 	$progress_bar = new ProgressBar( $output );
 	$progress_bar->start();
 
-	for ( $try = 0, $delay = 'provisioning' === $state ? 3 : 5; true; $try++ ) {
+	// Budgeted by wall clock, like the sibling waits, since the poll interval differs per state.
+	$delay        = 'provisioning' === $state ? 3 : 5;
+	$max_attempts = (int) ceil( $max_wait_seconds / $delay );
+
+	$reached = false;
+	for ( $try = 0; $try < $max_attempts; $try++ ) {
 		$site = get_wpcom_agency_site( $agency_site_id );
 		if ( is_null( $site ) || $state === $site->features->wpcom_atomic->state ) {
+			$reached = true;
 			break;
 		}
 
@@ -499,6 +506,12 @@ function wait_until_wpcom_agency_site_state( string $agency_site_id, string $sta
 
 	$progress_bar->finish();
 	$output->writeln( '' ); // Empty line for UX purposes.
+
+	if ( ! $reached ) {
+		$minutes = (int) round( $max_wait_seconds / 60 );
+		$output->writeln( "<error>WordPress.com agency site $agency_site_id did not reach the `$state` state within $minutes minutes. The site exists and may still be provisioning.</error>" );
+		return null;
+	}
 
 	return $site;
 }
@@ -592,12 +605,13 @@ function wait_on_wpcom_site_ssh( string $site_id_or_url, OutputInterface $output
 /**
  * Periodically checks the status of a WordPress.com site until the Jetpack user token is regenerated.
  *
- * @param   string          $site_id_or_url The ID or URL of the WordPress.com site to check the state of.
- * @param   OutputInterface $output         The output instance.
+ * @param   string          $site_id_or_url   The ID or URL of the WordPress.com site to check the state of.
+ * @param   OutputInterface $output           The output instance.
+ * @param   integer         $max_wait_seconds How long to keep checking before giving up.
  *
  * @return  boolean
  */
-function wait_until_jetpack_token_regenerated( string $site_id_or_url, OutputInterface $output ): bool {
+function wait_until_jetpack_token_regenerated( string $site_id_or_url, OutputInterface $output, int $max_wait_seconds = 300 ): bool {
 	$output->writeln( '<fg=magenta;options=bold>Pinging site to regenerate Jetpack user token. This will cause an error and the token will be regenerated.</>' );
 	$output->writeln( "<comment>Waiting for WordPress.com site $site_id_or_url to regenerate the Jetpack user token.</comment>" );
 
@@ -606,7 +620,12 @@ function wait_until_jetpack_token_regenerated( string $site_id_or_url, OutputInt
 	$progress_bar->start();
 	$progress_bar->advance();
 
-	for ( $try = 0, $delay = 5; true; $try++ ) { // Infinite loop until SSH connection is established.
+	// Bounded like the other waits: the caller already copes with a false return by skipping the repository
+	// deployment with a warning, which beats hanging the clone forever on a token that never regenerates.
+	$delay        = 5;
+	$max_attempts = (int) ceil( $max_wait_seconds / $delay );
+
+	for ( $try = 0; $try < $max_attempts; $try++ ) {
 		$wpcom_site = get_wpcom_site( $site_id_or_url );
 		if ( ! is_null( $wpcom_site ) ) {
 			$regenerated = true;
@@ -619,6 +638,11 @@ function wait_until_jetpack_token_regenerated( string $site_id_or_url, OutputInt
 
 	$progress_bar->finish();
 	$output->writeln( '' ); // Empty line for UX purposes.
+
+	if ( ! $regenerated ) {
+		$minutes = (int) round( $max_wait_seconds / 60 );
+		$output->writeln( "<error>The Jetpack user token of WordPress.com site $site_id_or_url did not regenerate within $minutes minutes.</error>" );
+	}
 
 	return $regenerated;
 }

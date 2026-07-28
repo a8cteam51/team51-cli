@@ -156,7 +156,7 @@ final class Pressable_Site_Create extends Command {
 		// the install's real outcome is read from the captured reply: WP-CLI prints a `Success:` line when it
 		// installed, and its absence also catches a `wp` killed before printing anything.
 		$atlantis_output = (string) ( $GLOBALS['wp_cli_output'] ?? '' );
-		if ( Command::SUCCESS === $atlantis_status && ( is_wp_cli_error_output( $atlantis_output ) || ! \str_contains( $atlantis_output, 'Success:' ) ) ) {
+		if ( Command::SUCCESS === $atlantis_status && ( is_wp_cli_error_output( $atlantis_output ) || ! is_wp_cli_success_output( $atlantis_output ) ) ) {
 			$atlantis_status = Command::FAILURE;
 		}
 

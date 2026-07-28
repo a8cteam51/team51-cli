@@ -191,6 +191,8 @@ final class WPCOM_Site_Clone extends Command {
 
 		$ssh_connection?->disconnect();
 
+		$deployment_failed = false;
+
 		// Ping site to regenerate Jetpack user token. This will cause an error and the token will be regenerated.
 		$regenerated = wait_until_jetpack_token_regenerated( $staging_site->id, $output );
 
@@ -212,8 +214,10 @@ final class WPCOM_Site_Clone extends Command {
 					)
 				);
 				if ( Command::SUCCESS !== $status ) {
+					// Reported here but returned at the end: the SafetyNet verdict below must run - and be
+					// heard - even when the deployment failed.
 					$output->writeln( '<error>Failed to create the repository.</error>' );
-					return Command::FAILURE;
+					$deployment_failed = true;
 				}
 			} else {
 				$output->writeln( '<comment>Jetpack user token not regenerated. Skipping deployment of GitHub repository. Manual deployment will be needed.</comment>' );
@@ -241,6 +245,10 @@ final class WPCOM_Site_Clone extends Command {
 			$output->writeln( "<error>$headline</error>" );
 			$output->writeln( '<error>    Treat the staging site as holding unscrubbed production data until you have checked it.</error>' );
 			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			return Command::FAILURE;
+		}
+
+		if ( $deployment_failed ) {
 			return Command::FAILURE;
 		}
 

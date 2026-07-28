@@ -69,7 +69,11 @@ final class Pressable_Site_Icon_Upload extends Command {
 		}
 
 		$output->writeln( '<comment>Getting site icon URL...</comment>' );
-		run_pressable_site_wp_cli_command( $this->site->id, "--skip-themes --skip-plugins eval 'echo get_site_icon_url(180);'", true );
+		$wp_cli_status = run_pressable_site_wp_cli_command( $this->site->id, "--skip-themes --skip-plugins eval 'echo get_site_icon_url(180);'", true );
+		if ( Command::SUCCESS !== $wp_cli_status ) {
+			$output->writeln( '<error>Could not reach the site over SSH to read the icon URL. Aborting.</error>' );
+			return Command::FAILURE;
+		}
 
 		// The captured reply may carry notices or warnings ahead of the URL, which is always the last line.
 		$output_lines  = preg_split( '/\R/', trim( (string) ( $GLOBALS['wp_cli_output'] ?? '' ) ) );

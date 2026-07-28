@@ -205,6 +205,30 @@ function is_wp_cli_error_output( mixed $output ): bool {
 }
 
 /**
+ * Returns whether some captured WP-CLI output contains a WP-CLI success message.
+ *
+ * Anchored to line starts, like its error counterpart, so a `Success:` occurring mid-line - in a URL, a
+ * plugin title, or an echoed diagnostic - does not read as one.
+ *
+ * @param   mixed $output The captured WP-CLI output.
+ *
+ * @return  boolean
+ */
+function is_wp_cli_success_output( mixed $output ): bool {
+	if ( ! is_string( $output ) ) {
+		return false;
+	}
+
+	foreach ( preg_split( '/\R/', $output ) as $line ) {
+		if ( str_starts_with( trim( $line ), 'Success:' ) ) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+/**
  * Prints the raw output of a password reset whose result could not be read as a password.
  *
  * By the time the output is parsed the reset has already run, so this string is the only copy of whatever the

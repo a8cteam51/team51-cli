@@ -161,7 +161,7 @@ final class Pressable_Site_WP_User_Password_Rotate extends Command {
 				$output->writeln( '<error>    Record this password before it scrolls off:</error>' );
 				$output->writeln( "<fg=yellow;options=bold>    $credentials->password</>" );
 				$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
-				$failures[] = $site->displayName; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- 1Password API field, not ours.
+				$failures[] = $site->displayName; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Pressable API field, not ours.
 				continue;
 			}
 

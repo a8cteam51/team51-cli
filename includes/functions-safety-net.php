@@ -241,9 +241,11 @@ function is_safety_net_confirmed_via_http( string $site_url, int $max_attempts =
 		return null;
 	}
 
+	// A 200 whose body is not the JSON report - an HTML page from a cache layer or interceptor - means the
+	// status could not be read, the same unknown the transport and non-200 branches report.
 	$report = json_decode( $body, true );
 	if ( ! is_array( $report ) ) {
-		return false;
+		return null;
 	}
 
 	// Mirrors the plugin's own semantics rather than a narrower allowlist: Safety Net treats every environment
