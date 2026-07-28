@@ -246,9 +246,16 @@ function is_safety_net_confirmed_via_http( string $site_url, int $max_attempts =
 		return false;
 	}
 
-	// Allowlist the environment rather than rejecting the literal `production`, so an empty or unrecognized
-	// value fails closed too.
-	return in_array( $report['environment'] ?? '', array( 'staging', 'development', 'local' ), true )
+	// Mirrors the plugin's own semantics rather than a narrower allowlist: Safety Net treats every environment
+	// except `production` as non-production - including `sandbox`/`dev`/`develop`, which it reads from the
+	// server environment and which core's allowlist would not pass - and it bails on production before the
+	// status route is even registered, so the route answering already implies non-production. An empty or
+	// missing value still fails closed.
+	$environment = (string) ( $report['environment'] ?? '' );
+
+	return ! empty( $report['active'] )
+		&& '' !== $environment
+		&& 'production' !== $environment
 		&& ! empty( $report['options_scrubbed'] )
 		&& ! empty( $report['data_deleted'] );
 }

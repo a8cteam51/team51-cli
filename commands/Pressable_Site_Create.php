@@ -152,6 +152,14 @@ final class Pressable_Site_Create extends Command {
 			'plugin install https://github.com/a8cteam51/a8csp-atlantis/releases/latest/download/a8csp-atlantis.zip --activate',
 		);
 
+		// The runner's exit code only says whether the connection worked, never how the remote `wp` ended, so
+		// the install's real outcome is read from the captured reply: WP-CLI prints a `Success:` line when it
+		// installed, and its absence also catches a `wp` killed before printing anything.
+		$atlantis_output = (string) ( $GLOBALS['wp_cli_output'] ?? '' );
+		if ( Command::SUCCESS === $atlantis_status && ( is_wp_cli_error_output( $atlantis_output ) || ! \str_contains( $atlantis_output, 'Success:' ) ) ) {
+			$atlantis_status = Command::FAILURE;
+		}
+
 		// Create a DeployHQ project and server for the site.
 		if ( ! \is_null( $this->gh_repository ) ) {
 			$deployhq_project = create_deployhq_project_for_pressable_site( $site, $this->gh_repository, $this->name );

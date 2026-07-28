@@ -162,6 +162,14 @@ final class WPCOM_Site_Create extends Command {
 			'plugin install https://github.com/a8cteam51/a8csp-atlantis/releases/latest/download/a8csp-atlantis.zip --activate',
 		);
 
+		// The runner's exit code only says whether the connection worked, never how the remote `wp` ended, so
+		// the install's real outcome is read from the captured reply: WP-CLI prints a `Success:` line when it
+		// installed, and its absence also catches a `wp` killed before printing anything.
+		$atlantis_output = (string) ( $GLOBALS['wp_cli_output'] ?? '' );
+		if ( Command::SUCCESS === $atlantis_status && ( is_wp_cli_error_output( $atlantis_output ) || ! \str_contains( $atlantis_output, 'Success:' ) ) ) {
+			$atlantis_status = Command::FAILURE;
+		}
+
 		// Printed before anything that can end the run early - the repository connect below returns FAILURE on
 		// its own, and the reachability verdict follows - so the pointer to a possibly-unrecorded password is
 		// never dropped.
@@ -169,6 +177,19 @@ final class WPCOM_Site_Create extends Command {
 			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 			$output->writeln( '<error>⚠  The WP user password rotation did not complete cleanly.</error>' );
 			$output->writeln( '<error>    See the warning above for the password to record or the rotation to retry.</error>' );
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+		}
+
+		// Reported before the repository connect below, whose own failure returns early: a run where both
+		// failed must name both. The expired wait alone proves nothing about this step - it opened its own
+		// connection - so the wait's outcome is context, and the verdict itself lands at the end.
+		if ( Command::SUCCESS !== $atlantis_status ) {
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			$output->writeln( "<error>⚠  Site $this->name (ID $transfer->blog_id) was created, but installing the a8csp-atlantis plugin failed.</error>" );
+			if ( \is_null( $ssh_connection ) ) {
+				$output->writeln( '<error>    The site did not accept SSH connections during setup; it may still be provisioning.</error>' );
+			}
+			$output->writeln( '<error>    Install the plugin manually.</error>' );
 			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 		}
 
@@ -190,17 +211,7 @@ final class WPCOM_Site_Create extends Command {
 			}
 		}
 
-		// The expired wait alone proves nothing about the steps that followed - each opens its own connection,
-		// and a site can become reachable after the wait gives up - so the verdict rests on what actually
-		// happened to the captured SSH-dependent setup step, with the wait's outcome as context.
 		if ( Command::SUCCESS !== $atlantis_status ) {
-			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
-			$output->writeln( "<error>⚠  Site $this->name (ID $transfer->blog_id) was created, but installing the a8csp-atlantis plugin failed.</error>" );
-			if ( \is_null( $ssh_connection ) ) {
-				$output->writeln( '<error>    The site did not accept SSH connections during setup; it may still be provisioning.</error>' );
-			}
-			$output->writeln( '<error>    Install the plugin manually.</error>' );
-			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 			return Command::FAILURE;
 		}
 
