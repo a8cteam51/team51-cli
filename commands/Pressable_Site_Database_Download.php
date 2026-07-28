@@ -65,6 +65,10 @@ final class Pressable_Site_Database_Download extends Command {
 		$input->setOption( 'destination', $this->destination );
 
 		// Fail here rather than after spending minutes on the remote export and transfer.
+		if ( \is_dir( $this->destination ) ) {
+			throw new \InvalidArgumentException( "The destination {$this->destination} is a directory. Pass the full path of the file to write." );
+		}
+
 		$destination_dir = \dirname( $this->destination );
 		if ( ! \is_dir( $destination_dir ) || ! \is_writable( $destination_dir ) ) {
 			throw new \InvalidArgumentException( "The destination directory $destination_dir does not exist or is not writable." );
@@ -88,12 +92,13 @@ final class Pressable_Site_Database_Download extends Command {
 		$download_successful = false;
 		$download_valid      = false;
 		$remote_size         = null;
+		$used_remote_path    = $remote_dump_paths[0];
 
-		// Keep the compressed dump next to the destination so the decompression step below is a plain
-		// local file copy. The temp name is scoped to this process because a plain `<destination>.gz`
-		// would overwrite - and then delete - a compressed dump the user deliberately kept earlier.
+		// Always transfer into a process-scoped temp file and only move it onto the destination once the
+		// download has been verified. Writing straight to the destination would let a dropped connection
+		// replace an earlier dump - possibly the last copy of a deleted site - with a partial one.
 		$keep_compressed = \str_ends_with( \strtolower( $this->destination ), '.gz' );
-		$local_gz_path   = $keep_compressed ? $this->destination : $this->destination . '.' . \getmypid() . '.gz';
+		$local_gz_path   = $this->destination . '.' . \getmypid() . '.gz';
 
 		$dump_ssh = \Pressable_Connection_Helper::get_ssh_connection( (string) $this->site->id );
 		if ( \is_null( $dump_ssh ) ) {
@@ -141,7 +146,11 @@ final class Pressable_Site_Database_Download extends Command {
 						continue;
 					}
 
+					// The dump is here, so this is the path to name in any recovery message from now on.
+					$used_remote_path = $sftp_path;
+
 					if ( $sftp->get( $sftp_path, $local_gz_path ) ) {
+						\chmod( $local_gz_path, 0600 );
 						$download_successful = true;
 						$remote_size         = $remote_stat['size'] ?? null;
 						break;
@@ -158,34 +167,44 @@ final class Pressable_Site_Database_Download extends Command {
 		}
 
 		if ( \is_null( $sftp ) ) {
-			$output->writeln( "<error>Failed to connect to the site via SFTP. The dump is still at {$remote_dump_paths[0]} on the server.</error>" );
+			$output->writeln( "<error>Failed to connect to the site via SFTP. The dump is still at $used_remote_path on the server.</error>" );
 			return Command::FAILURE;
 		}
 
 		if ( ! $download_successful ) {
-			$this->discard_temp_archive( $keep_compressed, $local_gz_path );
-			$output->writeln( "<error>Failed to download the database dump via SFTP. The dump is still at {$remote_dump_paths[0]} on the server.</error>" );
+			$this->discard_temp_archive( $output, $local_gz_path );
+			$output->writeln( "<error>Failed to download the database dump via SFTP. The dump is still at $used_remote_path on the server.</error>" );
 			return Command::FAILURE;
+		}
+
+		if ( \is_null( $remote_size ) ) {
+			$output->writeln( '<comment>The server did not report the dump size, so the transfer could not be checked for truncation.</comment>' );
 		}
 
 		if ( ! $download_valid ) {
-			$this->discard_temp_archive( $keep_compressed, $local_gz_path );
-			$output->writeln( "<error>Downloaded database dump is truncated. The remote dump has been kept at {$remote_dump_paths[0]} so the transfer can be retried without re-exporting.</error>" );
+			$this->discard_temp_archive( $output, $local_gz_path );
+			$output->writeln( "<error>Downloaded database dump is truncated. The remote dump has been kept at $used_remote_path so the transfer can be retried without re-exporting.</error>" );
 			return Command::FAILURE;
 		}
 
-		if ( ! $keep_compressed ) {
+		if ( $keep_compressed ) {
+			if ( ! \rename( $local_gz_path, $this->destination ) ) {
+				$this->discard_temp_archive( $output, $local_gz_path );
+				$output->writeln( "<error>Failed to move the downloaded archive to {$this->destination}. The remote dump is still at $used_remote_path.</error>" );
+				return Command::FAILURE;
+			}
+		} else {
 			if ( ! decompress_gzip_file( $local_gz_path, $this->destination ) ) {
-				$output->writeln( "<error>Failed to decompress the downloaded dump. The compressed copy is at $local_gz_path and the remote dump at {$remote_dump_paths[0]}.</error>" );
+				$output->writeln( "<error>Failed to decompress the downloaded dump. The compressed copy is at $local_gz_path and the remote dump at $used_remote_path.</error>" );
 				return Command::FAILURE;
 			}
 
-			$this->discard_temp_archive( $keep_compressed, $local_gz_path );
+			$this->discard_temp_archive( $output, $local_gz_path );
 		}
 
 		// Only now is the local copy known good, so the remote dump can go.
 		if ( ! $this->remove_remote_dumps( $remote_dump_paths ) ) {
-			$output->writeln( "<error>Database downloaded to {$this->destination}, but the temporary remote dump at {$remote_dump_paths[0]} could not be removed. Delete it manually - it holds password hashes and customer data.</error>" );
+			$output->writeln( "<error>Database downloaded to {$this->destination}, but the temporary remote dump at $used_remote_path could not be removed. Delete it manually - it holds password hashes and customer data.</error>" );
 			return Command::FAILURE;
 		}
 
@@ -198,17 +217,16 @@ final class Pressable_Site_Database_Download extends Command {
 	// region HELPERS
 
 	/**
-	 * Removes the process-scoped compressed download after a failure. Skipped when the user asked to
-	 * keep the compressed file, since that path is their own destination rather than a temp file.
+	 * Removes the process-scoped compressed download.
 	 *
-	 * @param   boolean $keep_compressed Whether the destination is itself the compressed file.
-	 * @param   string  $local_gz_path   The path the archive was downloaded to.
+	 * @param   OutputInterface $output        The output object.
+	 * @param   string          $local_gz_path The path the archive was downloaded to.
 	 *
 	 * @return  void
 	 */
-	private function discard_temp_archive( bool $keep_compressed, string $local_gz_path ): void {
-		if ( ! $keep_compressed && \is_file( $local_gz_path ) ) {
-			\unlink( $local_gz_path );
+	private function discard_temp_archive( OutputInterface $output, string $local_gz_path ): void {
+		if ( \is_file( $local_gz_path ) && ! \unlink( $local_gz_path ) ) {
+			$output->writeln( "<comment>Could not remove the temporary archive at $local_gz_path. Delete it manually - it holds a copy of the database.</comment>" );
 		}
 	}
 

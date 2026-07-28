@@ -676,6 +676,10 @@ function decompress_gzip_file( string $source, string $destination ): bool {
 		return false;
 	}
 
+	// A decompressed database dump holds password hashes, auth tokens and PII, and unlike the remote
+	// copy it persists indefinitely. rename() preserves the mode, so the destination inherits this.
+	chmod( $partial, 0600 );
+
 	$failed        = false;
 	$written_total = 0;
 	while ( ! gzeof( $in ) ) {
