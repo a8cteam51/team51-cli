@@ -180,12 +180,24 @@ final class WPCOM_Site_Clone extends Command {
 		);
 
 		run_wpcom_site_wp_cli_command( $staging_site->id, 'config set WP_ENVIRONMENT_TYPE development --type=constant' );
+
+		// This constant is what makes Safety Net treat the site as non-production and scrub it, so its
+		// outcome is read from the reply - the runner's exit code only covers the connection - and named in
+		// the final banner if it failed.
+		$environment_output = (string) ( $GLOBALS['wp_cli_output'] ?? '' );
+		$environment_set    = ! is_wp_cli_error_output( $environment_output ) && is_wp_cli_success_output( $environment_output );
+
 		run_wpcom_site_wp_cli_command( $staging_site->id, "search-replace {$this->site->URL} $staging_site_https_url" );
 		run_wpcom_site_wp_cli_command( $staging_site->id, 'cache flush' );
 
 		if ( $this->skip_safety_net ) {
 			$output->writeln( '<comment>Skipping the installation of SafetyNet as a mu-plugin.</comment>' );
 		} else {
+			// The wait above can expire on a site that becomes reachable moments later - the steps in between
+			// open their own connections and may already have succeeded - so the install gets one fresh
+			// attempt instead of inheriting a stale null.
+			$ssh_connection ??= \WPCOM_Connection_Helper::get_ssh_connection( $staging_site->id );
+
 			maybe_install_safety_net( $ssh_connection, $output );
 		}
 
@@ -240,7 +252,7 @@ final class WPCOM_Site_Clone extends Command {
 		// Checked last - after the Jetpack token regeneration and the repository deployment that writes into
 		// wp-content - so the verdict reflects the site as it is handed off. The endpoint is the authoritative
 		// signal that Safety Net actually booted and scrubbed, so it decides on every run.
-		$safety_net_installed = $this->skip_safety_net ? true : is_safety_net_confirmed_via_http( $staging_site_https_url );
+		$safety_net_installed = $this->skip_safety_net ? true : is_safety_net_confirmed_via_http( $staging_site_https_url, $output );
 
 		if ( true !== $safety_net_installed ) {
 			$headline = \is_null( $safety_net_installed )
@@ -249,6 +261,9 @@ final class WPCOM_Site_Clone extends Command {
 
 			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 			$output->writeln( "<error>$headline</error>" );
+			if ( ! $environment_set ) {
+				$output->writeln( '<error>    Setting WP_ENVIRONMENT_TYPE failed, which alone keeps Safety Net from scrubbing.</error>' );
+			}
 			$output->writeln( '<error>    Treat the staging site as holding unscrubbed production data until you have checked it.</error>' );
 			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 			return Command::FAILURE;

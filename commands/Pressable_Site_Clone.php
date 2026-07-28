@@ -235,9 +235,20 @@ final class Pressable_Site_Clone extends Command {
 		);
 		run_pressable_site_wp_cli_command( $site_clone->id, 'config set WP_ENVIRONMENT_TYPE development --type=constant' );
 
+		// This constant is what makes Safety Net treat the clone as non-production and scrub it, so its
+		// outcome is read from the reply - the runner's exit code only covers the connection - and named in
+		// the final banner if it failed.
+		$environment_output = (string) ( $GLOBALS['wp_cli_output'] ?? '' );
+		$environment_set    = ! is_wp_cli_error_output( $environment_output ) && is_wp_cli_success_output( $environment_output );
+
 		if ( $this->skip_safety_net ) {
 			$output->writeln( '<comment>Skipping the installation of SafetyNet as a mu-plugin.</comment>' );
 		} else {
+			// The wait above can expire on a site that becomes reachable moments later - the steps in between
+			// open their own connections and may already have succeeded - so the install gets one fresh
+			// attempt instead of inheriting a stale null.
+			$ssh_connection ??= \Pressable_Connection_Helper::get_ssh_connection( $site_clone->id );
+
 			maybe_install_safety_net( $ssh_connection, $output );
 		}
 		$ssh_connection?->disconnect();
@@ -268,7 +279,7 @@ final class Pressable_Site_Clone extends Command {
 		// above is what makes true. The file check only proves the files are present; this endpoint is the
 		// authoritative signal that Safety Net actually booted and scrubbed, so it decides the final verdict
 		// on every run - not just when the files were missing.
-		$safety_net_installed = $this->skip_safety_net ? true : is_safety_net_confirmed_via_http( $site_clone->url );
+		$safety_net_installed = $this->skip_safety_net ? true : is_safety_net_confirmed_via_http( $site_clone->url, $output );
 
 		if ( true !== $safety_net_installed ) {
 			$headline = \is_null( $safety_net_installed )
@@ -277,6 +288,9 @@ final class Pressable_Site_Clone extends Command {
 
 			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 			$output->writeln( "<error>$headline</error>" );
+			if ( ! $environment_set ) {
+				$output->writeln( '<error>    Setting WP_ENVIRONMENT_TYPE failed, which alone keeps Safety Net from scrubbing.</error>' );
+			}
 			$output->writeln( '<error>    Treat the clone as holding unscrubbed production data until you have checked it.</error>' );
 			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 			return Command::FAILURE;

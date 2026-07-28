@@ -153,8 +153,9 @@ final class Pressable_Site_Create extends Command {
 		);
 
 		// The runner's exit code only says whether the connection worked, never how the remote `wp` ended, so
-		// the install's real outcome is read from the captured reply: WP-CLI prints a `Success:` line when it
-		// installed, and its absence also catches a `wp` killed before printing anything.
+		// the install's real outcome is read from the captured reply. Both checks are deliberate: the missing
+		// Success: line catches a `wp` killed before printing anything, and the Error: scan catches an
+		// activation fatal that arrives after the install's own Success: line already printed.
 		$atlantis_output = (string) ( $GLOBALS['wp_cli_output'] ?? '' );
 		if ( Command::SUCCESS === $atlantis_status && ( is_wp_cli_error_output( $atlantis_output ) || ! is_wp_cli_success_output( $atlantis_output ) ) ) {
 			$atlantis_status = Command::FAILURE;

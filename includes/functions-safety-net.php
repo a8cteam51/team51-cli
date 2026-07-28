@@ -179,12 +179,16 @@ function write_safety_net_loader( SSH2 $ssh_connection ): bool {
  * hostname may not resolve yet - so callers can say they could not verify instead of asserting the site holds
  * unscrubbed data. A site that does answer fails closed on anything unexpected.
  *
- * @param   string  $site_url     The URL of the site to check.
- * @param   integer $max_attempts The maximum number of probes, 5 seconds apart.
+ * @param   string               $site_url     The URL of the site to check.
+ * @param   OutputInterface|null $output       The output instance, for announcing the poll.
+ * @param   integer              $max_attempts The maximum number of probes, 5 seconds apart.
  *
  * @return  boolean|null  Null if the site could not be reached or did not answer with a readable report.
  */
-function is_safety_net_confirmed_via_http( string $site_url, int $max_attempts = 12 ): ?bool {
+function is_safety_net_confirmed_via_http( string $site_url, ?OutputInterface $output = null, int $max_attempts = 12 ): ?bool {
+	// Announced because the poll is otherwise silent for up to a few minutes at the very end of a run, which
+	// reads as a hang.
+	$output?->writeln( "<comment>Checking the Safety Net status endpoint on $site_url (up to $max_attempts probes, 5 seconds apart).</comment>" );
 	if ( ! preg_match( '#^https?://#i', $site_url ) ) {
 		$site_url = "https://$site_url";
 	}
@@ -328,7 +332,7 @@ function maybe_install_safety_net( ?SSH2 $ssh_connection, OutputInterface $outpu
 		$plugin_src  = "$site_root/wp-content/plugins/safety-net";
 		$plugin_dest = "$site_root/wp-content/mu-plugins/safety-net";
 
-		$move_output = $ssh_connection->exec( "if test -d '$plugin_src' ; then rm -rf '$plugin_dest' && mv -f '$plugin_src' '$plugin_dest' ; else echo 'MOVE:skipped' ; fi" );
+		$move_output = $ssh_connection->exec( "if test -d '$plugin_src' ; then test -d '$site_root/wp-content' && mkdir -p '$site_root/wp-content/mu-plugins' && rm -rf '$plugin_dest' && mv -f '$plugin_src' '$plugin_dest' ; else echo 'MOVE:skipped' ; fi" );
 		$move_code   = $ssh_connection->getExitStatus();
 		if ( is_string( $move_output ) && str_contains( $move_output, 'MOVE:skipped' ) ) {
 			$output->writeln( '<comment>Nothing to move into mu-plugins: WP-CLI did not produce the plugin directory.</comment>' );
