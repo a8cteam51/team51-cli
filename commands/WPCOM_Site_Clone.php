@@ -180,52 +180,30 @@ final class WPCOM_Site_Clone extends Command {
 		);
 
 		run_wpcom_site_wp_cli_command( $staging_site->id, 'config set WP_ENVIRONMENT_TYPE development --type=constant' );
+
+		// This constant is what makes Safety Net treat the site as non-production and scrub it, so its
+		// outcome is read from the reply - the runner's exit code only covers the connection - and named in
+		// the final banner if it failed.
+		$environment_output = (string) ( $GLOBALS['wp_cli_output'] ?? '' );
+		$environment_set    = ! is_wp_cli_error_output( $environment_output ) && is_wp_cli_success_output( $environment_output );
+
 		run_wpcom_site_wp_cli_command( $staging_site->id, "search-replace {$this->site->URL} $staging_site_https_url" );
 		run_wpcom_site_wp_cli_command( $staging_site->id, 'cache flush' );
 
 		if ( $this->skip_safety_net ) {
 			$output->writeln( '<comment>Skipping the installation of SafetyNet as a mu-plugin.</comment>' );
-		} elseif ( \is_null( $ssh_connection ) ) {
-			$output->writeln( '<error>Failed to connect to the site via SSH. Cannot install SafetyNet!</error>' );
 		} else {
-			// SafetyNet could already be installed if the site was cloned from a template that had it installed.
-			$safety_net_installed = false;
-			$ssh_connection->exec(
-				'ls htdocs/wp-content/mu-plugins',
-				function ( $stream ) use ( &$safety_net_installed, $output ) {
-					if ( str_contains( $stream, 'safety-net' ) ) {
-						$output->writeln( '<comment>SafetyNet is already installed as a mu-plugin. Skipping installation...</comment>' );
-						$safety_net_installed = true;
-					}
-				}
-			);
+			// The wait above can expire on a site that becomes reachable moments later - the steps in between
+			// open their own connections and may already have succeeded - so the install gets one fresh
+			// attempt instead of inheriting a stale null.
+			$ssh_connection ??= \WPCOM_Connection_Helper::get_ssh_connection( $staging_site->id );
 
-			if ( ! $safety_net_installed ) {
-				run_wpcom_site_wp_cli_command( $transfer->blog_id, 'plugin install https://github.com/a8cteam51/safety-net/releases/latest/download/safety-net.zip' );
-				$ssh_connection->exec( 'mv -f htdocs/wp-content/plugins/safety-net htdocs/wp-content/mu-plugins/safety-net' );
-				$ssh_connection->exec(
-					'ls htdocs/wp-content/mu-plugins',
-					function ( $stream ) use ( $staging_site, $output ) {
-						if ( ! str_contains( $stream, 'safety-net' ) ) {
-							$output->writeln( '<error>Failed to install SafetyNet!</error>' );
-						}
-						if ( ! str_contains( $stream, 'load-safety-net.php' ) ) {
-							$sftp = \WPCOM_Connection_Helper::get_sftp_connection( $staging_site->id );
-							if ( \is_null( $sftp ) ) {
-								$output->writeln( '<error>Failed to connect to the site via SFTP. Cannot copy SafetyNet loader!</error>' );
-							} else {
-								$result = $sftp->put( '/htdocs/wp-content/mu-plugins/load-safety-net.php', file_get_contents( __DIR__ . '/../scaffold/load-safety-net.php' ) );
-								if ( ! $result ) {
-									$output->writeln( '<error>Failed to copy the SafetyNet loader!</error>' );
-								}
-							}
-						}
-					}
-				);
-			}
+			maybe_install_safety_net( $ssh_connection, $output );
 		}
 
 		$ssh_connection?->disconnect();
+
+		$deployment_failed = false;
 
 		// Ping site to regenerate Jetpack user token. This will cause an error and the token will be regenerated.
 		$regenerated = wait_until_jetpack_token_regenerated( $staging_site->id, $output );
@@ -248,19 +226,54 @@ final class WPCOM_Site_Clone extends Command {
 					)
 				);
 				if ( Command::SUCCESS !== $status ) {
+					// Reported here but returned at the end: the SafetyNet verdict below must run - and be
+					// heard - even when the deployment failed.
 					$output->writeln( '<error>Failed to create the repository.</error>' );
-					return Command::FAILURE;
+					$deployment_failed = true;
 				}
 			} else {
-				$output->writeln( '<comment>Jetpack user token not regenerated. Skipping deployment of GitHub repository. Manual deployment will be needed.</comment>' );
+				// A requested deployment that was skipped is still a deployment that did not happen, and the
+				// run must not exit 0 as though it had.
+				$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+				$output->writeln( '<error>⚠  Jetpack user token not regenerated. Skipping deployment of the GitHub repository.</error>' );
+				$output->writeln( '<error>    Deploy it manually.</error>' );
+				$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+				$deployment_failed = true;
 			}
 		}
 
-		$output->writeln( "<fg=green;options=bold>Staging site created successfully at $staging_site_https_url.</>" );
-
 		if ( Command::SUCCESS !== $rotate_status ) {
-			$output->writeln( '<comment>⚠  Heads up: 1Password sync did not complete during this run. See the warning above for the password to record manually.</comment>' );
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			$output->writeln( '<error>⚠  The WP user password rotation did not complete cleanly.</error>' );
+			$output->writeln( '<error>    See the warning above for the password to record or the rotation to retry.</error>' );
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 		}
+
+		// Checked last - after the Jetpack token regeneration and the repository deployment that writes into
+		// wp-content - so the verdict reflects the site as it is handed off. The endpoint is the authoritative
+		// signal that Safety Net actually booted and scrubbed, so it decides on every run.
+		$safety_net_installed = $this->skip_safety_net ? true : is_safety_net_confirmed_via_http( $staging_site_https_url, $output );
+
+		if ( true !== $safety_net_installed ) {
+			$headline = \is_null( $safety_net_installed )
+				? "⚠  Could not verify SafetyNet on $staging_site_https_url."
+				: "⚠  SafetyNet is NOT installed on $staging_site_https_url.";
+
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			$output->writeln( "<error>$headline</error>" );
+			if ( ! $environment_set ) {
+				$output->writeln( '<error>    Setting WP_ENVIRONMENT_TYPE failed, which alone keeps Safety Net from scrubbing.</error>' );
+			}
+			$output->writeln( '<error>    Treat the staging site as holding unscrubbed production data until you have checked it.</error>' );
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			return Command::FAILURE;
+		}
+
+		if ( $deployment_failed ) {
+			return Command::FAILURE;
+		}
+
+		$output->writeln( "<fg=green;options=bold>Staging site created successfully at $staging_site_https_url.</>" );
 
 		return Command::SUCCESS;
 	}

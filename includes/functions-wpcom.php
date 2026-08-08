@@ -478,11 +478,25 @@ function rotate_wpcom_site_wp_user_password( string $site_id_or_url, string $use
 	$credentials = null;
 
 	$exit_code = run_wpcom_site_wp_cli_command( $site_id_or_url, "user reset-password $user --skip-email --porcelain", true );
-	if ( Command::SUCCESS === $exit_code ) {
+	$password  = parse_wp_cli_porcelain_password( $GLOBALS['wp_cli_output'] ?? null );
+
+	// The password is only trusted when WP-CLI actually printed one. Without this an unreachable site, or a
+	// reset that failed and printed an error instead, overwrites a good 1Password entry. There is no API
+	// rotation to fall back from here, so this is the only guard on the value.
+	if ( Command::SUCCESS === $exit_code && ! is_null( $password ) ) {
 		$credentials = (object) array(
 			'username' => $user,
-			'password' => $GLOBALS['wp_cli_output'],
+			'password' => $password,
 		);
+	}
+
+	// Whenever output was captured but no credentials are returned - a garbled token, or a connection that
+	// broke after the reset already ran and printed one - that output is the only copy of whatever the site
+	// now uses, so it is surfaced rather than dropped. Suppressed only when a fatal WP-CLI error is present
+	// AND no token was recoverable: that combination means the reset never ran, whereas an error alongside a
+	// token means it did and the token must not be lost.
+	if ( is_null( $credentials ) && '' !== trim( (string) ( $GLOBALS['wp_cli_output'] ?? '' ) ) && ( ! is_null( $password ) || ! is_wp_cli_error_output( $GLOBALS['wp_cli_output'] ) ) ) {
+		report_unreadable_wp_cli_password( $user, $GLOBALS['wp_cli_output'] );
 	}
 
 	return $credentials;
@@ -525,22 +539,39 @@ function update_wpcom_site( string $site_id_or_url, array $settings ): ?stdClass
 /**
  * Periodically checks the status of a WordPress.com agency site until it reaches a given state.
  *
- * @param   string          $agency_site_id The ID of the Agency site to check the state of.
- * @param   string          $state          The state to wait for the site to reach.
- * @param   OutputInterface $output         The output instance.
+ * @param   string          $agency_site_id   The ID of the Agency site to check the state of.
+ * @param   string          $state            The state to wait for the site to reach.
+ * @param   OutputInterface $output           The output instance.
+ * @param   integer         $max_wait_seconds How long to keep checking before giving up.
  *
  * @return  stdClass|null
  */
-function wait_until_wpcom_agency_site_state( string $agency_site_id, string $state, OutputInterface $output ): ?stdClass {
+function wait_until_wpcom_agency_site_state( string $agency_site_id, string $state, OutputInterface $output, int $max_wait_seconds = 1200 ): ?stdClass {
 	$output->writeln( "<comment>Waiting for WordPress.com agency site $agency_site_id to reach the `$state` state.</comment>" );
 
 	$progress_bar = new ProgressBar( $output );
 	$progress_bar->start();
 
-	for ( $try = 0, $delay = 'provisioning' === $state ? 3 : 5; true; $try++ ) {
+	// Budgeted by wall clock, like the sibling waits, since the poll interval differs per state.
+	$delay        = 'provisioning' === $state ? 3 : 5;
+	$max_attempts = (int) ceil( $max_wait_seconds / $delay );
+
+	// A transient failed lookup is retried rather than treated as terminal - one null from the API against a
+	// freshly created site must not throw away the whole budget - and only a few in a row give up.
+	$reached      = false;
+	$null_lookups = 0;
+	for ( $try = 0; $try < $max_attempts; $try++ ) {
 		$site = get_wpcom_agency_site( $agency_site_id );
-		if ( is_null( $site ) || $state === $site->features->wpcom_atomic->state ) {
-			break;
+		if ( is_null( $site ) ) {
+			if ( 3 <= ++$null_lookups ) {
+				break;
+			}
+		} else {
+			$null_lookups = 0;
+			if ( $state === $site->features->wpcom_atomic->state ) {
+				$reached = true;
+				break;
+			}
 		}
 
 		$progress_bar->advance();
@@ -549,6 +580,16 @@ function wait_until_wpcom_agency_site_state( string $agency_site_id, string $sta
 
 	$progress_bar->finish();
 	$output->writeln( '' ); // Empty line for UX purposes.
+
+	if ( ! $reached ) {
+		$minutes = (int) round( $max_wait_seconds / 60 );
+		$output->writeln(
+			3 <= $null_lookups
+				? "<error>WordPress.com agency site $agency_site_id could not be looked up ($null_lookups consecutive failed lookups).</error>"
+				: "<error>WordPress.com agency site $agency_site_id did not reach the `$state` state within $minutes minutes. The site exists and may still be provisioning.</error>"
+		);
+		return null;
+	}
 
 	return $site;
 }
@@ -556,22 +597,40 @@ function wait_until_wpcom_agency_site_state( string $agency_site_id, string $sta
 /**
  * Periodically checks on the transfer status of a WordPress.com Atomic site until it reaches a given state.
  *
- * @param   string          $site_id_or_url The ID or URL of the WordPress.com site to check the state of.
- * @param   string          $state          The state to wait for the site to reach.
- * @param   OutputInterface $output         The output instance.
+ * @param   string          $site_id_or_url   The ID or URL of the WordPress.com site to check the state of.
+ * @param   string          $state            The state to wait for the site to reach.
+ * @param   OutputInterface $output           The output instance.
+ * @param   integer         $max_wait_seconds How long to keep checking before giving up.
  *
  * @return  stdClass|null
  */
-function wait_until_wpcom_site_transfer_state( string $site_id_or_url, string $state, OutputInterface $output ): ?stdClass {
+function wait_until_wpcom_site_transfer_state( string $site_id_or_url, string $state, OutputInterface $output, int $max_wait_seconds = 1200 ): ?stdClass {
 	$output->writeln( "<comment>Waiting for the transfer of WordPress.com site $site_id_or_url to reach the `$state` state.</comment>" );
 
 	$progress_bar = new ProgressBar( $output );
 	$progress_bar->start();
 
-	for ( $try = 0, $delay = 5; true; $try++ ) {
+	// Budgeted by wall clock, matching the Pressable state wait, so the give-up message can say how long the
+	// command actually waited. A transfer copies the whole site, so the budget is deliberately generous.
+	$delay        = 5;
+	$max_attempts = (int) ceil( $max_wait_seconds / $delay );
+
+	// A transient failed lookup is retried rather than treated as terminal - one null from the API against a
+	// freshly created site must not throw away the whole budget - and only a few in a row give up.
+	$reached      = false;
+	$null_lookups = 0;
+	for ( $try = 0; $try < $max_attempts; $try++ ) {
 		$transfer = get_wpcom_site_transfer_status( $site_id_or_url );
-		if ( is_null( $transfer ) || $state === $transfer->status ) {
-			break;
+		if ( is_null( $transfer ) ) {
+			if ( 3 <= ++$null_lookups ) {
+				break;
+			}
+		} else {
+			$null_lookups = 0;
+			if ( $state === $transfer->status ) {
+				$reached = true;
+				break;
+			}
 		}
 
 		$progress_bar->advance();
@@ -580,6 +639,16 @@ function wait_until_wpcom_site_transfer_state( string $site_id_or_url, string $s
 
 	$progress_bar->finish();
 	$output->writeln( '' ); // Empty line for UX purposes.
+
+	if ( ! $reached ) {
+		$minutes = (int) round( $max_wait_seconds / 60 );
+		$output->writeln(
+			3 <= $null_lookups
+				? "<error>The transfer of WordPress.com site $site_id_or_url could not be looked up ($null_lookups consecutive failed lookups).</error>"
+				: "<error>The transfer of WordPress.com site $site_id_or_url did not reach the `$state` state within $minutes minutes.</error>"
+		);
+		return null;
+	}
 
 	return $transfer;
 }
@@ -589,10 +658,11 @@ function wait_until_wpcom_site_transfer_state( string $site_id_or_url, string $s
  *
  * @param   string          $site_id_or_url The ID or URL of the WordPress.com site to check the state of.
  * @param   OutputInterface $output         The output instance.
+ * @param   integer         $max_attempts   The maximum number of connection attempts, 5 seconds apart.
  *
  * @return  SSH2|null
  */
-function wait_on_wpcom_site_ssh( string $site_id_or_url, OutputInterface $output ): ?SSH2 {
+function wait_on_wpcom_site_ssh( string $site_id_or_url, OutputInterface $output, int $max_attempts = 60 ): ?SSH2 {
 	$output->writeln( "<comment>Waiting for WordPress.com site $site_id_or_url to accept SSH connections.</comment>" );
 
 	$progress_bar = new ProgressBar( $output );
@@ -603,7 +673,8 @@ function wait_on_wpcom_site_ssh( string $site_id_or_url, OutputInterface $output
 	sleep( 5 );
 	$progress_bar->advance();
 
-	for ( $try = 0, $delay = 5; true; $try++ ) { // Infinite loop until SSH connection is established.
+	$ssh_connection = null;
+	for ( $try = 0, $delay = 5; $try < $max_attempts; $try++ ) {
 		$ssh_connection = WPCOM_Connection_Helper::get_ssh_connection( $site_id_or_url );
 		if ( ! is_null( $ssh_connection ) ) {
 			break;
@@ -616,18 +687,23 @@ function wait_on_wpcom_site_ssh( string $site_id_or_url, OutputInterface $output
 	$progress_bar->finish();
 	$output->writeln( '' ); // Empty line for UX purposes.
 
+	if ( is_null( $ssh_connection ) ) {
+		$output->writeln( "<error>WordPress.com site $site_id_or_url did not accept SSH connections after $max_attempts attempts.</error>" );
+	}
+
 	return $ssh_connection;
 }
 
 /**
  * Periodically checks the status of a WordPress.com site until the Jetpack user token is regenerated.
  *
- * @param   string          $site_id_or_url The ID or URL of the WordPress.com site to check the state of.
- * @param   OutputInterface $output         The output instance.
+ * @param   string          $site_id_or_url   The ID or URL of the WordPress.com site to check the state of.
+ * @param   OutputInterface $output           The output instance.
+ * @param   integer         $max_wait_seconds How long to keep checking before giving up.
  *
  * @return  boolean
  */
-function wait_until_jetpack_token_regenerated( string $site_id_or_url, OutputInterface $output ): bool {
+function wait_until_jetpack_token_regenerated( string $site_id_or_url, OutputInterface $output, int $max_wait_seconds = 300 ): bool {
 	$output->writeln( '<fg=magenta;options=bold>Pinging site to regenerate Jetpack user token. This will cause an error and the token will be regenerated.</>' );
 	$output->writeln( "<comment>Waiting for WordPress.com site $site_id_or_url to regenerate the Jetpack user token.</comment>" );
 
@@ -636,7 +712,12 @@ function wait_until_jetpack_token_regenerated( string $site_id_or_url, OutputInt
 	$progress_bar->start();
 	$progress_bar->advance();
 
-	for ( $try = 0, $delay = 5; true; $try++ ) { // Infinite loop until SSH connection is established.
+	// Bounded like the other waits: the caller already copes with a false return by skipping the repository
+	// deployment with a warning, which beats hanging the clone forever on a token that never regenerates.
+	$delay        = 5;
+	$max_attempts = (int) ceil( $max_wait_seconds / $delay );
+
+	for ( $try = 0; $try < $max_attempts; $try++ ) {
 		$wpcom_site = get_wpcom_site( $site_id_or_url );
 		if ( ! is_null( $wpcom_site ) ) {
 			$regenerated = true;
@@ -649,6 +730,11 @@ function wait_until_jetpack_token_regenerated( string $site_id_or_url, OutputInt
 
 	$progress_bar->finish();
 	$output->writeln( '' ); // Empty line for UX purposes.
+
+	if ( ! $regenerated ) {
+		$minutes = (int) round( $max_wait_seconds / 60 );
+		$output->writeln( "<error>The Jetpack user token of WordPress.com site $site_id_or_url did not regenerate within $minutes minutes.</error>" );
+	}
 
 	return $regenerated;
 }

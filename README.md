@@ -109,7 +109,7 @@ The MCP server currently exposes 67 tools across all services. The table below s
 
 Write tools are annotated with MCP `ToolAnnotations` (`destructiveHint`, `readOnlyHint`, etc.) so clients prompt for confirmation before executing destructive actions.
 
-High-risk operations (site creation, user deletion, WP-CLI execution, deployments) are intentionally excluded.
+High-risk operations — site creation (`pressable_create_site`, `wpcom_create_site`), WP-CLI execution (`pressable_run_wp_cli_command`, `wpcom_run_wp_cli_command`), shell access (`pressable_open_site_shell`), collaborator removal, and DeployHQ project creation — are exposed but carry `destructiveHint: true`, so clients prompt before they run. Risk is gated by annotation, not by exclusion.
 
 ### Extending
 

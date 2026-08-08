@@ -65,17 +65,26 @@ Right after cloning or creating a site, the server may accept connections but no
 
 ```php
 $ssh = wait_on_pressable_site_ssh( $site_id, $output );
+if ( \is_null( $ssh ) ) {
+    // The site never became reachable — handle it; do not proceed as though it had.
+}
 ```
 
-This loops until `get_ssh_connection()` succeeds and the server responds to `ls -la`. SFTP is typically ready sooner than SSH for new sites.
+This retries `get_ssh_connection()` (which also verifies the server responds to `ls -la`) up to `$max_attempts` times (default 60, 5 seconds apart), then reports the timeout and returns `null` — callers must handle that. SFTP is typically ready sooner than SSH for new sites.
 
 ### 3. SFTP path convention
 
-Pressable/WPCOM sites use `htdocs` as the web root. Paths are absolute from the connection root:
+Pressable/WPCOM sites use `htdocs` as the web root. Over **SFTP**, paths are absolute from the connection root:
 
 - `/htdocs/wp-content/mu-plugins/`
 - `/htdocs/wp-content/plugins/`
 - `/htdocs/wp-config.php`
+
+This absolute form is the SFTP root only. An SSH `exec()` starts a fresh shell at the login directory, where the
+layout may be the home-relative `htdocs` or the absolute `/htdocs` — both exist in the wild — so SSH callers must
+resolve the prefix instead of hardcoding `/htdocs`. See `get_ssh_site_root_path()` in
+`includes/functions-safety-net.php`, or the relative-then-absolute probe in
+`commands/Pressable_Site_Plugins_Download.php`.
 
 ### 4. SSH exec output and exit status
 
@@ -87,19 +96,22 @@ if ( 0 !== $exit_code ) {
 }
 ```
 
-For streaming/callback style, `exec()` can accept a callback. See `Pressable_Site_Clone.php` for examples.
+For streaming/callback style, `exec()` can accept a callback. See `Pressable_Site_WP_CLI_Command_Run.php` or `SSH_Worker.php` for examples.
 
 ### 5. SFTP put
 
 ```php
 $result = $sftp->put(
-    '/htdocs/wp-content/mu-plugins/load-safety-net.php',
-    file_get_contents( __DIR__ . '/../scaffold/load-safety-net.php' )
+    '/htdocs/wp-content/uploads/example.png',
+    file_get_contents( $local_path )
 );
 if ( ! $result ) {
     // Upload failed
 }
 ```
+
+For writing a small text file over an existing SSH connection, a quoted heredoc avoids opening a second
+(SFTP) connection — see `write_safety_net_loader()` in `includes/functions-safety-net.php` for the pattern.
 
 ### 6. Credential handling (internal)
 
@@ -109,6 +121,13 @@ Connection helpers obtain credentials via OpsOasis:
 - **WPCOM**: `get_wpcom_site_ssh_username()` + `rotate_wpcom_site_sftp_user_password()`
 
 Credentials are cached per `$site_identifier` during the request. Do not call these directly from commands; use the connection helpers.
+
+The one credential-adjacent call a command may make itself is `Pressable_Connection_Helper::ensure_sftp_user( $site_id )`:
+opening a connection deliberately does **not** provision the concierge collaborator (that is a write, and read-only
+commands must not grant access as a side effect). A command that provisions a site — e.g. `Pressable_Site_Clone` —
+calls it once, explicitly, before connecting. It looks the SFTP user up a few times, then creates the collaborator and
+polls for the user to appear. A `false` return is a warning that SSH may not work yet, not by itself a reason to stop:
+Pressable provisions users asynchronously, and the SSH wait re-queries on every pass.
 
 ## When to Use Which
 
@@ -132,5 +151,5 @@ See `connection-helper-pressable.php` and `connection-helper-wpcom.php` for refe
 
 ## Example Commands
 
-- **SSH**: `Pressable_Site_Clone`, `Pressable_Site_WP_CLI_Command_Run`, `Pressable_Site_Shell_Open`, `WPCOM_Site_WP_CLI_Command_Run`
-- **SFTP**: `Pressable_Site_Clone` (SafetyNet loader), `Pressable_Site_Icon_Upload`, `WPCOM_Site_Clone`, `GitHub_Pattern_To_Repo_Export`
+- **SSH**: `includes/functions-safety-net.php` (SafetyNet install + loader via heredoc, used by both clone commands), `Pressable_Site_WP_CLI_Command_Run`, `Pressable_Site_Shell_Open`, `WPCOM_Site_WP_CLI_Command_Run`
+- **SFTP**: `Pressable_Site_Icon_Upload`, `Pressable_Site_Plugins_Download`, `GitHub_Pattern_To_Repo_Export`

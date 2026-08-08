@@ -19,6 +19,11 @@ abstract class Abstract_Connection_Helper {
 	 */
 	public const SFTP_HOST = null;
 
+	/**
+	 * The connection and read timeout, in seconds, that connections are built with.
+	 */
+	public const SSH_TIMEOUT = 10;
+
 	// endregion
 
 	// region METHODS
@@ -58,7 +63,7 @@ abstract class Abstract_Connection_Helper {
 			return null;
 		}
 
-		$connection = new SSH2( static::SSH_HOST );
+		$connection = new SSH2( static::SSH_HOST, 22, static::SSH_TIMEOUT );
 		if ( ! $connection->login( $credentials->username, $credentials->password ) ) {
 			$connection->isConnected() && $connection->disconnect();
 			return null;

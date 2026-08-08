@@ -213,6 +213,16 @@ final class Pressable_Site_Clone extends Command {
 			return Command::FAILURE;
 		}
 
+		// A clone does not always inherit the concierge collaborator, and without it every SSH and SFTP
+		// connection below fails with `SFTP user not found.`
+		if ( ! \Pressable_Connection_Helper::ensure_sftp_user( $site_clone->id ) ) {
+			$output->writeln( "<error>No usable SFTP user for $site_clone->url yet. Still waiting for one; the steps below that need SSH will fail if it does not appear.</error>" );
+		}
+
+		// The wait keeps its full budget even after that warning. A failure to confirm the SFTP user does not
+		// mean one will never appear - Pressable provisions them asynchronously, and the wait re-queries every
+		// pass - so cutting it short here would strand a clone that was moments from being reachable, holding
+		// unscrubbed production data. The reason is already on screen; the budget is the safety margin.
 		$ssh_connection = wait_on_pressable_site_ssh( $site_clone->id, $output );
 
 		// Run a few commands to set up the site.
@@ -225,47 +235,21 @@ final class Pressable_Site_Clone extends Command {
 		);
 		run_pressable_site_wp_cli_command( $site_clone->id, 'config set WP_ENVIRONMENT_TYPE development --type=constant' );
 
+		// This constant is what makes Safety Net treat the clone as non-production and scrub it, so its
+		// outcome is read from the reply - the runner's exit code only covers the connection - and named in
+		// the final banner if it failed.
+		$environment_output = (string) ( $GLOBALS['wp_cli_output'] ?? '' );
+		$environment_set    = ! is_wp_cli_error_output( $environment_output ) && is_wp_cli_success_output( $environment_output );
+
 		if ( $this->skip_safety_net ) {
 			$output->writeln( '<comment>Skipping the installation of SafetyNet as a mu-plugin.</comment>' );
-		} elseif ( \is_null( $ssh_connection ) ) {
-			$output->writeln( '<error>Failed to connect to the site via SSH. Cannot install SafetyNet!</error>' );
 		} else {
-			// SafetyNet could already be installed if the site was cloned from a template that had it installed.
-			$safety_net_installed = false;
-			$ssh_connection->exec(
-				'ls htdocs/wp-content/mu-plugins',
-				function ( $stream ) use ( &$safety_net_installed, $output ) {
-					if ( str_contains( $stream, 'safety-net' ) ) {
-						$output->writeln( '<comment>SafetyNet is already installed as a mu-plugin. Skipping installation...</comment>' );
-						$safety_net_installed = true;
-					}
-				}
-			);
+			// The wait above can expire on a site that becomes reachable moments later - the steps in between
+			// open their own connections and may already have succeeded - so the install gets one fresh
+			// attempt instead of inheriting a stale null.
+			$ssh_connection ??= \Pressable_Connection_Helper::get_ssh_connection( $site_clone->id );
 
-			if ( ! $safety_net_installed ) {
-				run_pressable_site_wp_cli_command( $site_clone->id, 'plugin install https://github.com/a8cteam51/safety-net/releases/latest/download/safety-net.zip' );
-				$ssh_connection->exec( 'mv -f htdocs/wp-content/plugins/safety-net htdocs/wp-content/mu-plugins/safety-net' );
-				$ssh_connection->exec(
-					'ls htdocs/wp-content/mu-plugins',
-					function ( $stream ) use ( $site_clone, $output ) {
-						if ( ! str_contains( $stream, 'safety-net' ) ) {
-							$output->writeln( '<error>Failed to install SafetyNet!</error>' );
-						}
-						if ( ! str_contains( $stream, 'load-safety-net.php' ) ) {
-							$sftp_connection = \Pressable_Connection_Helper::get_sftp_connection( $site_clone->id );
-							if ( \is_null( $sftp_connection ) ) {
-								$output->writeln( '<error>Failed to connect to the site via SFTP. Cannot copy SafetyNet loader!</error>' );
-							} else {
-								$result = $sftp_connection->put( '/htdocs/wp-content/mu-plugins/load-safety-net.php', file_get_contents( __DIR__ . '/../scaffold/load-safety-net.php' ) );
-								if ( ! $result ) {
-									$output->writeln( '<error>Failed to copy the SafetyNet loader!</error>' );
-								}
-							}
-							$sftp_connection?->disconnect();
-						}
-					}
-				);
-			}
+			maybe_install_safety_net( $ssh_connection, $output );
 		}
 		$ssh_connection?->disconnect();
 
@@ -285,7 +269,31 @@ final class Pressable_Site_Clone extends Command {
 		run_pressable_site_wp_cli_command( $site_clone->id, 'cache flush' );
 
 		if ( Command::SUCCESS !== $rotate_status ) {
-			$output->writeln( '<comment>⚠  Heads up: 1Password sync did not complete during this run. See the warning above for the password to record manually.</comment>' );
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			$output->writeln( '<error>⚠  The WP user password rotation did not complete cleanly.</error>' );
+			$output->writeln( '<error>    See the warning above for the password to record or the rotation to retry.</error>' );
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+		}
+
+		// Asking the clone itself is only meaningful once it answers on its own URL, which the search-replace
+		// above is what makes true. The file check only proves the files are present; this endpoint is the
+		// authoritative signal that Safety Net actually booted and scrubbed, so it decides the final verdict
+		// on every run - not just when the files were missing.
+		$safety_net_installed = $this->skip_safety_net ? true : is_safety_net_confirmed_via_http( $site_clone->url, $output );
+
+		if ( true !== $safety_net_installed ) {
+			$headline = \is_null( $safety_net_installed )
+				? "⚠  Could not verify SafetyNet on $site_clone->url."
+				: "⚠  SafetyNet is NOT installed on $site_clone->url.";
+
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			$output->writeln( "<error>$headline</error>" );
+			if ( ! $environment_set ) {
+				$output->writeln( '<error>    Setting WP_ENVIRONMENT_TYPE failed, which alone keeps Safety Net from scrubbing.</error>' );
+			}
+			$output->writeln( '<error>    Treat the clone as holding unscrubbed production data until you have checked it.</error>' );
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			return Command::FAILURE;
 		}
 
 		return Command::SUCCESS;

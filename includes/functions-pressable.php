@@ -365,14 +365,26 @@ function rotate_pressable_site_wp_user_password( string $site_id_or_url, string 
 	$site_id_or_url = pressable_maybe_resolve_site_alias( $site_id_or_url );
 	$credentials    = API_Helper::make_pressable_request( "site-wp-users/$site_id_or_url/$user/rotate-password", 'POST' );
 	if ( is_null( $credentials ) || is_null( $credentials->password ) ) {
-		$exit_code = run_pressable_site_wp_cli_command( $site_id_or_url, "user reset-password $user --skip-email --porcelain" );
-		if ( Command::SUCCESS === $exit_code ) {
-			$credentials = (object) array(
+		// Skipping the output keeps the freshly reset password out of the console and any log capturing it.
+		$exit_code = run_pressable_site_wp_cli_command( $site_id_or_url, "user reset-password $user --skip-email --porcelain", true );
+		$password  = parse_wp_cli_porcelain_password( $GLOBALS['wp_cli_output'] ?? null );
+
+		// The password is only trusted when WP-CLI actually printed one. Without this an unreachable site, or
+		// a reset that failed and printed an error instead, overwrites a good 1Password entry.
+		$credentials = ( Command::SUCCESS === $exit_code && ! is_null( $password ) )
+			? (object) array(
 				'username' => $user,
-				'password' => $GLOBALS['wp_cli_output'],
-			);
-		} else {
-			$credentials = null;
+				'password' => $password,
+			)
+			: null;
+
+		// Whenever output was captured but no credentials are returned - a garbled token, or a connection that
+		// broke after the reset already ran and printed one - that output is the only copy of whatever the
+		// site now uses, so it is surfaced rather than dropped. Suppressed only when a fatal WP-CLI error is
+		// present AND no token was recoverable: that combination means the reset never ran, whereas an error
+		// alongside a token means it did and the token must not be lost.
+		if ( is_null( $credentials ) && '' !== trim( (string) ( $GLOBALS['wp_cli_output'] ?? '' ) ) && ( ! is_null( $password ) || ! is_wp_cli_error_output( $GLOBALS['wp_cli_output'] ) ) ) {
+			report_unreadable_wp_cli_password( $user, $GLOBALS['wp_cli_output'] );
 		}
 	}
 
@@ -463,20 +475,38 @@ function create_pressable_site_clone( string $site_id_or_url, string $name, ?str
  * @param   string          $site_id_or_url The ID or URL of the Pressable site to check the state of.
  * @param   string          $state          The state to wait for the site to exit.
  * @param   OutputInterface $output         The output instance.
+ * @param   integer         $max_wait_seconds How long to keep checking before giving up.
  *
  * @return  stdClass|null
  */
-function wait_on_pressable_site_state( string $site_id_or_url, string $state, OutputInterface $output ): ?stdClass {
+function wait_on_pressable_site_state( string $site_id_or_url, string $state, OutputInterface $output, int $max_wait_seconds = 1200 ): ?stdClass {
 	$site_id_or_url = pressable_maybe_resolve_site_alias( $site_id_or_url );
 	$output->writeln( "<comment>Waiting for Pressable site $site_id_or_url to exit $state state.</comment>" );
 
 	$progress_bar = new ProgressBar( $output );
 	$progress_bar->start();
 
-	for ( $try = 0, $delay = 'deploying' === $state ? 3 : 10; true; $try++ ) {
+	// The poll interval differs per state, so the budget is wall-clock rather than a number of attempts -
+	// otherwise the same attempt count would mean a very different amount of patience for each state.
+	$delay        = 'deploying' === $state ? 3 : 10;
+	$max_attempts = (int) ceil( $max_wait_seconds / $delay );
+
+	// A transient failed lookup is retried rather than treated as terminal - one null from the API against a
+	// freshly created site must not throw away the whole budget - and only a few in a row give up.
+	$exited       = false;
+	$null_lookups = 0;
+	for ( $try = 0; $try < $max_attempts; $try++ ) {
 		$site = get_pressable_site( $site_id_or_url );
-		if ( is_null( $site ) || $state !== $site->state ) {
-			break;
+		if ( is_null( $site ) ) {
+			if ( 3 <= ++$null_lookups ) {
+				break;
+			}
+		} else {
+			$null_lookups = 0;
+			if ( $state !== $site->state ) {
+				$exited = true;
+				break;
+			}
 		}
 
 		$progress_bar->advance();
@@ -486,6 +516,16 @@ function wait_on_pressable_site_state( string $site_id_or_url, string $state, Ou
 	$progress_bar->finish();
 	$output->writeln( '' ); // Empty line for UX purposes.
 
+	if ( ! $exited ) {
+		$minutes = (int) round( $max_wait_seconds / 60 );
+		$output->writeln(
+			3 <= $null_lookups
+				? "<error>Pressable site $site_id_or_url could not be looked up ($null_lookups consecutive failed lookups).</error>"
+				: "<error>Pressable site $site_id_or_url did not exit $state state within $minutes minutes. The site exists and may still be provisioning.</error>"
+		);
+		return null;
+	}
+
 	return $site;
 }
 
@@ -494,17 +534,19 @@ function wait_on_pressable_site_state( string $site_id_or_url, string $state, Ou
  *
  * @param   string          $site_id_or_url The ID or URL of the Pressable site to check the state of.
  * @param   OutputInterface $output         The output instance.
+ * @param   integer         $max_attempts   The maximum number of connection attempts, 5 seconds apart.
  *
  * @return  SSH2|null
  */
-function wait_on_pressable_site_ssh( string $site_id_or_url, OutputInterface $output ): ?SSH2 {
+function wait_on_pressable_site_ssh( string $site_id_or_url, OutputInterface $output, int $max_attempts = 60 ): ?SSH2 {
 	$site_id_or_url = pressable_maybe_resolve_site_alias( $site_id_or_url );
 	$output->writeln( "<comment>Waiting for Pressable site $site_id_or_url to accept SSH connections.</comment>" );
 
 	$progress_bar = new ProgressBar( $output );
 	$progress_bar->start();
 
-	for ( $try = 0, $delay = 5; true; $try++ ) { // Infinite loop until SSH connection is established.
+	$ssh_connection = null;
+	for ( $try = 0, $delay = 5; $try < $max_attempts; $try++ ) {
 		$ssh_connection = Pressable_Connection_Helper::get_ssh_connection( $site_id_or_url );
 		if ( ! is_null( $ssh_connection ) ) {
 			break;
@@ -516,6 +558,10 @@ function wait_on_pressable_site_ssh( string $site_id_or_url, OutputInterface $ou
 
 	$progress_bar->finish();
 	$output->writeln( '' ); // Empty line for UX purposes.
+
+	if ( is_null( $ssh_connection ) ) {
+		$output->writeln( "<error>Pressable site $site_id_or_url did not accept SSH connections after $max_attempts attempts.</error>" );
+	}
 
 	return $ssh_connection;
 }

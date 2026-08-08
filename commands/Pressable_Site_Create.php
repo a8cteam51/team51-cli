@@ -133,7 +133,11 @@ final class Pressable_Site_Create extends Command {
 			return Command::FAILURE;
 		}
 
-		wait_on_pressable_site_ssh( $site->id, $output )?->disconnect();
+		// This wait used to block until the site answered, so everything below it could assume SSH worked. It
+		// is bounded now, so the outcome has to be carried to the end: the setup steps that need SSH cannot
+		// succeed without it, and the command must not report success as though they had.
+		$ssh_connection = wait_on_pressable_site_ssh( $site->id, $output );
+		$ssh_connection?->disconnect();
 
 		// Run a few commands to set up the site.
 		$rotate_status = run_app_command(
@@ -143,10 +147,19 @@ final class Pressable_Site_Create extends Command {
 				'--user' => 'concierge@wordpress.com',
 			)
 		);
-		run_pressable_site_wp_cli_command(
+		$atlantis_status = run_pressable_site_wp_cli_command(
 			$site->id,
 			'plugin install https://github.com/a8cteam51/a8csp-atlantis/releases/latest/download/a8csp-atlantis.zip --activate',
 		);
+
+		// The runner's exit code only says whether the connection worked, never how the remote `wp` ended, so
+		// the install's real outcome is read from the captured reply. Both checks are deliberate: the missing
+		// Success: line catches a `wp` killed before printing anything, and the Error: scan catches an
+		// activation fatal that arrives after the install's own Success: line already printed.
+		$atlantis_output = (string) ( $GLOBALS['wp_cli_output'] ?? '' );
+		if ( Command::SUCCESS === $atlantis_status && ( is_wp_cli_error_output( $atlantis_output ) || ! is_wp_cli_success_output( $atlantis_output ) ) ) {
+			$atlantis_status = Command::FAILURE;
+		}
 
 		// Create a DeployHQ project and server for the site.
 		if ( ! \is_null( $this->gh_repository ) ) {
@@ -168,11 +181,30 @@ final class Pressable_Site_Create extends Command {
 			}
 		}
 
-		$output->writeln( "<fg=green;options=bold>Site $this->name created successfully.</>" );
-
+		// Printed before the reachability verdict: an unreachable site is exactly when the rotation is most
+		// likely to have failed, and its pointer to a possibly-unrecorded password must not be skipped.
 		if ( Command::SUCCESS !== $rotate_status ) {
-			$output->writeln( '<comment>⚠  Heads up: 1Password sync did not complete during this run. See the warning above for the password to record manually.</comment>' );
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			$output->writeln( '<error>⚠  The WP user password rotation did not complete cleanly.</error>' );
+			$output->writeln( '<error>    See the warning above for the password to record or the rotation to retry.</error>' );
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 		}
+
+		// The expired wait alone proves nothing about the steps that followed - each opens its own connection,
+		// and a site can become reachable after the wait gives up - so the verdict rests on what actually
+		// happened to the captured SSH-dependent setup step, with the wait's outcome as context.
+		if ( Command::SUCCESS !== $atlantis_status ) {
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			$output->writeln( "<error>⚠  Site $this->name (ID $site->id) was created, but installing the a8csp-atlantis plugin failed.</error>" );
+			if ( \is_null( $ssh_connection ) ) {
+				$output->writeln( '<error>    The site did not accept SSH connections during setup; it may still be provisioning.</error>' );
+			}
+			$output->writeln( '<error>    Install the plugin manually.</error>' );
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			return Command::FAILURE;
+		}
+
+		$output->writeln( "<fg=green;options=bold>Site $this->name created successfully.</>" );
 
 		return Command::SUCCESS;
 	}
