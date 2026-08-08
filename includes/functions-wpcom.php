@@ -231,6 +231,23 @@ function replace_wpcom_site_plugins_batch( array $site_ids_or_urls, string $slug
 }
 
 /**
+ * Raises the fleet-wide plugin update-check directive.
+ *
+ * Proxies the OpsOasis directive endpoint, which bumps a monotonic epoch that every site running the
+ * Atlantis plugin polls. On seeing a newer epoch, each site clears its `update_plugins` transient and
+ * re-runs its update check, so a freshly published wp.org release becomes visible to the normal update
+ * path without waiting out WordPress core's ~12h check throttle. The directive is a global pulse: it
+ * names no specific site or plugin (per-site scoping stays in the update batch) and expires after a
+ * few hours.
+ *
+ * @return  stdClass|null  The raised directive (with `epoch` and `expires_at`), or null on failure.
+ */
+function refresh_wpcom_site_plugin_updates(): ?stdClass {
+	$directive = API_Helper::make_wpcom_request( 'sites/batch/plugin-refresh', 'POST', array() );
+	return $directive instanceof stdClass ? $directive : null;
+}
+
+/**
  * Returns the stats for a WPCOM or Jetpack Connected site.
  *
  * @param   string      $site_id_or_url The site URL or WordPress.com site ID.
