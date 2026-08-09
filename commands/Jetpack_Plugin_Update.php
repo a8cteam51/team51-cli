@@ -29,9 +29,9 @@ final class Jetpack_Plugin_Update extends Command {
 
 	/**
 	 * Default seconds to wait after raising a refresh directive for sites to re-check, before updating.
-	 * Comfortably longer than the Atlantis poll interval (~2 minutes) so most sites re-check in time.
+	 * Comfortably longer than the Atlantis poll interval (~5 minutes) so most sites re-check in time.
 	 */
-	private const DEFAULT_REFRESH_WAIT = 180;
+	private const DEFAULT_REFRESH_WAIT = 330;
 
 	/**
 	 * The plugin slug to update (matched against folder name, main file name, and textdomain).
@@ -403,7 +403,7 @@ final class Jetpack_Plugin_Update extends Command {
 			return;
 		}
 
-		$output->writeln( "<comment>Refresh raised (epoch $directive->epoch). Sites re-check within ~2 minutes.</comment>" );
+		$output->writeln( "<comment>Refresh raised (epoch $directive->epoch). Sites re-check within ~5 minutes.</comment>" );
 
 		if ( 0 >= (int) $this->refresh_wait ) {
 			$output->writeln( '<comment>Skipping the propagation wait (--refresh-wait=0); re-run the command shortly to catch any sites that had not re-checked yet.</comment>' );
