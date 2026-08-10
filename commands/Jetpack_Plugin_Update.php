@@ -29,9 +29,10 @@ final class Jetpack_Plugin_Update extends Command {
 
 	/**
 	 * Default seconds to wait after raising a refresh directive for sites to re-check, before updating.
-	 * Comfortably longer than the Atlantis poll interval (~5 minutes) so most sites re-check in time.
+	 * Comfortably longer than the Atlantis poll interval (~5 minutes) so most sites re-check in time;
+	 * pass --refresh-wait to override (0 raises the refresh and updates immediately).
 	 */
-	private const DEFAULT_REFRESH_WAIT = 330;
+	private const DEFAULT_REFRESH_WAIT = 360;
 
 	/**
 	 * The plugin slug to update (matched against folder name, main file name, and textdomain).
@@ -118,6 +119,14 @@ final class Jetpack_Plugin_Update extends Command {
 	 */
 	private ?array $targets = null;
 
+	/**
+	 * Sites that could not be queried for their installed plugins, keyed by WPCOM ID. Surfaced in the
+	 * summary and the exit code so a fleet-wide push cannot silently skip unreachable sites.
+	 *
+	 * @var array
+	 */
+	private array $unqueryable = array();
+
 	// endregion
 
 	// region INHERITED METHODS
@@ -136,7 +145,7 @@ final class Jetpack_Plugin_Update extends Command {
 			->addOption( 'force', null, InputOption::VALUE_NONE, 'Force-install the plugin from --package, overwriting it in place. Installs only on sites whose version is below the package version; sites already at that version are skipped and sites ahead of it are never touched (no downgrades). Bypasses update detection entirely — use this when a just-published release has not propagated to sites yet.' )
 			->addOption( 'package', null, InputOption::VALUE_REQUIRED, 'The plugin zip URL to install. Required with --force (e.g. a GitHub release asset URL).' )
 			->addOption( 'reinstall', null, InputOption::VALUE_NONE, 'With --force, also overwrite sites already at the package version (a same-version reinstall). Sites ahead of the package version are still never touched.' )
-			->addOption( 'refresh', null, InputOption::VALUE_NONE, 'Before updating, ask every targeted site to re-check for updates (via the Atlantis lever) so a just-published wp.org release is detected even if the site\'s 12h update cache has not refreshed yet. Applies to the default update path; has no effect with --force, which bypasses update detection.' )
+			->addOption( 'refresh', null, InputOption::VALUE_NONE, 'Before updating, raise a fleet-wide update-check refresh so sites re-detect a just-published wp.org release even if their 12h update cache has not refreshed yet. The refresh is a global pulse — every site running the Atlantis lever re-checks, regardless of --sites — while the update itself still only touches the --sites you chose. Applies to the default update path; has no effect with --force, which bypasses update detection.' )
 			->addOption( 'refresh-wait', null, InputOption::VALUE_REQUIRED, 'Seconds to wait for the refresh to propagate before updating (default ' . self::DEFAULT_REFRESH_WAIT . '). Pass 0 to raise the refresh and update immediately, then re-run shortly to catch stragglers.' )
 			->addOption( 'dry-run', null, InputOption::VALUE_NONE, 'List the sites that would be updated without updating them.' )
 			->addOption( 'yes', null, InputOption::VALUE_NONE, 'Skip the confirmation prompt before updating.' );
@@ -145,7 +154,12 @@ final class Jetpack_Plugin_Update extends Command {
 	/**
 	 * {@inheritDoc}
 	 *
-	 * @throws \InvalidArgumentException If `--sites` is missing or matches no connected Jetpack site.
+	 * @throws \InvalidArgumentException If `--sites` is missing/unmatched, or an option is misused
+	 *                                   (`--force` without `--package`; `--package`/`--reinstall` without
+	 *                                   `--force`; `--refresh` with `--force`; `--refresh-wait` without
+	 *                                   `--refresh` or with a negative/non-numeric value).
+	 * @throws \RuntimeException         If the connected fleet, the sites' installed plugins, or the
+	 *                                   `--package` zip cannot be fetched.
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
 		$this->plugin = get_string_input( $input, 'plugin', fn() => $this->prompt_plugin_input( $input, $output ) );
@@ -157,20 +171,42 @@ final class Jetpack_Plugin_Update extends Command {
 		$this->force     = get_bool_input( $input, 'force' );
 		$this->reinstall = get_bool_input( $input, 'reinstall' );
 		$this->package   = maybe_get_string_input( $input, 'package' );
+		$this->refresh   = get_bool_input( $input, 'refresh' );
+
+		// Reject misused option combinations instead of silently ignoring them.
 		if ( $this->force && empty( $this->package ) ) {
 			throw new \InvalidArgumentException( 'The --force option requires --package <zip-url> (e.g. a GitHub release asset URL).' );
 		}
-
-		$this->refresh = get_bool_input( $input, 'refresh' );
+		if ( ! $this->force && ! empty( $this->package ) ) {
+			throw new \InvalidArgumentException( 'The --package option only applies to --force.' );
+		}
+		if ( ! $this->force && $this->reinstall ) {
+			throw new \InvalidArgumentException( 'The --reinstall option only applies to --force.' );
+		}
 		if ( $this->refresh && $this->force ) {
 			throw new \InvalidArgumentException( 'The --refresh option applies to the detection-based update path and has no effect with --force (which bypasses update detection). Use one or the other.' );
 		}
-		$refresh_wait       = maybe_get_string_input( $input, 'refresh-wait' );
-		$this->refresh_wait = null === $refresh_wait ? self::DEFAULT_REFRESH_WAIT : \max( 0, (int) $refresh_wait );
+
+		// Read --refresh-wait directly: maybe_get_string_input() treats "0" as absent, which would make
+		// the documented `--refresh-wait 0` ("update immediately") silently fall back to the default.
+		$refresh_wait = $input->getOption( 'refresh-wait' );
+		if ( null !== $refresh_wait && ! $this->refresh ) {
+			throw new \InvalidArgumentException( 'The --refresh-wait option only applies to --refresh.' );
+		}
+		if ( null === $refresh_wait ) {
+			$this->refresh_wait = self::DEFAULT_REFRESH_WAIT;
+		} elseif ( ! \is_numeric( $refresh_wait ) || (int) $refresh_wait < 0 ) {
+			throw new \InvalidArgumentException( 'The --refresh-wait option must be a non-negative number of seconds (0 to skip the wait).' );
+		} else {
+			$this->refresh_wait = (int) $refresh_wait;
+		}
 
 		$sites_spec = get_string_input( $input, 'sites', fn() => $this->prompt_sites_input( $input, $output ) );
 
 		$all_sites = get_wpcom_jetpack_sites();
+		if ( \is_null( $all_sites ) ) {
+			throw new \RuntimeException( 'Could not fetch the connected Jetpack sites from WPCOM.' );
+		}
 		$output->writeln( '<comment>Successfully fetched ' . \count( $all_sites ) . ' connected Jetpack site(s).</comment>' );
 
 		if ( 'all' === \strtolower( \trim( $sites_spec ) ) ) {
@@ -194,7 +230,11 @@ final class Jetpack_Plugin_Update extends Command {
 
 		// Fetch the plugins installed on the target sites and compile the list of sites to update.
 		$plugins = get_wpcom_site_plugins_batch( \array_column( $this->sites, 'userblog_id' ), $errors );
-		maybe_output_wpcom_failed_sites_table( $output, $errors ?? array(), $this->sites, 'Sites that could NOT be queried for plugins' );
+		if ( \is_null( $plugins ) ) {
+			throw new \RuntimeException( 'Could not fetch the installed plugins for the requested sites from WPCOM.' );
+		}
+		$this->unqueryable = \is_array( $errors ) ? $errors : array();
+		maybe_output_wpcom_failed_sites_table( $output, $this->unqueryable, $this->sites, 'Sites that could NOT be queried for plugins' );
 
 		$this->targets = array();
 		foreach ( $plugins as $site_id => $site_plugins ) {
@@ -224,6 +264,10 @@ final class Jetpack_Plugin_Update extends Command {
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		if ( empty( $this->targets ) ) {
+			if ( ! empty( $this->unqueryable ) ) {
+				$output->writeln( '<error>' . \count( $this->unqueryable ) . ' site(s) could not be queried for plugins (see the table above), so no sites could be assessed.</error>' );
+				return Command::FAILURE;
+			}
 			$output->writeln( "<comment>No connected sites have the plugin `$this->plugin` installed.</comment>" );
 			return Command::SUCCESS;
 		}
@@ -251,14 +295,15 @@ final class Jetpack_Plugin_Update extends Command {
 			}
 		}
 
-		// Show what will be changed.
+		// Show what will be changed. The matched plugin identifier is shown so a heterogeneous match
+		// (different folders/textdomains across sites) is visible before a fleet-wide overwrite.
 		output_table(
 			$output,
 			\array_map(
-				fn( $site_id ) => array( $site_id, $this->targets[ $site_id ]['siteurl'], $this->targets[ $site_id ]['installed'] ),
+				fn( $site_id ) => array( $site_id, $this->targets[ $site_id ]['siteurl'], $this->targets[ $site_id ]['name'], $this->targets[ $site_id ]['installed'] ),
 				$install_ids
 			),
-			array( 'Site ID', 'Site URL', 'Installed Version' ),
+			array( 'Site ID', 'Site URL', 'Plugin', 'Installed Version' ),
 			'Sites to ' . ( $this->force ? 'force-install' : 'update' ) . " `$this->plugin`"
 		);
 
@@ -293,11 +338,12 @@ final class Jetpack_Plugin_Update extends Command {
 		// Build the results table.
 		$rows   = array();
 		$counts = array(
-			'updated' => 0,
-			'current' => 0,
-			'ahead'   => 0,
-			'behind'  => 0,
-			'failed'  => 0,
+			'updated'     => 0,
+			'reinstalled' => 0,
+			'current'     => 0,
+			'ahead'       => 0,
+			'behind'      => 0,
+			'failed'      => 0,
 		);
 		foreach ( $this->targets as $site_id => $target ) {
 			$was  = $target['installed'];
@@ -312,6 +358,11 @@ final class Jetpack_Plugin_Update extends Command {
 			} elseif ( isset( $results[ $site_id ] ) ) {
 				$now    = (string) ( $results[ $site_id ]->version ?? $was );
 				$result = $this->classify( $was, $now );
+				// A forced same-version reinstall succeeded but the version didn't move; report it as
+				// `reinstalled` rather than `current`, which would read as "nothing happened".
+				if ( $this->force && $this->reinstall && 'current' === $result ) {
+					$result = 'reinstalled';
+				}
 			} else {
 				$result = 'failed';
 			}
@@ -328,6 +379,9 @@ final class Jetpack_Plugin_Update extends Command {
 		);
 
 		$summary = "Updated: {$counts['updated']} | Current: {$counts['current']}";
+		if ( $this->force ) {
+			$summary .= " | Reinstalled: {$counts['reinstalled']}";
+		}
 		if ( $this->force || ! empty( $this->release ) ) {
 			$summary .= " | Ahead: {$counts['ahead']} | Behind: {$counts['behind']}";
 		}
@@ -344,10 +398,13 @@ final class Jetpack_Plugin_Update extends Command {
 		if ( ! $this->force && empty( $this->release ) && $counts['current'] > 0 ) {
 			$output->writeln( '<comment>Tip: some sites reported no change — pass --release <version> to distinguish "already current" from "ahead of the release".</comment>' );
 		}
+		if ( ! empty( $this->unqueryable ) ) {
+			$output->writeln( '<fg=red;options=bold>✗ ' . \count( $this->unqueryable ) . ' site(s) could not be queried for plugins and were not assessed (see the table above).</>' );
+		}
 
-		// Only real per-site errors fail the command; `behind` (the release hasn't propagated to the
-		// plugin's own update source yet) and `ahead` are surfaced as warnings but are not failures.
-		return 0 === $counts['failed'] ? Command::SUCCESS : Command::FAILURE;
+		// Real per-site errors and sites we could not even assess fail the command; `behind` (the release
+		// hasn't propagated to the plugin's own update source yet) and `ahead` are warnings, not failures.
+		return ( 0 === $counts['failed'] && empty( $this->unqueryable ) ) ? Command::SUCCESS : Command::FAILURE;
 	}
 
 	// endregion
@@ -403,7 +460,7 @@ final class Jetpack_Plugin_Update extends Command {
 			return;
 		}
 
-		$output->writeln( "<comment>Refresh raised (epoch $directive->epoch). Sites re-check within ~5 minutes.</comment>" );
+		$output->writeln( "<comment>Refresh raised (epoch $directive->epoch). Every Atlantis-running site re-checks within ~5 minutes — fleet-wide, regardless of --sites.</comment>" );
 
 		if ( 0 >= (int) $this->refresh_wait ) {
 			$output->writeln( '<comment>Skipping the propagation wait (--refresh-wait=0); re-run the command shortly to catch any sites that had not re-checked yet.</comment>' );
@@ -500,7 +557,11 @@ final class Jetpack_Plugin_Update extends Command {
 	/**
 	 * Reads the plugin version from the package zip's header.
 	 *
-	 * @return  string|null The version, or null if the package could not be downloaded or parsed.
+	 * @return  string|null The version, or null if the (successfully downloaded) package has no readable
+	 *                      version header.
+	 *
+	 * @throws  \RuntimeException If the package URL cannot be downloaded (curl error or non-2xx response),
+	 *                            since force-installing an unfetchable URL would fail on every site.
 	 */
 	private function resolve_package_version(): ?string {
 		$tmp = \tempnam( \sys_get_temp_dir(), 't51pkg' );
@@ -509,7 +570,12 @@ final class Jetpack_Plugin_Update extends Command {
 		}
 
 		$handle = \fopen( $tmp, 'wb' );
-		$curl   = \curl_init( $this->package );
+		if ( false === $handle ) {
+			\unlink( $tmp );
+			return null;
+		}
+
+		$curl = \curl_init( $this->package );
 		\curl_setopt_array(
 			$curl,
 			array(
@@ -519,11 +585,21 @@ final class Jetpack_Plugin_Update extends Command {
 			)
 		);
 		$downloaded = \curl_exec( $curl );
+		$http_code  = (int) \curl_getinfo( $curl, \CURLINFO_RESPONSE_CODE );
+		$curl_error = \curl_error( $curl );
 		\curl_close( $curl );
 		\fclose( $handle );
 
+		// A bad --package URL is a hard error: don't silently fall back to --release and push a URL that
+		// already failed to fetch locally out to the whole fleet.
+		if ( false === $downloaded || $http_code < 200 || $http_code >= 300 ) {
+			\unlink( $tmp );
+			$detail = '' !== $curl_error ? $curl_error : "HTTP $http_code";
+			throw new \RuntimeException( "Could not download the package from `$this->package` ($detail)." );
+		}
+
 		$version = null;
-		if ( false !== $downloaded && \class_exists( '\ZipArchive' ) ) {
+		if ( \class_exists( '\ZipArchive' ) ) {
 			$zip = new \ZipArchive();
 			if ( true === $zip->open( $tmp ) ) {
 				for ( $index = 0; $index < $zip->numFiles; $index++ ) { // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
@@ -746,11 +822,12 @@ final class Jetpack_Plugin_Update extends Command {
 	 */
 	private function format_result( string $result ): string {
 		return match ( $result ) {
-			'updated' => '<fg=green>updated</>',
-			'ahead'   => '<fg=yellow;options=bold>⚠ ahead</>',
-			'behind'  => '<fg=red;options=bold>✗ behind</>',
-			'failed'  => '<fg=red>failed</>',
-			default   => $result,
+			'updated'     => '<fg=green>updated</>',
+			'reinstalled' => '<fg=green>reinstalled</>',
+			'ahead'       => '<fg=yellow;options=bold>⚠ ahead</>',
+			'behind'      => '<fg=red;options=bold>✗ behind</>',
+			'failed'      => '<fg=red>failed</>',
+			default       => $result,
 		};
 	}
 
