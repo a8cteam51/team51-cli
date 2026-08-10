@@ -35,6 +35,12 @@ final class Jetpack_Plugin_Update extends Command {
 	private const DEFAULT_REFRESH_WAIT = 360;
 
 	/**
+	 * Upper bound for --refresh-wait, in seconds (1 hour). Guards against a typo blocking the CLI
+	 * indefinitely in the second-by-second progress loop.
+	 */
+	private const MAX_REFRESH_WAIT = 3600;
+
+	/**
 	 * The plugin slug to update (matched against folder name, main file name, and textdomain).
 	 *
 	 * @var string|null
@@ -113,7 +119,8 @@ final class Jetpack_Plugin_Update extends Command {
 
 	/**
 	 * The sites that have the plugin installed and will be updated, keyed by site ID.
-	 * Each entry: array{ name: string, folder: string, installed: string, siteurl: string }.
+	 * Each entry: array{ name: string, folder: string, installed: string, siteurl: string, plan?: string }.
+	 * The `plan` key (`install`/`current`/`ahead`) is added by plan_force_install() in --force mode.
 	 *
 	 * @var array|null
 	 */
@@ -195,8 +202,8 @@ final class Jetpack_Plugin_Update extends Command {
 		}
 		if ( null === $refresh_wait ) {
 			$this->refresh_wait = self::DEFAULT_REFRESH_WAIT;
-		} elseif ( ! \is_numeric( $refresh_wait ) || (int) $refresh_wait < 0 ) {
-			throw new \InvalidArgumentException( 'The --refresh-wait option must be a non-negative number of seconds (0 to skip the wait).' );
+		} elseif ( ! \ctype_digit( (string) $refresh_wait ) || (int) $refresh_wait > self::MAX_REFRESH_WAIT ) {
+			throw new \InvalidArgumentException( 'The --refresh-wait option must be a whole number of seconds between 0 and ' . self::MAX_REFRESH_WAIT . ' (0 to skip the wait).' );
 		} else {
 			$this->refresh_wait = (int) $refresh_wait;
 		}
@@ -290,7 +297,11 @@ final class Jetpack_Plugin_Update extends Command {
 				$output->writeln( "<comment>Skipping $skipped_current site(s) already at $this->target_version — pass --reinstall to overwrite them too.</comment>" );
 			}
 			if ( empty( $install_ids ) ) {
-				$output->writeln( "<info>Nothing to install: every targeted site is already at or ahead of $this->target_version.</info>" );
+				if ( ! empty( $this->unqueryable ) ) {
+					$this->warn_unqueryable( $output );
+					return Command::FAILURE;
+				}
+				$output->writeln( "<info>Nothing to install: every assessed site is already at or ahead of $this->target_version.</info>" );
 				return Command::SUCCESS;
 			}
 		}
@@ -308,6 +319,7 @@ final class Jetpack_Plugin_Update extends Command {
 		);
 
 		if ( $this->dry_run ) {
+			$this->warn_unqueryable( $output );
 			$output->writeln( '<comment>Dry run: no sites were changed.</comment>' );
 			return Command::SUCCESS;
 		}
@@ -359,8 +371,11 @@ final class Jetpack_Plugin_Update extends Command {
 				$now    = (string) ( $results[ $site_id ]->version ?? $was );
 				$result = $this->classify( $was, $now );
 				// A forced same-version reinstall succeeded but the version didn't move; report it as
-				// `reinstalled` rather than `current`, which would read as "nothing happened".
-				if ( $this->force && $this->reinstall && 'current' === $result ) {
+				// `reinstalled` rather than `current`, which would read as "nothing happened". Gate on the
+				// installed version actually equalling the target so a below-target site whose response
+				// carried no version is not mislabelled.
+				if ( $this->force && $this->reinstall && 'current' === $result
+					&& 0 === \version_compare( $this->normalize_version( $was ), $this->normalize_version( (string) $this->target_version ) ) ) {
 					$result = 'reinstalled';
 				}
 			} else {
@@ -398,13 +413,24 @@ final class Jetpack_Plugin_Update extends Command {
 		if ( ! $this->force && empty( $this->release ) && $counts['current'] > 0 ) {
 			$output->writeln( '<comment>Tip: some sites reported no change — pass --release <version> to distinguish "already current" from "ahead of the release".</comment>' );
 		}
-		if ( ! empty( $this->unqueryable ) ) {
-			$output->writeln( '<fg=red;options=bold>✗ ' . \count( $this->unqueryable ) . ' site(s) could not be queried for plugins and were not assessed (see the table above).</>' );
-		}
+		$this->warn_unqueryable( $output );
 
 		// Real per-site errors and sites we could not even assess fail the command; `behind` (the release
 		// hasn't propagated to the plugin's own update source yet) and `ahead` are warnings, not failures.
 		return ( 0 === $counts['failed'] && empty( $this->unqueryable ) ) ? Command::SUCCESS : Command::FAILURE;
+	}
+
+	/**
+	 * Warns about sites that could not be queried for their installed plugins, when any.
+	 *
+	 * @param   OutputInterface $output The output interface.
+	 *
+	 * @return  void
+	 */
+	private function warn_unqueryable( OutputInterface $output ): void {
+		if ( ! empty( $this->unqueryable ) ) {
+			$output->writeln( '<fg=red;options=bold>✗ ' . \count( $this->unqueryable ) . ' site(s) could not be queried for plugins and were not assessed (see the table above).</>' );
+		}
 	}
 
 	// endregion
@@ -560,19 +586,20 @@ final class Jetpack_Plugin_Update extends Command {
 	 * @return  string|null The version, or null if the (successfully downloaded) package has no readable
 	 *                      version header.
 	 *
-	 * @throws  \RuntimeException If the package URL cannot be downloaded (curl error or non-2xx response),
-	 *                            since force-installing an unfetchable URL would fail on every site.
+	 * @throws  \RuntimeException If a local temp file cannot be created, or the package URL cannot be
+	 *                            downloaded (curl error or non-2xx response) — force-installing an
+	 *                            unfetchable URL would fail on every site.
 	 */
 	private function resolve_package_version(): ?string {
 		$tmp = \tempnam( \sys_get_temp_dir(), 't51pkg' );
 		if ( false === $tmp ) {
-			return null;
+			throw new \RuntimeException( 'Could not create a local temporary file to download the package into.' );
 		}
 
 		$handle = \fopen( $tmp, 'wb' );
 		if ( false === $handle ) {
 			\unlink( $tmp );
-			return null;
+			throw new \RuntimeException( 'Could not open a local temporary file to download the package into.' );
 		}
 
 		$curl = \curl_init( $this->package );
