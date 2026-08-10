@@ -231,20 +231,31 @@ function replace_wpcom_site_plugins_batch( array $site_ids_or_urls, string $slug
 }
 
 /**
- * Raises the fleet-wide plugin update-check directive.
+ * Forces a fresh plugin update-check on a batch of WPCOM/Jetpack sites.
  *
- * Proxies the OpsOasis directive endpoint, which bumps a monotonic epoch that every site running the
- * Atlantis plugin polls. On seeing a newer epoch, each site clears its `update_plugins` transient and
- * re-runs its update check, so a freshly published wp.org release becomes visible to the normal update
- * path without waiting out WordPress core's ~12h check throttle. The directive is a global pulse: it
- * names no specific site or plugin (per-site scoping stays in the update batch) and expires after a
- * few hours.
+ * Proxies the OpsOasis batch endpoint, which calls the Atlantis `force-update-check` route on each site
+ * over the authenticated Jetpack REST tunnel. Each site clears its `update_plugins` transient (and
+ * WooCommerce.com's helper cache) and re-runs its update check, so a just-published wp.org /
+ * WooCommerce.com release becomes visible to the version-checked update path without waiting out
+ * WordPress core's ~12h throttle. Sites without Atlantis (or without a live connection) are returned
+ * via $errors.
  *
- * @return  stdClass|null  The raised directive (with `epoch` and `expires_at`), or null on failure.
+ * @param   array      $site_ids_or_urls The list of site domains or numeric WPCOM IDs.
+ * @param   array|null $errors           The list of errors that occurred during the request.
+ *
+ * @return  stdClass[]|null  Per-site result keyed by site ID, or null if the request failed entirely.
  */
-function refresh_wpcom_site_plugin_updates(): ?stdClass {
-	$directive = API_Helper::make_wpcom_request( 'sites/batch/plugin-refresh', 'POST', array() );
-	return $directive instanceof stdClass ? $directive : null;
+function force_check_wpcom_site_plugins_batch( array $site_ids_or_urls, ?array &$errors = null ): ?array {
+	$results = API_Helper::make_wpcom_request(
+		'sites/batch/atlantis-force-check',
+		'POST',
+		array( 'sites' => $site_ids_or_urls )
+	);
+	if ( is_null( $results ) ) {
+		return null;
+	}
+
+	return parse_batch_response( $results, $errors );
 }
 
 /**

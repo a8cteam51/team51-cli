@@ -4,7 +4,6 @@ namespace WPCOMSpecialProjects\CLI\Command;
 
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
-use Symfony\Component\Console\Helper\ProgressBar;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -26,19 +25,6 @@ final class Jetpack_Plugin_Update extends Command {
 	 * Number of sites per batch when force-installing (each install is a real download + overwrite).
 	 */
 	private const FORCE_BATCH_SIZE = 30;
-
-	/**
-	 * Default seconds to wait after raising a refresh directive for sites to re-check, before updating.
-	 * Comfortably longer than the Atlantis poll interval (~5 minutes) so most sites re-check in time;
-	 * pass --refresh-wait to override (0 raises the refresh and updates immediately).
-	 */
-	private const DEFAULT_REFRESH_WAIT = 360;
-
-	/**
-	 * Upper bound for --refresh-wait, in seconds (1 hour). Guards against a typo blocking the CLI
-	 * indefinitely in the second-by-second progress loop.
-	 */
-	private const MAX_REFRESH_WAIT = 3600;
 
 	/**
 	 * The plugin slug to update (matched against folder name, main file name, and textdomain).
@@ -104,13 +90,6 @@ final class Jetpack_Plugin_Update extends Command {
 	private ?bool $refresh = null;
 
 	/**
-	 * Seconds to wait for the refresh to propagate across the fleet before updating.
-	 *
-	 * @var int|null
-	 */
-	private ?int $refresh_wait = null;
-
-	/**
 	 * The list of connected sites.
 	 *
 	 * @var array|null
@@ -152,8 +131,7 @@ final class Jetpack_Plugin_Update extends Command {
 			->addOption( 'force', null, InputOption::VALUE_NONE, 'Force-install the plugin from --package, overwriting it in place. Installs only on sites whose version is below the package version; sites already at that version are skipped and sites ahead of it are never touched (no downgrades). Bypasses update detection entirely — use this when a just-published release has not propagated to sites yet.' )
 			->addOption( 'package', null, InputOption::VALUE_REQUIRED, 'The plugin zip URL to install. Required with --force (e.g. a GitHub release asset URL).' )
 			->addOption( 'reinstall', null, InputOption::VALUE_NONE, 'With --force, also overwrite sites already at the package version (a same-version reinstall). Sites ahead of the package version are still never touched.' )
-			->addOption( 'refresh', null, InputOption::VALUE_NONE, 'Before updating, raise a fleet-wide update-check refresh so sites re-detect a just-published wp.org release even if their 12h update cache has not refreshed yet. The refresh is a global pulse — every site running the Atlantis lever re-checks, regardless of --sites — while the update itself still only touches the --sites you chose. Applies to the default update path; has no effect with --force, which bypasses update detection.' )
-			->addOption( 'refresh-wait', null, InputOption::VALUE_REQUIRED, 'Seconds to wait for the refresh to propagate before updating (default ' . self::DEFAULT_REFRESH_WAIT . '). Pass 0 to raise the refresh and update immediately, then re-run shortly to catch stragglers.' )
+			->addOption( 'refresh', null, InputOption::VALUE_NONE, 'Before updating, force the targeted sites to re-check for updates (via the Atlantis lever) so a just-published wp.org or WooCommerce.com release is detected even if their update cache has not refreshed yet. Runs synchronously against the sites you chose with --sites. Applies to the default update path; has no effect with --force, which bypasses update detection.' )
 			->addOption( 'dry-run', null, InputOption::VALUE_NONE, 'List the sites that would be updated without updating them.' )
 			->addOption( 'yes', null, InputOption::VALUE_NONE, 'Skip the confirmation prompt before updating.' );
 	}
@@ -163,8 +141,7 @@ final class Jetpack_Plugin_Update extends Command {
 	 *
 	 * @throws \InvalidArgumentException If `--sites` is missing/unmatched, or an option is misused
 	 *                                   (`--force` without `--package`; `--package`/`--reinstall` without
-	 *                                   `--force`; `--refresh` with `--force`; `--refresh-wait` without
-	 *                                   `--refresh` or with a negative/non-numeric value).
+	 *                                   `--force`; `--refresh` with `--force`).
 	 * @throws \RuntimeException         If the connected fleet, the sites' installed plugins, or the
 	 *                                   `--package` zip cannot be fetched.
 	 */
@@ -192,20 +169,6 @@ final class Jetpack_Plugin_Update extends Command {
 		}
 		if ( $this->refresh && $this->force ) {
 			throw new \InvalidArgumentException( 'The --refresh option applies to the detection-based update path and has no effect with --force (which bypasses update detection). Use one or the other.' );
-		}
-
-		// Read --refresh-wait directly: maybe_get_string_input() treats "0" as absent, which would make
-		// the documented `--refresh-wait 0` ("update immediately") silently fall back to the default.
-		$refresh_wait = $input->getOption( 'refresh-wait' );
-		if ( null !== $refresh_wait && ! $this->refresh ) {
-			throw new \InvalidArgumentException( 'The --refresh-wait option only applies to --refresh.' );
-		}
-		if ( null === $refresh_wait ) {
-			$this->refresh_wait = self::DEFAULT_REFRESH_WAIT;
-		} elseif ( ! \ctype_digit( (string) $refresh_wait ) || (int) $refresh_wait > self::MAX_REFRESH_WAIT ) {
-			throw new \InvalidArgumentException( 'The --refresh-wait option must be a whole number of seconds between 0 and ' . self::MAX_REFRESH_WAIT . ' (0 to skip the wait).' );
-		} else {
-			$this->refresh_wait = (int) $refresh_wait;
 		}
 
 		$sites_spec = get_string_input( $input, 'sites', fn() => $this->prompt_sites_input( $input, $output ) );
@@ -467,54 +430,29 @@ final class Jetpack_Plugin_Update extends Command {
 	}
 
 	/**
-	 * Raises a fleet-wide update-check refresh and waits for it to propagate.
+	 * Forces a fresh update-check on the targeted sites before updating.
 	 *
-	 * Asks every site (via the Atlantis lever) to clear its plugin-update cache and re-check, so a
-	 * just-published release is detected before we call the version-gated update endpoint. Best-effort:
-	 * if the directive cannot be raised, the update still proceeds for sites that already detected it.
+	 * Calls the Atlantis lever (via OpsOasis, over the authenticated Jetpack REST tunnel) on the sites
+	 * that have the plugin, so each clears its update cache and re-detects a just-published release
+	 * synchronously — before we call the version-gated update endpoint. Best-effort: sites that can't be
+	 * reached (no Atlantis, or connection down) are reported, and the update still proceeds.
 	 *
 	 * @param   OutputInterface $output The output interface.
 	 *
 	 * @return  void
 	 */
 	private function run_refresh( OutputInterface $output ): void {
-		$output->writeln( '<fg=magenta;options=bold>Requesting a fleet-wide plugin update-check…</>' );
+		$site_ids = \array_keys( $this->targets );
+		$output->writeln( '<fg=magenta;options=bold>Refreshing the update-check on ' . \count( $site_ids ) . ' site(s)…</>' );
 
-		$directive = refresh_wpcom_site_plugin_updates();
-		if ( ! $directive instanceof \stdClass || ! isset( $directive->epoch ) ) {
-			$output->writeln( '<comment>⚠ Could not raise the refresh directive; proceeding anyway (sites that already detected the release will still update).</comment>' );
+		$results = force_check_wpcom_site_plugins_batch( $site_ids, $errors );
+		if ( \is_null( $results ) ) {
+			$output->writeln( '<comment>⚠ The refresh request failed; proceeding anyway (sites that already detected the release will still update).</comment>' );
 			return;
 		}
 
-		$output->writeln( "<comment>Refresh raised (epoch $directive->epoch). Every Atlantis-running site re-checks within ~5 minutes — fleet-wide, regardless of --sites.</comment>" );
-
-		if ( 0 >= (int) $this->refresh_wait ) {
-			$output->writeln( '<comment>Skipping the propagation wait (--refresh-wait=0); re-run the command shortly to catch any sites that had not re-checked yet.</comment>' );
-			return;
-		}
-
-		$this->wait_for_propagation( $output, (int) $this->refresh_wait );
-	}
-
-	/**
-	 * Blocks for the given number of seconds with a progress bar, giving sites time to re-check.
-	 *
-	 * @param   OutputInterface $output  The output interface.
-	 * @param   int             $seconds The number of seconds to wait.
-	 *
-	 * @return  void
-	 */
-	private function wait_for_propagation( OutputInterface $output, int $seconds ): void {
-		$output->writeln( "<comment>Waiting {$seconds}s for sites to re-check before updating…</comment>" );
-
-		$progress = new ProgressBar( $output, $seconds );
-		$progress->start();
-		for ( $second = 0; $second < $seconds; $second++ ) {
-			\sleep( 1 );
-			$progress->advance();
-		}
-		$progress->finish();
-		$output->writeln( '' );
+		$failed = \count( $errors ?? array() );
+		$output->writeln( '<comment>Refreshed ' . \count( $results ) . ' site(s)' . ( $failed > 0 ? "; $failed could not be reached (no Atlantis or connection down) and may not detect the release" : '' ) . '.</comment>' );
 	}
 
 	/**
