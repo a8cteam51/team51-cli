@@ -90,7 +90,7 @@ final class Jetpack_Plugin_Update extends Command {
 	private ?string $target_version = null;
 
 	/**
-	 * Whether to raise a fleet-wide update-check refresh before updating (detection path only).
+	 * Whether to make the targeted sites re-check for updates before updating (detection path only).
 	 *
 	 * @var bool|null
 	 */
@@ -129,7 +129,7 @@ final class Jetpack_Plugin_Update extends Command {
 	 */
 	protected function configure(): void {
 		$this->setDescription( 'Force-updates a given plugin on connected sites where it is installed.' )
-			->setHelp( 'Use this command to push a new plugin release to sites that have the plugin installed. Pass --sites to choose the targets: `all` for the whole connected fleet, a comma-separated list of site URLs and/or WPCOM IDs, or the path to a CSV whose first column holds the site URLs. By default each site is updated via the WPCOM plugin update endpoint, which relies on the site having already detected a newer version from the plugin\'s own update source (wp.org, or a custom Update URI such as GitHub) — so a freshly published release may not reach every site immediately. Pass --force with --package <zip-url> to instead overwrite the plugin in place from a specific zip on every targeted site, bypassing update detection entirely (the deterministic way to push a just-published release fleet-wide). If a release has been published to wp.org but sites have not detected it yet, pass --refresh to make the whole fleet re-check for updates first (via the Atlantis lever), then update — no force-install needed. Only sites with an active Jetpack connection to WPCOM are processed.' );
+			->setHelp( 'Use this command to push a new plugin release to sites that have the plugin installed. Pass --sites to choose the targets: `all` for the whole connected fleet, a comma-separated list of site URLs and/or WPCOM IDs, or the path to a CSV whose first column holds the site URLs. By default each site is updated via the WPCOM plugin update endpoint, which relies on the site having already detected a newer version from the plugin\'s own update source (wp.org, or a custom Update URI such as GitHub) — so a freshly published release may not reach every site immediately. Pass --force with --package <zip-url> to instead overwrite the plugin in place from a specific zip on every targeted site, bypassing update detection entirely (the deterministic way to push a just-published release fleet-wide). If a release has been published to wp.org but sites have not detected it yet, pass --refresh to make the targeted sites (those chosen with --sites) re-check for updates first (via the Atlantis lever), then update — no force-install needed. Only sites with an active Jetpack connection to WPCOM are processed.' );
 
 		$this->addArgument( 'plugin', InputArgument::REQUIRED, 'The plugin to update. The term is matched exactly against the folder name, the main file name, and the textdomain.' );
 
@@ -454,9 +454,10 @@ final class Jetpack_Plugin_Update extends Command {
 		$total    = \count( $chunks );
 		$output->writeln( '<fg=magenta;options=bold>Refreshing the update-check on ' . \count( $site_ids ) . ' site(s)…</>' );
 
-		$results   = array();
-		$errors    = array();
-		$any_batch = false;
+		$results     = array();
+		$errors      = array();
+		$unrefreshed = array();
+		$any_batch   = false;
 		foreach ( $chunks as $index => $chunk ) {
 			if ( $total > 1 ) {
 				$output->writeln( '<comment>Batch ' . ( $index + 1 ) . "/$total: refreshing " . \count( $chunk ) . ' site(s)…</comment>' );
@@ -464,6 +465,8 @@ final class Jetpack_Plugin_Update extends Command {
 			$chunk_results = force_check_wpcom_site_plugins_batch( $chunk, $chunk_errors );
 			if ( \is_null( $chunk_results ) ) {
 				$output->writeln( '<comment>⚠ The refresh request failed for this batch.</comment>' );
+				// Record the whole chunk so its sites are not silently dropped from the coverage summary.
+				$unrefreshed += \array_fill_keys( $chunk, 'The batch refresh request failed (e.g. timeout).' );
 				continue;
 			}
 			$any_batch = true;
@@ -473,11 +476,23 @@ final class Jetpack_Plugin_Update extends Command {
 
 		if ( ! $any_batch ) {
 			$output->writeln( '<comment>⚠ No refresh batch succeeded; proceeding anyway (sites that already detected the release will still update).</comment>' );
-			return;
 		}
 
-		$failed = \count( $errors );
-		$output->writeln( '<comment>Refreshed ' . \count( $results ) . ' site(s)' . ( $failed > 0 ? "; $failed could not be reached (no Atlantis or connection down) and may not detect the release" : '' ) . '.</comment>' );
+		// State coverage explicitly: a failed batch must not read as full coverage and leave its sites
+		// reported "current" at exit 0.
+		$notes = array();
+		if ( \count( $errors ) > 0 ) {
+			$notes[] = \count( $errors ) . ' could not be reached (no Atlantis or connection down)';
+		}
+		if ( \count( $unrefreshed ) > 0 ) {
+			$notes[] = \count( $unrefreshed ) . ' were in a failed batch and not re-checked';
+		}
+		$suffix = empty( $notes ) ? '' : '; ' . \implode( '; ', $notes ) . ' and may not detect the release';
+		$output->writeln( '<comment>Refreshed ' . \count( $results ) . ' of ' . \count( $site_ids ) . ' site(s)' . $suffix . '.</comment>' );
+
+		// Name the sites that were skipped, so they can be re-run or investigated rather than assumed done.
+		maybe_output_wpcom_failed_sites_table( $output, $errors, $this->sites, 'Sites that could NOT be reached to refresh' );
+		maybe_output_wpcom_failed_sites_table( $output, $unrefreshed, $this->sites, 'Sites in a failed refresh batch (not re-checked)' );
 	}
 
 	/**
