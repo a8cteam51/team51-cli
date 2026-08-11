@@ -27,6 +27,13 @@ final class Jetpack_Plugin_Update extends Command {
 	private const FORCE_BATCH_SIZE = 30;
 
 	/**
+	 * Number of sites per batch when refreshing the update-check. Matches the server-side `maxItems`
+	 * on `sites/batch/atlantis-force-check`: that route fans out one concurrent tunnelled POST per
+	 * site with no chunking, so the client keeps each request self-limiting.
+	 */
+	private const REFRESH_BATCH_SIZE = 30;
+
+	/**
 	 * The plugin slug to update (matched against folder name, main file name, and textdomain).
 	 *
 	 * @var string|null
@@ -443,15 +450,33 @@ final class Jetpack_Plugin_Update extends Command {
 	 */
 	private function run_refresh( OutputInterface $output ): void {
 		$site_ids = \array_keys( $this->targets );
+		$chunks   = \array_chunk( $site_ids, self::REFRESH_BATCH_SIZE );
+		$total    = \count( $chunks );
 		$output->writeln( '<fg=magenta;options=bold>Refreshing the update-check on ' . \count( $site_ids ) . ' site(s)…</>' );
 
-		$results = force_check_wpcom_site_plugins_batch( $site_ids, $errors );
-		if ( \is_null( $results ) ) {
-			$output->writeln( '<comment>⚠ The refresh request failed; proceeding anyway (sites that already detected the release will still update).</comment>' );
+		$results   = array();
+		$errors    = array();
+		$any_batch = false;
+		foreach ( $chunks as $index => $chunk ) {
+			if ( $total > 1 ) {
+				$output->writeln( '<comment>Batch ' . ( $index + 1 ) . "/$total: refreshing " . \count( $chunk ) . ' site(s)…</comment>' );
+			}
+			$chunk_results = force_check_wpcom_site_plugins_batch( $chunk, $chunk_errors );
+			if ( \is_null( $chunk_results ) ) {
+				$output->writeln( '<comment>⚠ The refresh request failed for this batch.</comment>' );
+				continue;
+			}
+			$any_batch = true;
+			$results  += $chunk_results;
+			$errors   += $chunk_errors ?? array();
+		}
+
+		if ( ! $any_batch ) {
+			$output->writeln( '<comment>⚠ No refresh batch succeeded; proceeding anyway (sites that already detected the release will still update).</comment>' );
 			return;
 		}
 
-		$failed = \count( $errors ?? array() );
+		$failed = \count( $errors );
 		$output->writeln( '<comment>Refreshed ' . \count( $results ) . ' site(s)' . ( $failed > 0 ? "; $failed could not be reached (no Atlantis or connection down) and may not detect the release" : '' ) . '.</comment>' );
 	}
 
