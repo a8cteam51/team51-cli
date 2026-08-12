@@ -653,7 +653,10 @@ function run_wpcom_plugin_update_refresh( array $site_ids, ?callable $progress =
 		$chunk_results = force_check_wpcom_site_plugins_batch( $chunk, $chunk_errors );
 		if ( \is_null( $chunk_results ) ) {
 			$emit( '<comment>⚠ The refresh request failed for this batch.</comment>' );
-			$unrefreshed += \array_fill_keys( $chunk, 'The batch refresh request failed (e.g. timeout).' );
+			// Match the per-site error shape maybe_output_wpcom_failed_sites_table() renders (an object with
+			// an `errors` property), so a failed batch does not raise a TypeError there.
+			$batch_error  = (object) array( 'errors' => array( 'refresh_batch_failed' => array( 'The batch refresh request failed (e.g. timeout).' ) ) );
+			$unrefreshed += \array_fill_keys( $chunk, $batch_error );
 			continue;
 		}
 		$any_batch = true;

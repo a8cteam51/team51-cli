@@ -333,10 +333,13 @@ final class Jetpack_Plugin_Update extends Command {
 					&& 0 === \version_compare( normalize_version_string( $was ), normalize_version_string( (string) $this->target_version ) ) ) {
 					$result = 'reinstalled';
 				}
-				// A forced --downgrade succeeded: the site was ahead of the package and was rolled back.
-				// classify() reads the backwards version move as `current`, so label it `downgraded` instead.
+				// A forced --downgrade succeeded: the site was ahead of the package AND the version actually
+				// moved back. classify() reads the backwards move as `current`, so relabel it `downgraded`.
+				// Require the version to have decreased so a version-less replace response (now == was) is
+				// not mislabelled as a rollback that never landed.
 				if ( $this->force && $this->downgrade
-					&& \version_compare( normalize_version_string( $was ), normalize_version_string( (string) $this->target_version ), '>' ) ) {
+					&& \version_compare( normalize_version_string( $was ), normalize_version_string( (string) $this->target_version ), '>' )
+					&& \version_compare( normalize_version_string( $now ), normalize_version_string( $was ), '<' ) ) {
 					$result = 'downgraded';
 				}
 			} else {

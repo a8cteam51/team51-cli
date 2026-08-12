@@ -2449,22 +2449,19 @@ final class Team51McpTools {
 		}
 
 		$plan_rows = array();
-		$counts    = array(
-			'install' => 0,
-			'current' => 0,
-			'ahead'   => 0,
-		);
+		$counts    = array();
 		foreach ( $plan['targets'] as $site_id => $target ) {
-			$bucket      = $target['plan'] ?? ( $force ? 'install' : 'update' );
-			$plan_rows[] = array(
+			// Detection-path targets carry no `plan` key; count them under `update` so the counts sum to
+			// targeted_count and a client does not read all-zeros as "nothing to update".
+			$bucket            = $target['plan'] ?? ( $force ? 'install' : 'update' );
+			$plan_rows[]       = array(
 				'site_id'   => $site_id,
 				'site_url'  => $target['siteurl'],
+				'plugin'    => $target['name'],
 				'installed' => $target['installed'],
 				'plan'      => $bucket,
 			);
-			if ( isset( $counts[ $bucket ] ) ) {
-				++$counts[ $bucket ];
-			}
+			$counts[ $bucket ] = ( $counts[ $bucket ] ?? 0 ) + 1;
 		}
 
 		$response = array(
@@ -2486,10 +2483,16 @@ final class Team51McpTools {
 		}
 
 		// Apply: refresh first (detection path only), then update / force-install via the shared executor.
-		if ( $refresh && ! $force ) {
-			$response['refresh'] = run_wpcom_plugin_update_refresh( \array_keys( $plan['targets'] ) );
+		// Wrapped so the tool returns a structured error rather than throwing (add-mcp-tool.md §4).
+		try {
+			if ( $refresh && ! $force ) {
+				$response['refresh'] = run_wpcom_plugin_update_refresh( \array_keys( $plan['targets'] ) );
+			}
+			$execution = execute_wpcom_plugin_update_plan( $plan, $force, $package );
+		} catch ( \Throwable $throwable ) {
+			$response['error'] = $throwable->getMessage();
+			return $response;
 		}
-		$execution = execute_wpcom_plugin_update_plan( $plan, $force, $package );
 
 		$results = array();
 		foreach ( $plan['targets'] as $site_id => $target ) {
