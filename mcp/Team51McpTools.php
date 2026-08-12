@@ -2390,6 +2390,140 @@ final class Team51McpTools {
 		return $server ? (array) $server : array( 'error' => 'Failed to create DeployHQ project server.' );
 	}
 
+	/**
+	 * Update, or force-install, a plugin across connected Jetpack sites (wraps `jetpack:plugin-update`).
+	 *
+	 * DEFAULTS TO A DRY RUN — nothing is changed unless `dry_run` is explicitly set to false. High risk:
+	 * with `force` this overwrites the plugin in place from `package`; with `downgrade` it rolls sites that
+	 * are AHEAD of the package back to it. Calls the same shared planner/executor the CLI command uses, so
+	 * the audited version-gating / no-downgrade guard is the single source of truth. Returns a structured
+	 * plan (and, when applied, per-site results) rather than a text blob.
+	 *
+	 * @param string      $plugin      The plugin term, matched exactly against folder / main file / textdomain.
+	 * @param string      $sites       `all`, a comma-separated list of site URLs and/or numeric WPCOM IDs, or a CSV path. Required — never implicitly all.
+	 * @param string|null $environment Optional environment filter: `staging` (only URLs containing "staging") or `production` (skips them).
+	 * @param string|null $release     Optional version being published; used as the target-version fallback when the package has no readable header.
+	 * @param bool        $refresh     Force a fresh update-check (Atlantis lever) before the detection-based update. Ignored with `force`.
+	 * @param bool        $force       Force-install from `package`, bypassing update detection. Requires `package`.
+	 * @param string|null $package     Public zip URL to force-install (server-side download). Required with `force`.
+	 * @param bool        $reinstall   With `force`, also overwrite sites already at the package version.
+	 * @param bool        $downgrade   With `force`, also overwrite sites NEWER than the package — roll them back. Destructive.
+	 * @param bool        $dry_run     Plan only, without changing anything. Defaults to true for safety.
+	 *
+	 * @return array The plan summary (and per-site results when applied), or an `error` entry.
+	 */
+	#[McpTool(
+		name: 'jetpack_plugin_update',
+		annotations: new ToolAnnotations(
+			title: 'Update / Force-Install a Plugin Across Sites (High Risk)',
+			readOnlyHint: false,
+			destructiveHint: true,
+			idempotentHint: false,
+			openWorldHint: true,
+		)
+	)]
+	public function jetpack_plugin_update(
+		string $plugin,
+		string $sites,
+		?string $environment = null,
+		?string $release = null,
+		bool $refresh = false,
+		bool $force = false,
+		?string $package = null,
+		bool $reinstall = false,
+		bool $downgrade = false,
+		bool $dry_run = true
+	): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
+		// Resolve + plan via the SAME shared functions the CLI command uses (single source of the
+		// audited no-downgrade guard). Option/validation errors come back as a structured error.
+		try {
+			validate_wpcom_plugin_update_options( $force, $package, $reinstall, $downgrade, $refresh, $environment );
+			$plan = build_wpcom_plugin_update_plan( $plugin, $sites, $environment, $force, $package, $release, $reinstall, $downgrade );
+		} catch ( \Throwable $throwable ) {
+			return array( 'error' => $throwable->getMessage() );
+		}
+
+		$plan_rows = array();
+		$counts    = array(
+			'install' => 0,
+			'current' => 0,
+			'ahead'   => 0,
+		);
+		foreach ( $plan['targets'] as $site_id => $target ) {
+			$bucket      = $target['plan'] ?? ( $force ? 'install' : 'update' );
+			$plan_rows[] = array(
+				'site_id'   => $site_id,
+				'site_url'  => $target['siteurl'],
+				'installed' => $target['installed'],
+				'plan'      => $bucket,
+			);
+			if ( isset( $counts[ $bucket ] ) ) {
+				++$counts[ $bucket ];
+			}
+		}
+
+		$response = array(
+			'dry_run'        => $dry_run,
+			'plugin'         => $plugin,
+			'target_version' => $plan['target_version'],
+			'fetched_count'  => $plan['fetched_count'],
+			'matched_count'  => $plan['matched_count'],
+			'targeted_count' => \count( $plan['targets'] ),
+			'plan_counts'    => $counts,
+			'plan'           => $plan_rows,
+			'unqueryable'    => \array_keys( $plan['unqueryable'] ),
+			'unmatched'      => $plan['unmatched'],
+		);
+
+		if ( $dry_run ) {
+			$response['note'] = 'Dry run: no sites were changed. Set dry_run=false to apply.';
+			return $response;
+		}
+
+		// Apply: refresh first (detection path only), then update / force-install via the shared executor.
+		if ( $refresh && ! $force ) {
+			$response['refresh'] = run_wpcom_plugin_update_refresh( \array_keys( $plan['targets'] ) );
+		}
+		$execution = execute_wpcom_plugin_update_plan( $plan, $force, $package );
+
+		$results = array();
+		foreach ( $plan['targets'] as $site_id => $target ) {
+			$was = $target['installed'];
+			if ( isset( $execution['errors'][ $site_id ] ) ) {
+				$results[] = array(
+					'site_id'  => $site_id,
+					'site_url' => $target['siteurl'],
+					'was'      => $was,
+					'result'   => 'failed',
+					'error'    => encode_json_content( $execution['errors'][ $site_id ]->errors ?? $execution['errors'][ $site_id ] ),
+				);
+			} elseif ( isset( $execution['results'][ $site_id ] ) ) {
+				$results[] = array(
+					'site_id'  => $site_id,
+					'site_url' => $target['siteurl'],
+					'was'      => $was,
+					'now'      => (string) ( $execution['results'][ $site_id ]->version ?? $was ),
+					'result'   => 'applied',
+				);
+			} else {
+				$results[] = array(
+					'site_id'  => $site_id,
+					'site_url' => $target['siteurl'],
+					'was'      => $was,
+					'result'   => $target['plan'] ?? 'skipped',
+				);
+			}
+		}
+		$response['results'] = $results;
+
+		return $response;
+	}
+
 	#[McpTool( name: 'jetpack_connection_triage' )]
 	public function jetpack_connection_triage( ?string $csv_path = null ): array {
 		$identity_error = self::ensure_identity();
