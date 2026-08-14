@@ -227,8 +227,8 @@ function force_check_wpcom_site_plugins_batch( array $site_ids_or_urls, ?array &
 }
 
 /**
- * Number of sites per batch when force-installing or refreshing (each is a real per-site tunnelled call).
- * Matches the server-side `maxItems` on the OpsOasis batch routes.
+ * Number of sites per batch when refreshing update-checks (each is a real per-site tunnelled call).
+ * Matches the server-side `maxItems` on the OpsOasis batch route.
  */
 const WPCOM_PLUGIN_UPDATE_BATCH_SIZE = 30;
 
@@ -241,6 +241,33 @@ const WPCOM_PLUGIN_UPDATE_BATCH_SIZE = 30;
  */
 function normalize_version_string( string $version ): string {
 	return \ltrim( \trim( $version ), 'vV' );
+}
+
+/**
+ * Classifies a site's update outcome from its before/after versions, optionally against a release.
+ *
+ * With $release set, a resulting version newer than it is `ahead` and older is `behind` (so a site the
+ * release has not reached, or one running a newer test build, is surfaced); otherwise the result is
+ * simply whether the version moved forward (`updated`) or not (`current`).
+ *
+ * @param   string      $was     The version installed before the update.
+ * @param   string      $now     The version reported after the update.
+ * @param   string|null $release Optional release version to compare the result against.
+ *
+ * @return  string One of `updated`, `current`, `ahead`, `behind`.
+ */
+function classify_wpcom_plugin_update_result( string $was, string $now, ?string $release = null ): string {
+	if ( ! empty( $release ) ) {
+		$against_release = \version_compare( normalize_version_string( $now ), normalize_version_string( $release ) );
+		if ( $against_release > 0 ) {
+			return 'ahead';
+		}
+		if ( $against_release < 0 ) {
+			return 'behind';
+		}
+	}
+
+	return \version_compare( normalize_version_string( $was ), normalize_version_string( $now ), '<' ) ? 'updated' : 'current';
 }
 
 /**
@@ -456,7 +483,6 @@ function build_wpcom_plugin_update_plan( string $plugin, string $sites_spec, ?st
 			}
 			$targets[ $site_id ] = array(
 				'name'      => \preg_replace( '/\.php$/', '', $plugin_file ),
-				'folder'    => \dirname( $plugin_file ),
 				'installed' => (string) $plugin_data->Version, // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 				'siteurl'   => (string) ( $sites[ $site_id ]->siteurl ?? '' ),
 			);

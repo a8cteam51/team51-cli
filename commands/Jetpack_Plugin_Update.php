@@ -13,7 +13,7 @@ use Symfony\Component\Console\Question\Question;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 
 /**
- * Force-updates a given plugin across all connected Jetpack sites where it is installed.
+ * Updates a given plugin on connected Jetpack sites where it is installed.
  */
 #[AsCommand( name: 'jetpack:plugin-update' )]
 final class Jetpack_Plugin_Update extends Command {
@@ -72,7 +72,7 @@ final class Jetpack_Plugin_Update extends Command {
 
 	/**
 	 * The sites that have the plugin installed and will be updated, keyed by site ID.
-	 * Each entry: array{ name: string, folder: string, installed: string, siteurl: string }.
+	 * Each entry: array{ name: string, installed: string, siteurl: string }.
 	 *
 	 * @var array|null
 	 */
@@ -336,17 +336,7 @@ final class Jetpack_Plugin_Update extends Command {
 	 * @return  string One of `updated`, `current`, `ahead`, `behind`.
 	 */
 	private function classify( string $was, string $now ): string {
-		if ( ! empty( $this->release ) ) {
-			$against_release = \version_compare( normalize_version_string( $now ), normalize_version_string( $this->release ) );
-			if ( $against_release > 0 ) {
-				return 'ahead';
-			}
-			if ( $against_release < 0 ) {
-				return 'behind';
-			}
-		}
-
-		return \version_compare( normalize_version_string( $was ), normalize_version_string( $now ), '<' ) ? 'updated' : 'current';
+		return classify_wpcom_plugin_update_result( $was, $now, $this->release );
 	}
 
 	/**

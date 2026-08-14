@@ -2494,19 +2494,25 @@ final class Team51McpTools {
 					'error'    => encode_json_content( $execution['errors'][ $site_id ]->errors ?? $execution['errors'][ $site_id ] ),
 				);
 			} elseif ( isset( $execution['results'][ $site_id ] ) ) {
+				$now       = (string) ( $execution['results'][ $site_id ]->version ?? $was );
 				$results[] = array(
 					'site_id'  => $site_id,
 					'site_url' => $target['siteurl'],
 					'was'      => $was,
-					'now'      => (string) ( $execution['results'][ $site_id ]->version ?? $was ),
-					'result'   => 'applied',
+					'now'      => $now,
+					// Classify against $release so a client verifying a rollout gets updated/current/ahead/behind
+					// (a site the release has not reached succeeds with an unchanged version and reads `behind`).
+					'result'   => classify_wpcom_plugin_update_result( $was, $now, $release ),
 				);
 			} else {
+				// Reachable only when the batch request returned null (a genuine failure) now that force mode's
+				// intentional skips are gone; report it as failed so the MCP tool and the CLI agree.
 				$results[] = array(
 					'site_id'  => $site_id,
 					'site_url' => $target['siteurl'],
 					'was'      => $was,
-					'result'   => 'skipped',
+					'result'   => 'failed',
+					'error'    => 'The update request failed for this site\'s batch.',
 				);
 			}
 		}
