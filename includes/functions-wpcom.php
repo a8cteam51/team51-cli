@@ -167,6 +167,451 @@ function get_wpcom_sites_atlantis_status_batch( array $site_ids_or_urls, ?array 
 }
 
 /**
+ * Forces an update of a single plugin across a batch of WPCOM/Jetpack sites.
+ *
+ * Proxies the OpsOasis batch endpoint, which calls the WPCOM v1.2 plugin update endpoint on each
+ * site. The update self-refreshes the site's update cache and installs from the plugin's own update
+ * source (wp.org, or a custom `Update URI` such as GitHub), so it is not subject to the ~12h
+ * dashboard cache. It only upgrades sites where a newer version is available; sites already current
+ * report "No update needed" and are returned as successes with an unchanged version.
+ *
+ * @param   array      $site_ids_or_urls The list of site domains or numeric WPCOM IDs.
+ * @param   string     $plugin           The plugin identifier in `folder/file` form without the
+ *                                        `.php` suffix (e.g. `a8csp-atlantis/a8csp-atlantis`).
+ * @param   array|null $errors           The list of errors that occurred during the request.
+ *
+ * @return  stdClass[]|null  Per-site update result keyed by site ID (with `version` and `log`).
+ */
+function update_wpcom_site_plugins_batch( array $site_ids_or_urls, string $plugin, ?array &$errors = null ): ?array {
+	$results = API_Helper::make_wpcom_request(
+		'sites/batch/plugin-update',
+		'POST',
+		array(
+			'sites'  => $site_ids_or_urls,
+			'plugin' => $plugin,
+		)
+	);
+	if ( is_null( $results ) ) {
+		return null;
+	}
+
+	return parse_batch_response( $results, $errors );
+}
+
+/**
+ * Forces a fresh plugin update-check on a batch of WPCOM/Jetpack sites.
+ *
+ * Proxies the OpsOasis batch endpoint, which calls the Atlantis `force-update-check` route on each site
+ * over the authenticated Jetpack REST tunnel. Each site clears its `update_plugins` transient (and
+ * WooCommerce.com's helper cache) and re-runs its update check, so a just-published wp.org /
+ * WooCommerce.com release becomes visible to the version-checked update path without waiting out
+ * WordPress core's ~12h throttle. Sites without Atlantis (or without a live connection) are returned
+ * via $errors.
+ *
+ * @param   array      $site_ids_or_urls The list of site domains or numeric WPCOM IDs.
+ * @param   array|null $errors           The list of errors that occurred during the request.
+ *
+ * @return  stdClass[]|null  Per-site result keyed by site ID, or null if the request failed entirely.
+ */
+function force_check_wpcom_site_plugins_batch( array $site_ids_or_urls, ?array &$errors = null ): ?array {
+	$results = API_Helper::make_wpcom_request(
+		'sites/batch/atlantis-force-check',
+		'POST',
+		array( 'sites' => $site_ids_or_urls )
+	);
+	if ( is_null( $results ) ) {
+		return null;
+	}
+
+	return parse_batch_response( $results, $errors );
+}
+
+/**
+ * Number of sites per batch when refreshing update-checks (each is a real per-site tunnelled call).
+ * Matches the server-side `maxItems` on the OpsOasis batch route.
+ */
+const WPCOM_PLUGIN_UPDATE_BATCH_SIZE = 30;
+
+/**
+ * Normalizes a version string for comparison (drops a leading `v`).
+ *
+ * @param   string $version The version string.
+ *
+ * @return  string
+ */
+function normalize_version_string( string $version ): string {
+	return \ltrim( \trim( $version ), 'vV' );
+}
+
+/**
+ * Classifies a site's update outcome from its before/after versions, optionally against a release.
+ *
+ * With $release set, a resulting version newer than it is `ahead` and older is `behind` (so a site the
+ * release has not reached, or one running a newer test build, is surfaced); otherwise the result is
+ * simply whether the version moved forward (`updated`) or not (`current`).
+ *
+ * @param   string      $was     The version installed before the update.
+ * @param   string      $now     The version reported after the update.
+ * @param   string|null $release Optional release version to compare the result against.
+ *
+ * @return  string One of `updated`, `current`, `ahead`, `behind`.
+ */
+function classify_wpcom_plugin_update_result( string $was, string $now, ?string $release = null ): string {
+	if ( ! empty( $release ) ) {
+		$against_release = \version_compare( normalize_version_string( $now ), normalize_version_string( $release ) );
+		if ( $against_release > 0 ) {
+			return 'ahead';
+		}
+		if ( $against_release < 0 ) {
+			return 'behind';
+		}
+	}
+
+	return \version_compare( normalize_version_string( $was ), normalize_version_string( $now ), '<' ) ? 'updated' : 'current';
+}
+
+/**
+ * Normalizes a URL or host to a bare lowercase host for comparison.
+ *
+ * @param   string $value The URL or host to normalize.
+ *
+ * @return  string
+ */
+function normalize_wpcom_site_host( string $value ): string {
+	$value = \strtolower( \trim( $value ) );
+	$value = \preg_replace( '#^https?://#', '', $value );
+	$value = \preg_replace( '#/.*$#', '', $value );
+
+	return $value;
+}
+
+/**
+ * Reads the first column of a CSV file.
+ *
+ * @param   string $path The path to the CSV file.
+ *
+ * @return  string[]
+ *
+ * @throws  \RuntimeException If the file cannot be opened.
+ */
+function read_wpcom_sites_csv_first_column( string $path ): array {
+	$handle = \fopen( $path, 'r' );
+	if ( false === $handle ) {
+		throw new \RuntimeException( "Could not open the sites file `$path`." );
+	}
+
+	$values = array();
+	while ( false !== ( $row = \fgetcsv( $handle, 0, ',', '"', '' ) ) ) {
+		if ( isset( $row[0] ) ) {
+			$values[] = $row[0];
+		}
+	}
+	\fclose( $handle );
+
+	return $values;
+}
+
+/**
+ * Parses a `--sites` value into a list of requested site identifiers.
+ *
+ * The value is either a path to a CSV file (first column holds the site URLs) or a comma-separated list
+ * of URLs and/or numeric WPCOM IDs. Blank entries are always dropped.
+ *
+ * The two sources differ in how implausible tokens are treated. In a CSV, a first-column value that is
+ * neither a numeric ID nor a hostname is almost always a header row and is dropped silently. In a typed
+ * comma-separated list, every non-blank token was entered deliberately, so none is dropped here — a token
+ * that does not resolve (e.g. a bare slug) flows through to the caller's `unmatched` list rather than
+ * vanishing, so a mixed list cannot silently cover fewer sites than requested and still report success.
+ *
+ * @param   string $spec The raw sites value.
+ *
+ * @return  string[]
+ */
+function parse_wpcom_site_identifiers( string $spec ): array {
+	$is_csv = \is_file( $spec );
+	$raw    = $is_csv ? read_wpcom_sites_csv_first_column( $spec ) : \explode( ',', $spec );
+
+	$identifiers = array();
+	foreach ( $raw as $value ) {
+		$value = \trim( (string) $value );
+		if ( '' === $value ) {
+			continue;
+		}
+		// CSV only: skip header-like rows that are neither a numeric ID nor a hostname. Typed tokens are
+		// always kept so an unresolvable one is surfaced by the caller instead of being swallowed here.
+		if ( $is_csv && ! \is_numeric( $value ) && ! \str_contains( $value, '.' ) ) {
+			continue;
+		}
+		$identifiers[ $value ] = $value;
+	}
+
+	return \array_values( $identifiers );
+}
+
+/**
+ * Finds the fleet key for a single requested identifier, by numeric WPCOM ID or by host.
+ *
+ * @param   string $identifier The requested site URL or numeric WPCOM ID.
+ * @param   array  $all_sites  The connected Jetpack sites, keyed by WPCOM ID.
+ *
+ * @return  int|string|null The matching fleet key, or null when no site matches.
+ */
+function match_wpcom_site( string $identifier, array $all_sites ): int|string|null {
+	if ( \is_numeric( $identifier ) ) {
+		foreach ( $all_sites as $key => $site ) {
+			if ( (string) $site->userblog_id === $identifier ) {
+				return $key;
+			}
+		}
+	}
+
+	$needle = normalize_wpcom_site_host( $identifier );
+	if ( '' !== $needle ) {
+		foreach ( $all_sites as $key => $site ) {
+			if ( normalize_wpcom_site_host( (string) ( $site->siteurl ?? '' ) ) === $needle ) {
+				return $key;
+			}
+		}
+	}
+
+	return null;
+}
+
+/**
+ * Matches the requested identifiers against the connected fleet.
+ *
+ * @param   string[] $identifiers The requested site URLs and/or numeric WPCOM IDs.
+ * @param   array    $all_sites   The connected Jetpack sites, keyed by WPCOM ID.
+ *
+ * @return  array A two-element list: the matched sites keyed by WPCOM ID, and the unmatched identifiers.
+ */
+function resolve_wpcom_sites_from_identifiers( array $identifiers, array $all_sites ): array {
+	$matched   = array();
+	$unmatched = array();
+
+	foreach ( $identifiers as $identifier ) {
+		$key = match_wpcom_site( $identifier, $all_sites );
+		if ( \is_null( $key ) ) {
+			$unmatched[] = $identifier;
+			continue;
+		}
+		$matched[ $key ] = $all_sites[ $key ];
+	}
+
+	return array( $matched, $unmatched );
+}
+
+/**
+ * Checks whether the plugin data matches the search term exactly.
+ *
+ * @param   \stdClass $plugin_data The plugin data.
+ * @param   string    $term        The search term.
+ * @param   string    $folder      The plugin folder.
+ * @param   string    $file        The plugin main file (without `.php`).
+ *
+ * @return  boolean
+ */
+function is_exact_wpcom_plugin_match( \stdClass $plugin_data, string $term, string $folder, string $file ): bool {
+	return $term === $plugin_data->TextDomain // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+		|| $term === $folder
+		|| $term === $file;
+}
+
+/**
+ * Validates the cross-option rules for a plugin update request.
+ *
+ * @param   string|null $environment The environment filter, if any.
+ *
+ * @return  void
+ *
+ * @throws  \InvalidArgumentException If any option is invalid.
+ */
+function validate_wpcom_plugin_update_options( ?string $environment ): void {
+	if ( ! \is_null( $environment ) && ! \in_array( $environment, array( 'staging', 'production' ), true ) ) {
+		throw new \InvalidArgumentException( 'The --environment option must be either `staging` or `production`.' );
+	}
+}
+
+/**
+ * Resolves sites + plugin into a target structure for a plugin update.
+ *
+ * Pure of console output. Reproduces the resolve -> environment filter -> inventory -> match flow.
+ *
+ * @param   string      $plugin      The plugin term (matched against folder / main file / textdomain).
+ * @param   string      $sites_spec  `all`, a comma-separated list of URLs/IDs, or a CSV path.
+ * @param   string|null $environment Optional `staging`/`production` URL filter.
+ *
+ * @return  array{targets: array, unqueryable: array, unmatched: array, sites: array, fetched_count: int, matched_count: int, env_before: int, env_after: int}
+ *
+ * @throws  \InvalidArgumentException If no sites match or none survive the environment filter.
+ * @throws  \RuntimeException         If the fleet or the inventory cannot be resolved.
+ */
+function build_wpcom_plugin_update_plan( string $plugin, string $sites_spec, ?string $environment ): array {
+	$all_sites = get_wpcom_jetpack_sites();
+	if ( \is_null( $all_sites ) ) {
+		throw new \RuntimeException( 'Could not fetch the connected Jetpack sites from WPCOM.' );
+	}
+	$fetched_count = \count( $all_sites );
+
+	$unmatched = array();
+	if ( 'all' === \strtolower( \trim( $sites_spec ) ) ) {
+		$sites = $all_sites;
+	} else {
+		[ $matched, $unmatched ] = resolve_wpcom_sites_from_identifiers( parse_wpcom_site_identifiers( $sites_spec ), $all_sites );
+		if ( empty( $matched ) ) {
+			throw new \InvalidArgumentException( 'None of the requested sites were found in the connected Jetpack fleet.' );
+		}
+		$sites = $matched;
+	}
+	$matched_count = \count( $sites );
+	$env_before    = $matched_count;
+
+	if ( ! \is_null( $environment ) ) {
+		$keep_staging = 'staging' === $environment;
+		$sites        = \array_filter(
+			$sites,
+			static function ( $site ) use ( $keep_staging ) {
+				$is_staging = false !== \stripos( (string) ( $site->siteurl ?? '' ), 'staging' );
+				return $keep_staging ? $is_staging : ! $is_staging;
+			}
+		);
+		if ( empty( $sites ) ) {
+			throw new \InvalidArgumentException( "No sites remain after the `$environment` environment filter." );
+		}
+	}
+	$env_after = \count( $sites );
+
+	$plugins = get_wpcom_site_plugins_batch( \array_column( $sites, 'userblog_id' ), $errors );
+	if ( \is_null( $plugins ) ) {
+		throw new \RuntimeException( 'Could not fetch the installed plugins for the requested sites from WPCOM.' );
+	}
+	$unqueryable = \is_array( $errors ) ? $errors : array();
+
+	$targets = array();
+	foreach ( $plugins as $site_id => $site_plugins ) {
+		foreach ( $site_plugins as $plugin_file => $plugin_data ) {
+			if ( ! is_exact_wpcom_plugin_match( $plugin_data, $plugin, \dirname( $plugin_file ), \basename( $plugin_file, '.php' ) ) ) {
+				continue;
+			}
+			$targets[ $site_id ] = array(
+				'name'      => \preg_replace( '/\.php$/', '', $plugin_file ),
+				'installed' => (string) $plugin_data->Version, // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+				'siteurl'   => (string) ( $sites[ $site_id ]->siteurl ?? '' ),
+			);
+			break; // One match per site is enough.
+		}
+	}
+
+	return array(
+		'targets'       => $targets,
+		'unqueryable'   => $unqueryable,
+		'unmatched'     => $unmatched,
+		'sites'         => $sites,
+		'fetched_count' => $fetched_count,
+		'matched_count' => $matched_count,
+		'env_before'    => $env_before,
+		'env_after'     => $env_after,
+	);
+}
+
+/**
+ * Runs a fresh update-check (Atlantis lever) on the given sites, in batches.
+ *
+ * @param   int[]         $site_ids The site IDs to refresh.
+ * @param   callable|null $progress Optional progress emitter: `fn( string $message ): void`.
+ *
+ * @return  array{refreshed_count: int, total: int, unreachable: array, unrefreshed: array}
+ */
+function run_wpcom_plugin_update_refresh( array $site_ids, ?callable $progress = null ): array {
+	$emit   = static fn( string $message ) => \is_callable( $progress ) ? $progress( $message ) : null;
+	$chunks = \array_chunk( $site_ids, WPCOM_PLUGIN_UPDATE_BATCH_SIZE );
+	$total  = \count( $chunks );
+	$emit( '<fg=magenta;options=bold>Refreshing the update-check on ' . \count( $site_ids ) . ' site(s)…</>' );
+
+	$results     = array();
+	$errors      = array();
+	$unrefreshed = array();
+	$any_batch   = false;
+	foreach ( $chunks as $index => $chunk ) {
+		if ( $total > 1 ) {
+			$emit( '<comment>Batch ' . ( $index + 1 ) . "/$total: refreshing " . \count( $chunk ) . ' site(s)…</comment>' );
+		}
+		$chunk_results = force_check_wpcom_site_plugins_batch( $chunk, $chunk_errors );
+		if ( \is_null( $chunk_results ) ) {
+			$emit( '<comment>⚠ The refresh request failed for this batch.</comment>' );
+			// Match the per-site error shape maybe_output_wpcom_failed_sites_table() renders (an object with
+			// an `errors` property), so a failed batch does not raise a TypeError there.
+			$batch_error  = (object) array( 'errors' => array( 'refresh_batch_failed' => array( 'The batch refresh request failed (e.g. timeout).' ) ) );
+			$unrefreshed += \array_fill_keys( $chunk, $batch_error );
+			continue;
+		}
+		$any_batch = true;
+		$results  += $chunk_results;
+		$errors   += $chunk_errors ?? array();
+	}
+
+	if ( ! $any_batch ) {
+		$emit( '<comment>⚠ No refresh batch succeeded; proceeding anyway (sites that already detected the release will still update).</comment>' );
+	}
+
+	$notes = array();
+	if ( \count( $errors ) > 0 ) {
+		$notes[] = \count( $errors ) . ' could not be reached (no Atlantis or connection down)';
+	}
+	if ( \count( $unrefreshed ) > 0 ) {
+		$notes[] = \count( $unrefreshed ) . ' were in a failed batch and not re-checked';
+	}
+	$suffix = empty( $notes ) ? '' : '; ' . \implode( '; ', $notes ) . ' and may not detect the release';
+	$emit( '<comment>Refreshed ' . \count( $results ) . ' of ' . \count( $site_ids ) . ' site(s)' . $suffix . '.</comment>' );
+
+	return array(
+		'refreshed_count' => \count( $results ),
+		'total'           => \count( $site_ids ),
+		'unreachable'     => $errors,
+		'unrefreshed'     => $unrefreshed,
+	);
+}
+
+/**
+ * Executes a built plan: updates the planned sites via the detection-based update endpoint. (Refresh,
+ * when requested, is a separate step the caller runs first via run_wpcom_plugin_update_refresh().)
+ *
+ * Pure of direct console writes — progress is emitted only via the optional callback.
+ *
+ * @param   array         $plan     A plan from build_wpcom_plugin_update_plan().
+ * @param   callable|null $progress Optional progress emitter: `fn( string $message ): void`.
+ *
+ * @return  array{results: array, errors: array}
+ */
+function execute_wpcom_plugin_update_plan( array $plan, ?callable $progress = null ): array {
+	$emit    = static fn( string $message ) => \is_callable( $progress ) ? $progress( $message ) : null;
+	$targets = $plan['targets'];
+
+	$results = array();
+	$errors  = array();
+
+	// Group by plugin identifier (near-always a single group) and update each group in one batch call.
+	$groups = array();
+	foreach ( $targets as $site_id => $target ) {
+		$groups[ $target['name'] ][] = $site_id;
+	}
+	foreach ( $groups as $plugin_name => $site_ids ) {
+		$group_results = update_wpcom_site_plugins_batch( $site_ids, $plugin_name, $group_errors );
+		if ( \is_null( $group_results ) ) {
+			$emit( "<error>The update request failed for plugin `$plugin_name`.</error>" );
+			continue;
+		}
+		$results += $group_results;
+		$errors  += $group_errors ?? array();
+	}
+
+	return array(
+		'results' => $results,
+		'errors'  => $errors,
+	);
+}
+
+/**
  * Returns the stats for a WPCOM or Jetpack Connected site.
  *
  * @param   string      $site_id_or_url The site URL or WordPress.com site ID.

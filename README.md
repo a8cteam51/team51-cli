@@ -97,7 +97,7 @@ claude mcp add team51 -- team51 --mcp
 
 ### Available Tools
 
-The MCP server currently exposes 67 tools across all services. The table below shows a subset of commonly used tools:
+The MCP server currently exposes 68 tools across all services. The table below shows a subset of commonly used tools:
 
 | Service | Read Tools | Write Tools |
 |---------|-----------|-------------|

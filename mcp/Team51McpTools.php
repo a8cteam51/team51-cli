@@ -2390,6 +2390,137 @@ final class Team51McpTools {
 		return $server ? (array) $server : array( 'error' => 'Failed to create DeployHQ project server.' );
 	}
 
+	/**
+	 * Update a plugin across connected Jetpack sites (wraps `jetpack:plugin-update`).
+	 *
+	 * DEFAULTS TO A DRY RUN — nothing is changed unless `dry_run` is explicitly set to false. Updates each
+	 * targeted site via the WPCOM plugin update endpoint (the detection path): a site only moves forward to
+	 * a version its own update source already offers. Optionally forces a fresh update-check first via the
+	 * Atlantis lever. Calls the same shared planner/executor the CLI command uses. Returns a structured plan
+	 * (and, when applied, per-site results) rather than a text blob.
+	 *
+	 * @param string      $plugin      The plugin term, matched exactly against folder / main file / textdomain.
+	 * @param string      $sites       `all`, a comma-separated list of site URLs and/or numeric WPCOM IDs, or a CSV path. Required — never implicitly all.
+	 * @param string|null $environment Optional environment filter: `staging` (only URLs containing "staging") or `production` (skips them).
+	 * @param string|null $release     Optional version being published; when set, each site is reported as updated / current / ahead / behind relative to it.
+	 * @param bool        $refresh     Force a fresh update-check (Atlantis lever) before the detection-based update.
+	 * @param bool        $dry_run     Plan only, without changing anything. Defaults to true for safety.
+	 *
+	 * @return array The plan summary (and per-site results when applied), or an `error` entry.
+	 */
+	#[McpTool(
+		name: 'jetpack_plugin_update',
+		annotations: new ToolAnnotations(
+			title: 'Update a Plugin Across Sites',
+			readOnlyHint: false,
+			destructiveHint: true,
+			idempotentHint: false,
+			openWorldHint: true,
+		)
+	)]
+	public function jetpack_plugin_update(
+		string $plugin,
+		string $sites,
+		?string $environment = null,
+		?string $release = null,
+		bool $refresh = false,
+		bool $dry_run = true
+	): array {
+		$identity_error = self::ensure_identity();
+		if ( $identity_error ) {
+			return $identity_error;
+		}
+
+		// Resolve + plan via the SAME shared functions the CLI command uses. Option/validation errors
+		// come back as a structured error.
+		try {
+			validate_wpcom_plugin_update_options( $environment );
+			$plan = build_wpcom_plugin_update_plan( $plugin, $sites, $environment );
+		} catch ( \Throwable $throwable ) {
+			return array( 'error' => $throwable->getMessage() );
+		}
+
+		$plan_rows = array();
+		$counts    = array();
+		foreach ( $plan['targets'] as $site_id => $target ) {
+			$plan_rows[]      = array(
+				'site_id'   => $site_id,
+				'site_url'  => $target['siteurl'],
+				'plugin'    => $target['name'],
+				'installed' => $target['installed'],
+				'plan'      => 'update',
+			);
+			$counts['update'] = ( $counts['update'] ?? 0 ) + 1;
+		}
+
+		$response = array(
+			'dry_run'        => $dry_run,
+			'plugin'         => $plugin,
+			'fetched_count'  => $plan['fetched_count'],
+			'matched_count'  => $plan['matched_count'],
+			'targeted_count' => \count( $plan['targets'] ),
+			'plan_counts'    => $counts,
+			'plan'           => $plan_rows,
+			'unqueryable'    => \array_keys( $plan['unqueryable'] ),
+			'unmatched'      => $plan['unmatched'],
+		);
+
+		if ( $dry_run ) {
+			$response['note'] = 'Dry run: no sites were changed. Set dry_run=false to apply.';
+			return $response;
+		}
+
+		// Apply: refresh first (optional), then update via the shared executor.
+		// Wrapped so the tool returns a structured error rather than throwing (add-mcp-tool.md §4).
+		try {
+			if ( $refresh ) {
+				$response['refresh'] = run_wpcom_plugin_update_refresh( \array_keys( $plan['targets'] ) );
+			}
+			$execution = execute_wpcom_plugin_update_plan( $plan );
+		} catch ( \Throwable $throwable ) {
+			$response['error'] = $throwable->getMessage();
+			return $response;
+		}
+
+		$results = array();
+		foreach ( $plan['targets'] as $site_id => $target ) {
+			$was = $target['installed'];
+			if ( isset( $execution['errors'][ $site_id ] ) ) {
+				$results[] = array(
+					'site_id'  => $site_id,
+					'site_url' => $target['siteurl'],
+					'was'      => $was,
+					'result'   => 'failed',
+					'error'    => encode_json_content( $execution['errors'][ $site_id ]->errors ?? $execution['errors'][ $site_id ] ),
+				);
+			} elseif ( isset( $execution['results'][ $site_id ] ) ) {
+				$now       = (string) ( $execution['results'][ $site_id ]->version ?? $was );
+				$results[] = array(
+					'site_id'  => $site_id,
+					'site_url' => $target['siteurl'],
+					'was'      => $was,
+					'now'      => $now,
+					// Classify against $release so a client verifying a rollout gets updated/current/ahead/behind
+					// (a site the release has not reached succeeds with an unchanged version and reads `behind`).
+					'result'   => classify_wpcom_plugin_update_result( $was, $now, $release ),
+				);
+			} else {
+				// Reachable only when the batch request returned null (a genuine failure) now that force mode's
+				// intentional skips are gone; report it as failed so the MCP tool and the CLI agree.
+				$results[] = array(
+					'site_id'  => $site_id,
+					'site_url' => $target['siteurl'],
+					'was'      => $was,
+					'result'   => 'failed',
+					'error'    => 'The update request failed for this site\'s batch.',
+				);
+			}
+		}
+		$response['results'] = $results;
+
+		return $response;
+	}
+
 	#[McpTool( name: 'jetpack_connection_triage' )]
 	public function jetpack_connection_triage( ?string $csv_path = null ): array {
 		$identity_error = self::ensure_identity();
