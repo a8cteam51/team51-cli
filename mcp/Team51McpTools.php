@@ -2391,23 +2391,19 @@ final class Team51McpTools {
 	}
 
 	/**
-	 * Update, or force-install, a plugin across connected Jetpack sites (wraps `jetpack:plugin-update`).
+	 * Update a plugin across connected Jetpack sites (wraps `jetpack:plugin-update`).
 	 *
-	 * DEFAULTS TO A DRY RUN — nothing is changed unless `dry_run` is explicitly set to false. High risk:
-	 * with `force` this overwrites the plugin in place from `package`; with `downgrade` it rolls sites that
-	 * are AHEAD of the package back to it. Calls the same shared planner/executor the CLI command uses, so
-	 * the audited version-gating / no-downgrade guard is the single source of truth. Returns a structured
-	 * plan (and, when applied, per-site results) rather than a text blob.
+	 * DEFAULTS TO A DRY RUN — nothing is changed unless `dry_run` is explicitly set to false. Updates each
+	 * targeted site via the WPCOM plugin update endpoint (the detection path): a site only moves forward to
+	 * a version its own update source already offers. Optionally forces a fresh update-check first via the
+	 * Atlantis lever. Calls the same shared planner/executor the CLI command uses. Returns a structured plan
+	 * (and, when applied, per-site results) rather than a text blob.
 	 *
 	 * @param string      $plugin      The plugin term, matched exactly against folder / main file / textdomain.
 	 * @param string      $sites       `all`, a comma-separated list of site URLs and/or numeric WPCOM IDs, or a CSV path. Required — never implicitly all.
 	 * @param string|null $environment Optional environment filter: `staging` (only URLs containing "staging") or `production` (skips them).
-	 * @param string|null $release     Optional version being published; used as the target-version fallback when the package has no readable header.
-	 * @param bool        $refresh     Force a fresh update-check (Atlantis lever) before the detection-based update. Ignored with `force`.
-	 * @param bool        $force       Force-install from `package`, bypassing update detection. Requires `package`.
-	 * @param string|null $package     Public zip URL to force-install (server-side download). Required with `force`.
-	 * @param bool        $reinstall   With `force`, also overwrite sites already at the package version.
-	 * @param bool        $downgrade   With `force`, also overwrite sites NEWER than the package — roll them back. Destructive.
+	 * @param string|null $release     Optional version being published; when set, each site is reported as updated / current / ahead / behind relative to it.
+	 * @param bool        $refresh     Force a fresh update-check (Atlantis lever) before the detection-based update.
 	 * @param bool        $dry_run     Plan only, without changing anything. Defaults to true for safety.
 	 *
 	 * @return array The plan summary (and per-site results when applied), or an `error` entry.
@@ -2415,7 +2411,7 @@ final class Team51McpTools {
 	#[McpTool(
 		name: 'jetpack_plugin_update',
 		annotations: new ToolAnnotations(
-			title: 'Update / Force-Install a Plugin Across Sites (High Risk)',
+			title: 'Update a Plugin Across Sites',
 			readOnlyHint: false,
 			destructiveHint: true,
 			idempotentHint: false,
@@ -2428,10 +2424,6 @@ final class Team51McpTools {
 		?string $environment = null,
 		?string $release = null,
 		bool $refresh = false,
-		bool $force = false,
-		?string $package = null,
-		bool $reinstall = false,
-		bool $downgrade = false,
 		bool $dry_run = true
 	): array {
 		$identity_error = self::ensure_identity();
@@ -2439,11 +2431,11 @@ final class Team51McpTools {
 			return $identity_error;
 		}
 
-		// Resolve + plan via the SAME shared functions the CLI command uses (single source of the
-		// audited no-downgrade guard). Option/validation errors come back as a structured error.
+		// Resolve + plan via the SAME shared functions the CLI command uses. Option/validation errors
+		// come back as a structured error.
 		try {
-			validate_wpcom_plugin_update_options( $force, $package, $reinstall, $downgrade, $refresh, $environment );
-			$plan = build_wpcom_plugin_update_plan( $plugin, $sites, $environment, $force, $package, $release, $reinstall, $downgrade );
+			validate_wpcom_plugin_update_options( $environment );
+			$plan = build_wpcom_plugin_update_plan( $plugin, $sites, $environment );
 		} catch ( \Throwable $throwable ) {
 			return array( 'error' => $throwable->getMessage() );
 		}
@@ -2451,23 +2443,19 @@ final class Team51McpTools {
 		$plan_rows = array();
 		$counts    = array();
 		foreach ( $plan['targets'] as $site_id => $target ) {
-			// Detection-path targets carry no `plan` key; count them under `update` so the counts sum to
-			// targeted_count and a client does not read all-zeros as "nothing to update".
-			$bucket            = $target['plan'] ?? ( $force ? 'install' : 'update' );
-			$plan_rows[]       = array(
+			$plan_rows[]      = array(
 				'site_id'   => $site_id,
 				'site_url'  => $target['siteurl'],
 				'plugin'    => $target['name'],
 				'installed' => $target['installed'],
-				'plan'      => $bucket,
+				'plan'      => 'update',
 			);
-			$counts[ $bucket ] = ( $counts[ $bucket ] ?? 0 ) + 1;
+			$counts['update'] = ( $counts['update'] ?? 0 ) + 1;
 		}
 
 		$response = array(
 			'dry_run'        => $dry_run,
 			'plugin'         => $plugin,
-			'target_version' => $plan['target_version'],
 			'fetched_count'  => $plan['fetched_count'],
 			'matched_count'  => $plan['matched_count'],
 			'targeted_count' => \count( $plan['targets'] ),
@@ -2482,13 +2470,13 @@ final class Team51McpTools {
 			return $response;
 		}
 
-		// Apply: refresh first (detection path only), then update / force-install via the shared executor.
+		// Apply: refresh first (optional), then update via the shared executor.
 		// Wrapped so the tool returns a structured error rather than throwing (add-mcp-tool.md §4).
 		try {
-			if ( $refresh && ! $force ) {
+			if ( $refresh ) {
 				$response['refresh'] = run_wpcom_plugin_update_refresh( \array_keys( $plan['targets'] ) );
 			}
-			$execution = execute_wpcom_plugin_update_plan( $plan, $force, $package );
+			$execution = execute_wpcom_plugin_update_plan( $plan );
 		} catch ( \Throwable $throwable ) {
 			$response['error'] = $throwable->getMessage();
 			return $response;
@@ -2518,7 +2506,7 @@ final class Team51McpTools {
 					'site_id'  => $site_id,
 					'site_url' => $target['siteurl'],
 					'was'      => $was,
-					'result'   => $target['plan'] ?? 'skipped',
+					'result'   => 'skipped',
 				);
 			}
 		}

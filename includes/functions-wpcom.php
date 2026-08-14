@@ -199,38 +199,6 @@ function update_wpcom_site_plugins_batch( array $site_ids_or_urls, string $plugi
 }
 
 /**
- * Force-installs a plugin from a zip package across a batch of WPCOM/Jetpack sites.
- *
- * Proxies the OpsOasis batch endpoint, which downloads the package once and overwrites the plugin in
- * place on each site via the WPCOM `plugins/replace` endpoint. Unlike an update, this ignores the site's
- * update cache, the check throttle, and the plugin's own update source, so it installs the given version
- * on every site regardless of what is currently installed or what the site believes is the latest.
- *
- * @param   array      $site_ids_or_urls The list of site domains or numeric WPCOM IDs.
- * @param   string     $slug             The plugin slug (must match the zip's top-level folder).
- * @param   string     $package_url      The URL of the plugin zip to install.
- * @param   array|null $errors           The list of errors that occurred during the request.
- *
- * @return  stdClass[]|null  Per-site result keyed by site ID (with `version` and `log`).
- */
-function replace_wpcom_site_plugins_batch( array $site_ids_or_urls, string $slug, string $package_url, ?array &$errors = null ): ?array {
-	$results = API_Helper::make_wpcom_request(
-		'sites/batch/plugin-replace',
-		'POST',
-		array(
-			'sites'   => $site_ids_or_urls,
-			'slug'    => $slug,
-			'package' => $package_url,
-		)
-	);
-	if ( is_null( $results ) ) {
-		return null;
-	}
-
-	return parse_batch_response( $results, $errors );
-}
-
-/**
  * Forces a fresh plugin update-check on a batch of WPCOM/Jetpack sites.
  *
  * Proxies the OpsOasis batch endpoint, which calls the Atlantis `force-update-check` route on each site
@@ -411,135 +379,35 @@ function is_exact_wpcom_plugin_match( \stdClass $plugin_data, string $term, stri
 }
 
 /**
- * Reads the plugin version from a package zip's header, downloading it locally first.
+ * Validates the cross-option rules for a plugin update request.
  *
- * @param   string $package_url The URL of the plugin zip to read.
- *
- * @return  string|null The version, or null if the (successfully downloaded) package has no readable version.
- *
- * @throws  \RuntimeException If a local temp file cannot be created, or the package URL cannot be downloaded
- *                           (curl error or non-2xx response) — force-installing an unfetchable URL would
- *                           fail on every site.
- */
-function read_wpcom_plugin_package_version( string $package_url ): ?string {
-	$tmp = \tempnam( \sys_get_temp_dir(), 't51pkg' );
-	if ( false === $tmp ) {
-		throw new \RuntimeException( 'Could not create a local temporary file to download the package into.' );
-	}
-
-	$handle = \fopen( $tmp, 'wb' );
-	if ( false === $handle ) {
-		\unlink( $tmp );
-		throw new \RuntimeException( 'Could not open a local temporary file to download the package into.' );
-	}
-
-	$curl = \curl_init( $package_url );
-	\curl_setopt_array(
-		$curl,
-		array(
-			\CURLOPT_FILE           => $handle,
-			\CURLOPT_FOLLOWLOCATION => true,
-			\CURLOPT_TIMEOUT        => 60,
-		)
-	);
-	$downloaded = \curl_exec( $curl );
-	$http_code  = (int) \curl_getinfo( $curl, \CURLINFO_RESPONSE_CODE );
-	$curl_error = \curl_error( $curl );
-	\curl_close( $curl );
-	\fclose( $handle );
-
-	// A bad package URL is a hard error: don't silently fall back to a claimed version and push a URL that
-	// already failed to fetch locally out to the whole fleet.
-	if ( false === $downloaded || $http_code < 200 || $http_code >= 300 ) {
-		\unlink( $tmp );
-		$detail = '' !== $curl_error ? $curl_error : "HTTP $http_code";
-		throw new \RuntimeException( "Could not download the package from `$package_url` ($detail)." );
-	}
-
-	$version = null;
-	if ( \class_exists( '\ZipArchive' ) ) {
-		$zip = new \ZipArchive();
-		if ( true === $zip->open( $tmp ) ) {
-			for ( $index = 0; $index < $zip->numFiles; $index++ ) { // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
-				$name = (string) $zip->getNameIndex( $index );
-				if ( ! \preg_match( '#^[^/]+/[^/]+\.php$#', $name ) ) {
-					continue; // Only top-level PHP files inside the plugin folder.
-				}
-				$contents = $zip->getFromIndex( $index, 8192 );
-				if ( false === $contents || false === \stripos( $contents, 'Plugin Name:' ) ) {
-					continue;
-				}
-				if ( \preg_match( '/^[ \t\/*#@]*Version:\s*(\S+)/mi', $contents, $matches ) ) {
-					$version = \trim( $matches[1] );
-					break;
-				}
-			}
-			$zip->close();
-		}
-	}
-
-	\unlink( $tmp );
-
-	return $version;
-}
-
-/**
- * Validates the cross-option rules for a plugin update / force-install request.
- *
- * @param   boolean     $force       Whether force-install is requested.
- * @param   string|null $package     The package zip URL, if any.
- * @param   boolean     $reinstall   Whether same-version reinstall is requested.
- * @param   boolean     $downgrade   Whether downgrade is requested.
- * @param   boolean     $refresh     Whether a pre-update refresh is requested.
  * @param   string|null $environment The environment filter, if any.
  *
  * @return  void
  *
- * @throws  \InvalidArgumentException If any option combination is invalid.
+ * @throws  \InvalidArgumentException If any option is invalid.
  */
-function validate_wpcom_plugin_update_options( bool $force, ?string $package, bool $reinstall, bool $downgrade, bool $refresh, ?string $environment ): void {
-	if ( $force && empty( $package ) ) {
-		throw new \InvalidArgumentException( 'The --force option requires --package <zip-url> (e.g. a GitHub release asset URL).' );
-	}
-	if ( ! $force && ! empty( $package ) ) {
-		throw new \InvalidArgumentException( 'The --package option only applies to --force.' );
-	}
-	if ( ! $force && $reinstall ) {
-		throw new \InvalidArgumentException( 'The --reinstall option only applies to --force.' );
-	}
-	if ( ! $force && $downgrade ) {
-		throw new \InvalidArgumentException( 'The --downgrade option only applies to --force.' );
-	}
-	if ( $refresh && $force ) {
-		throw new \InvalidArgumentException( 'The --refresh option applies to the detection-based update path and has no effect with --force (which bypasses update detection). Use one or the other.' );
-	}
+function validate_wpcom_plugin_update_options( ?string $environment ): void {
 	if ( ! \is_null( $environment ) && ! \in_array( $environment, array( 'staging', 'production' ), true ) ) {
 		throw new \InvalidArgumentException( 'The --environment option must be either `staging` or `production`.' );
 	}
 }
 
 /**
- * Resolves sites + plugin into a target/plan structure for a plugin update or force-install.
+ * Resolves sites + plugin into a target structure for a plugin update.
  *
- * Pure of console output. Reproduces the resolve -> environment filter -> inventory -> match -> plan flow.
- * In force mode it tags each target with a `plan` of `install`/`current`/`ahead` per the version rules
- * (below target installs; equal skips unless `$reinstall`; ahead skips unless `$downgrade`).
+ * Pure of console output. Reproduces the resolve -> environment filter -> inventory -> match flow.
  *
  * @param   string      $plugin      The plugin term (matched against folder / main file / textdomain).
  * @param   string      $sites_spec  `all`, a comma-separated list of URLs/IDs, or a CSV path.
  * @param   string|null $environment Optional `staging`/`production` URL filter.
- * @param   boolean     $force       Whether force-install is requested (enables the version plan).
- * @param   string|null $package     The package zip URL (required in force mode).
- * @param   string|null $release     Fallback target version when the package has no readable header.
- * @param   boolean     $reinstall   Whether to also install equal-version sites.
- * @param   boolean     $downgrade   Whether to also install ahead-version sites (roll back).
  *
- * @return  array{targets: array, target_version: ?string, unqueryable: array, unmatched: array, sites: array, fetched_count: int, matched_count: int, env_before: int, env_after: int}
+ * @return  array{targets: array, unqueryable: array, unmatched: array, sites: array, fetched_count: int, matched_count: int, env_before: int, env_after: int}
  *
  * @throws  \InvalidArgumentException If no sites match or none survive the environment filter.
- * @throws  \RuntimeException         If the fleet, the inventory, or the package version cannot be resolved.
+ * @throws  \RuntimeException         If the fleet or the inventory cannot be resolved.
  */
-function build_wpcom_plugin_update_plan( string $plugin, string $sites_spec, ?string $environment, bool $force, ?string $package, ?string $release, bool $reinstall, bool $downgrade ): array {
+function build_wpcom_plugin_update_plan( string $plugin, string $sites_spec, ?string $environment ): array {
 	$all_sites = get_wpcom_jetpack_sites();
 	if ( \is_null( $all_sites ) ) {
 		throw new \RuntimeException( 'Could not fetch the connected Jetpack sites from WPCOM.' );
@@ -596,35 +464,15 @@ function build_wpcom_plugin_update_plan( string $plugin, string $sites_spec, ?st
 		}
 	}
 
-	$target_version = null;
-	if ( $force && ! empty( $targets ) ) {
-		$target_version = read_wpcom_plugin_package_version( (string) $package ) ?? $release;
-		if ( empty( $target_version ) ) {
-			throw new \RuntimeException( 'Could not read the plugin version from the package. Pass --release <version> so already-current and ahead sites can be detected and skipped, or check the --package URL.' );
-		}
-
-		foreach ( $targets as $site_id => $target ) {
-			$comparison = \version_compare( normalize_version_string( $target['installed'] ), normalize_version_string( $target_version ) );
-			if ( $comparison > 0 && ! $downgrade ) {
-				$targets[ $site_id ]['plan'] = 'ahead';   // Newer build; never overwritten unless downgrade.
-			} elseif ( 0 === $comparison && ! $reinstall ) {
-				$targets[ $site_id ]['plan'] = 'current'; // Already at the target; skip unless reinstall.
-			} else {
-				$targets[ $site_id ]['plan'] = 'install'; // Below target, or ahead+downgrade, or equal+reinstall.
-			}
-		}
-	}
-
 	return array(
-		'targets'        => $targets,
-		'target_version' => $target_version,
-		'unqueryable'    => $unqueryable,
-		'unmatched'      => $unmatched,
-		'sites'          => $sites,
-		'fetched_count'  => $fetched_count,
-		'matched_count'  => $matched_count,
-		'env_before'     => $env_before,
-		'env_after'      => $env_after,
+		'targets'       => $targets,
+		'unqueryable'   => $unqueryable,
+		'unmatched'     => $unmatched,
+		'sites'         => $sites,
+		'fetched_count' => $fetched_count,
+		'matched_count' => $matched_count,
+		'env_before'    => $env_before,
+		'env_after'     => $env_after,
 	);
 }
 
@@ -687,61 +535,36 @@ function run_wpcom_plugin_update_refresh( array $site_ids, ?callable $progress =
 }
 
 /**
- * Executes a built plan: update or force-install on the planned sites. (Refresh, when requested, is a
- * separate step the caller runs first via run_wpcom_plugin_update_refresh().)
+ * Executes a built plan: updates the planned sites via the detection-based update endpoint. (Refresh,
+ * when requested, is a separate step the caller runs first via run_wpcom_plugin_update_refresh().)
  *
  * Pure of direct console writes — progress is emitted only via the optional callback.
  *
  * @param   array         $plan     A plan from build_wpcom_plugin_update_plan().
- * @param   boolean       $force    Whether to force-install from $package (vs the detection update).
- * @param   string|null   $package  The package zip URL (force mode).
  * @param   callable|null $progress Optional progress emitter: `fn( string $message ): void`.
  *
  * @return  array{results: array, errors: array}
  */
-function execute_wpcom_plugin_update_plan( array $plan, bool $force, ?string $package, ?callable $progress = null ): array {
+function execute_wpcom_plugin_update_plan( array $plan, ?callable $progress = null ): array {
 	$emit    = static fn( string $message ) => \is_callable( $progress ) ? $progress( $message ) : null;
 	$targets = $plan['targets'];
 
 	$results = array();
 	$errors  = array();
-	if ( $force ) {
-		// Group by plugin folder (the replace slug); near-always a single group. Only `install` sites.
-		$groups = array();
-		foreach ( $targets as $site_id => $target ) {
-			if ( 'install' === ( $target['plan'] ?? 'install' ) ) {
-				$groups[ $target['folder'] ][] = $site_id;
-			}
+
+	// Group by plugin identifier (near-always a single group) and update each group in one batch call.
+	$groups = array();
+	foreach ( $targets as $site_id => $target ) {
+		$groups[ $target['name'] ][] = $site_id;
+	}
+	foreach ( $groups as $plugin_name => $site_ids ) {
+		$group_results = update_wpcom_site_plugins_batch( $site_ids, $plugin_name, $group_errors );
+		if ( \is_null( $group_results ) ) {
+			$emit( "<error>The update request failed for plugin `$plugin_name`.</error>" );
+			continue;
 		}
-		foreach ( $groups as $slug => $site_ids ) {
-			$chunks = \array_chunk( $site_ids, WPCOM_PLUGIN_UPDATE_BATCH_SIZE );
-			$total  = \count( $chunks );
-			foreach ( $chunks as $index => $chunk ) {
-				$emit( '<comment>Batch ' . ( $index + 1 ) . "/$total: force-installing on " . \count( $chunk ) . ' site(s)…</comment>' );
-				$chunk_results = replace_wpcom_site_plugins_batch( $chunk, $slug, (string) $package, $chunk_errors );
-				if ( \is_null( $chunk_results ) ) {
-					$emit( '<error>The force-install request failed for this batch.</error>' );
-					continue;
-				}
-				$results += $chunk_results;
-				$errors  += $chunk_errors ?? array();
-			}
-		}
-	} else {
-		// Group by plugin identifier (near-always a single group) and update each group in one batch call.
-		$groups = array();
-		foreach ( $targets as $site_id => $target ) {
-			$groups[ $target['name'] ][] = $site_id;
-		}
-		foreach ( $groups as $plugin_name => $site_ids ) {
-			$group_results = update_wpcom_site_plugins_batch( $site_ids, $plugin_name, $group_errors );
-			if ( \is_null( $group_results ) ) {
-				$emit( "<error>The update request failed for plugin `$plugin_name`.</error>" );
-				continue;
-			}
-			$results += $group_results;
-			$errors  += $group_errors ?? array();
-		}
+		$results += $group_results;
+		$errors  += $group_errors ?? array();
 	}
 
 	return array(
