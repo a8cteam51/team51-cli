@@ -315,19 +315,31 @@ function read_wpcom_sites_csv_first_column( string $path ): array {
  * Parses a `--sites` value into a list of requested site identifiers.
  *
  * The value is either a path to a CSV file (first column holds the site URLs) or a comma-separated list
- * of URLs and/or numeric WPCOM IDs. Blank and implausible entries (such as a CSV header row) are dropped.
+ * of URLs and/or numeric WPCOM IDs. Blank entries are always dropped.
+ *
+ * The two sources differ in how implausible tokens are treated. In a CSV, a first-column value that is
+ * neither a numeric ID nor a hostname is almost always a header row and is dropped silently. In a typed
+ * comma-separated list, every non-blank token was entered deliberately, so none is dropped here — a token
+ * that does not resolve (e.g. a bare slug) flows through to the caller's `unmatched` list rather than
+ * vanishing, so a mixed list cannot silently cover fewer sites than requested and still report success.
  *
  * @param   string $spec The raw sites value.
  *
  * @return  string[]
  */
 function parse_wpcom_site_identifiers( string $spec ): array {
-	$raw = \is_file( $spec ) ? read_wpcom_sites_csv_first_column( $spec ) : \explode( ',', $spec );
+	$is_csv = \is_file( $spec );
+	$raw    = $is_csv ? read_wpcom_sites_csv_first_column( $spec ) : \explode( ',', $spec );
 
 	$identifiers = array();
 	foreach ( $raw as $value ) {
 		$value = \trim( (string) $value );
-		if ( '' === $value || ( ! \is_numeric( $value ) && ! \str_contains( $value, '.' ) ) ) {
+		if ( '' === $value ) {
+			continue;
+		}
+		// CSV only: skip header-like rows that are neither a numeric ID nor a hostname. Typed tokens are
+		// always kept so an unresolvable one is surfaced by the caller instead of being swallowed here.
+		if ( $is_csv && ! \is_numeric( $value ) && ! \str_contains( $value, '.' ) ) {
 			continue;
 		}
 		$identifiers[ $value ] = $value;
