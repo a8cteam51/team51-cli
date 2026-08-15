@@ -306,7 +306,7 @@ final class Team51McpTools {
 	 * `atlantis_installed: false`.
 	 *
 	 * @param string|null $site_id_or_url     Optional. Single site URL or WPCOM numeric ID.
-	 * @param string|null $module             Optional. Restrict the report to a single module column. One of: messages, colophon, tracking, autoupdates.
+	 * @param string|null $module             Optional. Restrict the report to a single module column. One of: messages, colophon, tracking, autoupdates, bot-protection.
 	 * @param bool        $exclude_staging    Exclude sites whose URL contains "staging" (case-insensitive). Ignored in single-site mode.
 	 * @param bool        $issues_only        Only return sites where Atlantis is not installed or at least one module is not on.
 	 * @param bool        $with_messages_only Only return sites that have at least one stored Atlantis custom message.
@@ -325,7 +325,10 @@ final class Team51McpTools {
 		}
 
 		// Keep this list in sync with WPCOM_Atlantis_Status::KNOWN_MODULE_KEYS.
-		$known_modules = array( 'messages', 'colophon', 'tracking', 'autoupdates' );
+		// Bot Protection is mandatory and reported by enforcement state, not an
+		// enabled flag, so it is special-cased below (as in the CLI command).
+		$known_modules      = array( 'messages', 'colophon', 'tracking', 'autoupdates', 'bot-protection' );
+		$bot_protection_key = 'bot-protection';
 
 		$module_keys = $known_modules;
 		if ( ! \is_null( $module ) ) {
@@ -394,7 +397,16 @@ final class Team51McpTools {
 		$installed_count           = 0;
 		$issue_count               = 0;
 		$sites_with_messages_count = 0;
-		$module_enabled_counts     = \array_fill_keys( $module_keys, 0 );
+		$module_enabled_counts     = \array_fill_keys(
+			\array_filter( $module_keys, static fn( string $key ) => $bot_protection_key !== $key ),
+			0
+		);
+		$bot_protection_tally      = array(
+			'off'          => 0,
+			'inherit'      => 0,
+			'inapplicable' => 0,
+			'absent'       => 0,
+		);
 
 		foreach ( $sites as $site_id => $site ) {
 			$status = $statuses[ $site_id ] ?? null;
@@ -427,6 +439,15 @@ final class Team51McpTools {
 				}
 
 				foreach ( $module_keys as $module_key ) {
+					if ( $bot_protection_key === $module_key ) {
+						// Mandatory module: reported as an enforcement descriptor, not an
+						// enabled flag, and never counted as an issue.
+						$bot_protection                = $this->atlantis_bot_protection_status( $status );
+						$row['modules'][ $module_key ] = $bot_protection;
+						++$bot_protection_tally[ $bot_protection['effective'] ];
+						continue;
+					}
+
 					$enabled = $status->modules->$module_key->enabled ?? null;
 					if ( true === $enabled ) {
 						$row['modules'][ $module_key ] = 'on';
@@ -454,18 +475,74 @@ final class Team51McpTools {
 			$rows[] = $row;
 		}
 
+		$summary = array(
+			'total_sites_queried' => count( $sites ),
+			'sites_with_atlantis' => $installed_count,
+			'sites_with_issues'   => $issue_count,
+			'sites_with_messages' => $sites_with_messages_count,
+			'modules_on'          => $module_enabled_counts,
+			'errors_count'        => count( $errors ),
+		);
+		if ( \in_array( $bot_protection_key, $module_keys, true ) ) {
+			$summary['bot_protection'] = array(
+				'forced_off'   => $bot_protection_tally['off'],
+				'inherit'      => $bot_protection_tally['inherit'],
+				'inapplicable' => $bot_protection_tally['inapplicable'],
+				'not_reported' => $bot_protection_tally['absent'],
+			);
+		}
+
 		return array(
 			'count'   => count( $rows ),
 			'sites'   => $rows,
 			'errors'  => $errors,
-			'summary' => array(
-				'total_sites_queried' => count( $sites ),
-				'sites_with_atlantis' => $installed_count,
-				'sites_with_issues'   => $issue_count,
-				'sites_with_messages' => $sites_with_messages_count,
-				'modules_on'          => $module_enabled_counts,
-				'errors_count'        => count( $errors ),
-			),
+			'summary' => $summary,
+		);
+	}
+
+	/**
+	 * Derives the Bot Protection enforcement descriptor for a site's status payload.
+	 *
+	 * Bot Protection is mandatory, so its shared `enabled` flag is always true and
+	 * is not a useful signal; `state` (inherit|off) is authoritative, and
+	 * `wp_cloud` / `mu_plugin_present` decide whether the setting has any effect on
+	 * the host (both `off` and `inherit` are no-ops without both). A site running
+	 * Atlantis older than 1.3.0 omits the key entirely.
+	 *
+	 * @param \stdClass $status The site's Atlantis status payload.
+	 *
+	 * @return array{ state: string|null, wp_cloud: bool, mu_plugin_present: bool, effective: string }
+	 *               The `effective` bucket is one of: off, inherit, inapplicable, absent.
+	 */
+	private function atlantis_bot_protection_status( \stdClass $status ): array {
+		$bot_protection = $status->modules->{'bot-protection'} ?? null;
+		if ( ! \is_object( $bot_protection ) || ! \is_string( $bot_protection->state ?? null ) ) {
+			return array(
+				'state'             => null,
+				'wp_cloud'          => false,
+				'mu_plugin_present' => false,
+				'effective'         => 'absent',
+			);
+		}
+
+		$state      = (string) $bot_protection->state;
+		$wp_cloud   = ! empty( $bot_protection->wp_cloud );
+		$mu_present = ! empty( $bot_protection->mu_plugin_present );
+		$has_effect = $wp_cloud && $mu_present;
+
+		if ( ! $has_effect ) {
+			$effective = 'inapplicable';
+		} elseif ( 'off' === $state ) {
+			$effective = 'off';
+		} else {
+			$effective = 'inherit';
+		}
+
+		return array(
+			'state'             => $state,
+			'wp_cloud'          => $wp_cloud,
+			'mu_plugin_present' => $mu_present,
+			'effective'         => $effective,
 		);
 	}
 
