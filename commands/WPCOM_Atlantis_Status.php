@@ -55,7 +55,25 @@ final class WPCOM_Atlantis_Status extends Command {
 	 *
 	 * @var string[]
 	 */
-	private const KNOWN_MODULE_KEYS = array( 'messages', 'colophon', 'tracking', 'autoupdates' );
+	private const KNOWN_MODULE_KEYS = array( 'messages', 'colophon', 'tracking', 'autoupdates', 'bot-protection' );
+
+	/**
+	 * Human-readable column labels for module keys whose `ucfirst` form is
+	 * unfriendly. Keys absent here fall back to `ucfirst( $key )`.
+	 *
+	 * @var array<string, string>
+	 */
+	private const MODULE_LABELS = array(
+		'bot-protection' => 'Bot Protection',
+	);
+
+	/**
+	 * The module key whose status is reported as an enforcement `state`
+	 * (inherit|off) rather than a generic enabled on/off flag.
+	 *
+	 * @var string
+	 */
+	private const BOT_PROTECTION_KEY = 'bot-protection';
 
 	/**
 	 * Module keys included in the current report.
@@ -138,7 +156,7 @@ final class WPCOM_Atlantis_Status extends Command {
 		$this->addOption( 'site', null, InputOption::VALUE_REQUIRED, 'Restrict the report to a single site, identified by its WPCOM ID or URL. Skips the full fleet fetch.' )
 			->addOption( 'module', null, InputOption::VALUE_REQUIRED, 'Restrict the report to a single module column. Accepted values: ' . \implode( ', ', self::KNOWN_MODULE_KEYS ) . '.' )
 			->addOption( 'prod', null, InputOption::VALUE_NEGATABLE, 'Exclude any site whose URL contains the substring "staging" (case-insensitive). Use --no-prod to suppress the prompt and include staging sites. When neither is set you will be prompted (unless --no-interaction).' )
-			->addOption( 'issues-only', null, InputOption::VALUE_NEGATABLE, 'Only show sites where Atlantis is not installed or at least one module is not on. Use --no-issues-only to suppress the prompt and show all sites. When neither is set you will be prompted (unless --no-interaction).' )
+			->addOption( 'issues-only', null, InputOption::VALUE_NEGATABLE, 'Only show sites where Atlantis is not installed or at least one module is not on. Mandatory modules such as Bot Protection are never counted as issues (their `inherit`/`off` states are deliberate). Use --no-issues-only to suppress the prompt and show all sites. When neither is set you will be prompted (unless --no-interaction).' )
 			->addOption( 'with-messages-only', null, InputOption::VALUE_NONE, 'Only show sites that have at least one stored Atlantis custom message.' )
 			->addOption( 'export', null, InputOption::VALUE_REQUIRED, 'If provided, the report will be saved to this file in addition to the terminal.' )
 			->addOption( 'export-format', null, InputOption::VALUE_REQUIRED, 'The format to export the report in. Accepted values are `json` and `csv`.', 'csv' )
@@ -164,7 +182,7 @@ final class WPCOM_Atlantis_Status extends Command {
 
 		$this->export_columns = \array_merge(
 			array( 'Site ID', 'Site URL', 'Atlantis Version', 'Custom Msgs' ),
-			\array_map( fn( string $key ) => \ucfirst( $key ), $this->module_keys )
+			\array_map( fn( string $key ) => $this->column_label( $key ), $this->module_keys )
 		);
 
 		$this->format      = get_enum_input( $input, 'export-format', array( 'json', 'csv' ) );
@@ -219,7 +237,16 @@ final class WPCOM_Atlantis_Status extends Command {
 		$installed_count           = 0;
 		$issue_count               = 0;
 		$sites_with_messages_count = 0;
-		$module_enabled_counts     = \array_fill_keys( $this->module_keys, 0 );
+		$module_enabled_counts     = \array_fill_keys(
+			\array_filter( $this->module_keys, static fn( string $key ) => self::BOT_PROTECTION_KEY !== $key ),
+			0
+		);
+		$bot_protection_tally      = array(
+			'off'          => 0,
+			'inherit'      => 0,
+			'inapplicable' => 0,
+			'absent'       => 0,
+		);
 
 		foreach ( $this->sites as $site_id => $site ) {
 			$status = $this->statuses[ $site_id ] ?? null;
@@ -231,7 +258,7 @@ final class WPCOM_Atlantis_Status extends Command {
 				'Custom Msgs'      => '—',
 			);
 			foreach ( $this->module_keys as $module_key ) {
-				$row[ \ucfirst( $module_key ) ] = '—';
+				$row[ $this->column_label( $module_key ) ] = '—';
 			}
 
 			$has_issue      = true; // Atlantis missing counts as an issue.
@@ -253,13 +280,22 @@ final class WPCOM_Atlantis_Status extends Command {
 				}
 
 				foreach ( $this->module_keys as $module_key ) {
+					if ( self::BOT_PROTECTION_KEY === $module_key ) {
+						// Mandatory module: reported as an enforcement `state`, not an
+						// enabled flag, and never counted as an issue.
+						$cell                                      = $this->bot_protection_cell( $status );
+						$row[ $this->column_label( $module_key ) ] = $cell['value'];
+						++$bot_protection_tally[ $cell['bucket'] ];
+						continue;
+					}
+
 					$enabled = $status->modules->$module_key->enabled ?? null;
 					if ( true === $enabled ) {
-						$row[ \ucfirst( $module_key ) ] = 'on';
+						$row[ $this->column_label( $module_key ) ] = 'on';
 						++$module_enabled_counts[ $module_key ];
 					} elseif ( false === $enabled ) {
-						$row[ \ucfirst( $module_key ) ] = 'off';
-						$has_issue                      = true;
+						$row[ $this->column_label( $module_key ) ] = 'off';
+						$has_issue                                 = true;
 					} else {
 						// Module key absent from response — treat as an issue so it surfaces in --issues-only.
 						$has_issue = true;
@@ -305,7 +341,13 @@ final class WPCOM_Atlantis_Status extends Command {
 			'Sites with custom messages' => $sites_with_messages_count,
 		);
 		foreach ( $module_enabled_counts as $module_key => $count ) {
-			$summary_output[ \ucfirst( $module_key ) . ' module ON' ] = $count;
+			$summary_output[ $this->column_label( $module_key ) . ' module ON' ] = $count;
+		}
+		if ( \in_array( self::BOT_PROTECTION_KEY, $this->module_keys, true ) ) {
+			$summary_output['Bot Protection forced OFF']               = $bot_protection_tally['off'];
+			$summary_output['Bot Protection inherit']                  = $bot_protection_tally['inherit'];
+			$summary_output['Bot Protection inert (n/a)']              = $bot_protection_tally['inapplicable'];
+			$summary_output['Bot Protection not reported (pre-1.3.0)'] = $bot_protection_tally['absent'];
 		}
 		$summary_output['Sites that errored'] = \count( $this->errors ?? array() );
 
@@ -328,6 +370,77 @@ final class WPCOM_Atlantis_Status extends Command {
 	// endregion
 
 	// region HELPERS
+
+	/**
+	 * Returns the report column label for a module key.
+	 *
+	 * @param   string $module_key The module key.
+	 *
+	 * @return  string
+	 */
+	private function column_label( string $module_key ): string {
+		return self::MODULE_LABELS[ $module_key ] ?? \ucfirst( $module_key );
+	}
+
+	/**
+	 * Computes the Bot Protection column cell for a site's status payload.
+	 *
+	 * Bot Protection is mandatory, so its shared `enabled` flag is always true and
+	 * does not indicate enforcement. The authoritative signal is `state`
+	 * (inherit|off); `wp_cloud` and `mu_plugin_present` determine whether the
+	 * setting has any effect on this host (the `off` override is a no-op without
+	 * both). A site running Atlantis older than 1.3.0 omits the key entirely.
+	 *
+	 * @param   \stdClass $status The site's Atlantis status payload.
+	 *
+	 * @return  array{ value: string, bucket: string } Display value and the tally bucket
+	 *                                                  (off|inherit|inapplicable|absent).
+	 */
+	private function bot_protection_cell( \stdClass $status ): array {
+		$bot_protection = $status->modules->{self::BOT_PROTECTION_KEY} ?? null;
+		if ( ! \is_object( $bot_protection ) || ! \is_string( $bot_protection->state ?? null ) ) {
+			// Atlantis predates the Bot Protection module (< 1.3.0), or the
+			// payload is malformed — degrade to a dash rather than casting it.
+			return array(
+				'value'  => '—',
+				'bucket' => 'absent',
+			);
+		}
+
+		$state = (string) $bot_protection->state;
+
+		// `off` and `inherit` are both no-ops without WP Cloud + the mu-plugin, so
+		// the applicability qualifier must apply symmetrically to both.
+		$has_effect = ! empty( $bot_protection->wp_cloud ) && ! empty( $bot_protection->mu_plugin_present );
+
+		if ( 'off' === $state ) {
+			return $has_effect
+				? array(
+					'value'  => 'forced off',
+					'bucket' => 'off',
+				)
+				: array(
+					'value'  => 'forced off (n/a)',
+					'bucket' => 'inapplicable',
+				);
+		}
+
+		// Anything other than `off` defers to WP Cloud's tiers ("inherit"); show the
+		// raw state if it is somehow neither, so an unexpected value is not hidden.
+		$label = 'inherit' === $state ? 'inherit' : $state;
+
+		if ( ! $has_effect ) {
+			return array(
+				'value'  => $label . ' (n/a)',
+				'bucket' => 'inapplicable',
+			);
+		}
+
+		return array(
+			'value'  => $label,
+			'bucket' => 'inherit',
+		);
+	}
 
 	/**
 	 * Resolves a VALUE_NEGATABLE boolean option, prompting the user when the option
