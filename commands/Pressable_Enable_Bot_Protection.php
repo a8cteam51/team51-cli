@@ -24,10 +24,10 @@ use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
  * is done here, via the constant.)
  *
  * The command is idempotent (skips any site where the constant already exists,
- * recording its current value) and resumable: every processed site is appended
- * to a JSONL ledger that doubles as the skip-list on the next run. It uses pure
- * SSH `wp config`, so it does not touch the WPCOM Jetpack tunnel or any shared
- * OAuth token.
+ * recording its current value) and resumable: every processed site is recorded
+ * in a JSONL ledger — one entry per site, updated in place on retry — that
+ * doubles as the skip-list on the next run. It uses pure SSH `wp config`, so it
+ * does not touch the WPCOM Jetpack tunnel or any shared OAuth token.
  *
  * Examples:
  *   # Single site — first tests (dry run, then for real)
@@ -127,6 +127,14 @@ final class Pressable_Enable_Bot_Protection extends Command {
 	 */
 	private string $ledger_path = self::DEFAULT_LEDGER;
 
+	/**
+	 * The ledger contents, one entry per site keyed by site ID, in first-seen
+	 * order. Loaded from disk at the start of a run and rewritten on each upsert.
+	 *
+	 * @var array<int|string, array<string, mixed>>
+	 */
+	private array $ledger_entries = array();
+
 	// endregion
 
 	// region INHERITED METHODS
@@ -207,11 +215,14 @@ final class Pressable_Enable_Bot_Protection extends Command {
 			return Command::SUCCESS;
 		}
 
+		// Load the existing ledger so results upsert in place (one entry per site).
+		$this->load_ledger();
+
 		// In fleet mode, drop any site already recorded complete in the ledger.
 		$pending      = $targets;
 		$skipped_done = 0;
 		if ( $is_fleet ) {
-			$done    = $this->load_completed_ids();
+			$done    = $this->completed_ids();
 			$pending = array();
 			foreach ( $targets as $site ) {
 				if ( isset( $done[ $site->id ] ) ) {
@@ -298,7 +309,7 @@ final class Pressable_Enable_Bot_Protection extends Command {
 				++$tally[ $status ];
 			}
 
-			$this->append_ledger( $site, $result );
+			$this->upsert_ledger( $site, $result );
 			$this->report_result( $status, $result['note'], $output );
 		}
 
@@ -418,22 +429,24 @@ final class Pressable_Enable_Bot_Protection extends Command {
 	}
 
 	/**
-	 * Loads the set of site IDs already recorded complete in the ledger.
+	 * Loads the ledger from disk into $this->ledger_entries, keyed by site ID in
+	 * first-seen order.
 	 *
-	 * Latest-status-wins: a later `failed` entry re-opens a site for retry, and
-	 * a later completion entry closes it again.
+	 * A later line for the same site supersedes an earlier one, so any duplicate
+	 * rows left by older append-only runs are collapsed on load (and flushed on
+	 * the next upsert).
 	 *
-	 * @return  array<int|string, true> Map of completed site IDs.
+	 * @return  void
 	 */
-	private function load_completed_ids(): array {
-		$done = array();
+	private function load_ledger(): void {
+		$this->ledger_entries = array();
 		if ( ! is_file( $this->ledger_path ) ) {
-			return $done;
+			return;
 		}
 
 		$handle = fopen( $this->ledger_path, 'r' );
 		if ( false === $handle ) {
-			return $done;
+			return;
 		}
 
 		while ( true ) {
@@ -448,37 +461,50 @@ final class Pressable_Enable_Bot_Protection extends Command {
 			}
 
 			$entry = json_decode( $line, true );
-			if ( ! is_array( $entry ) || ! isset( $entry['id'], $entry['status'] ) ) {
+			if ( ! is_array( $entry ) || ! isset( $entry['id'] ) ) {
 				continue;
 			}
 
-			if ( in_array( $entry['status'], self::DONE_STATUSES, true ) ) {
-				$done[ $entry['id'] ] = true;
-			} else {
-				unset( $done[ $entry['id'] ] );
-			}
+			$this->ledger_entries[ $entry['id'] ] = $entry;
 		}
 
 		fclose( $handle );
+	}
+
+	/**
+	 * Derives the set of site IDs already recorded complete in the ledger.
+	 *
+	 * A site is complete when its (single, latest) entry has a done status;
+	 * `failed` sites are absent and thus retried.
+	 *
+	 * @return  array<int|string, true> Map of completed site IDs.
+	 */
+	private function completed_ids(): array {
+		$done = array();
+		foreach ( $this->ledger_entries as $id => $entry ) {
+			if ( isset( $entry['status'] ) && in_array( $entry['status'], self::DONE_STATUSES, true ) ) {
+				$done[ $id ] = true;
+			}
+		}
+
 		return $done;
 	}
 
 	/**
-	 * Appends a single result to the JSONL ledger. No-op during a dry run.
+	 * Records a single result in the ledger, replacing any existing entry for the
+	 * same site, then flushes the ledger to disk. No-op during a dry run.
 	 *
 	 * @param   \stdClass                             $site   The processed site.
 	 * @param   array{ status: string, note: string } $result The processing result.
 	 *
-	 * @throws  \RuntimeException If the ledger cannot be written (the resume mechanism must fail loudly).
-	 *
 	 * @return  void
 	 */
-	private function append_ledger( \stdClass $site, array $result ): void {
+	private function upsert_ledger( \stdClass $site, array $result ): void {
 		if ( $this->dry_run ) {
 			return;
 		}
 
-		$entry = array(
+		$this->ledger_entries[ $site->id ] = array(
 			'id'        => $site->id,
 			'url'       => $site->url ?? null,
 			'name'      => $site->displayName ?? null, // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
@@ -488,14 +514,38 @@ final class Pressable_Enable_Bot_Protection extends Command {
 			'timestamp' => gmdate( 'c' ),
 		);
 
-		$line = json_encode( $entry, JSON_UNESCAPED_SLASHES );
-		if ( false === $line ) {
-			return;
+		$this->write_ledger();
+	}
+
+	/**
+	 * Atomically rewrites the whole ledger from $this->ledger_entries.
+	 *
+	 * Writes to a temporary file and renames it over the target so a crash mid-run
+	 * cannot leave the ledger — the resume mechanism — truncated or corrupt.
+	 *
+	 * @throws  \RuntimeException If the ledger cannot be written (must fail loudly).
+	 *
+	 * @return  void
+	 */
+	private function write_ledger(): void {
+		$lines = array();
+		foreach ( $this->ledger_entries as $entry ) {
+			$encoded = json_encode( $entry, JSON_UNESCAPED_SLASHES );
+			if ( false !== $encoded ) {
+				$lines[] = $encoded;
+			}
 		}
 
-		if ( false === file_put_contents( $this->ledger_path, $line . "\n", FILE_APPEND | LOCK_EX ) ) {
-			// Ledger is the resume mechanism; a write failure must be loud.
+		$payload   = empty( $lines ) ? '' : implode( "\n", $lines ) . "\n";
+		$temp_path = $this->ledger_path . '.' . getmypid() . '.tmp';
+
+		if ( false === file_put_contents( $temp_path, $payload, LOCK_EX ) ) {
 			throw new \RuntimeException( "Failed to write the ledger at {$this->ledger_path}." );
+		}
+
+		if ( ! rename( $temp_path, $this->ledger_path ) ) {
+			unlink( $temp_path );
+			throw new \RuntimeException( "Failed to finalize the ledger at {$this->ledger_path}." );
 		}
 	}
 
