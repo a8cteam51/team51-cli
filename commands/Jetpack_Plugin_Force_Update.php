@@ -433,9 +433,12 @@ final class Jetpack_Plugin_Force_Update extends Command {
 				);
 			}
 
-			$status = $installed ? 'updated' : 'installed-new';
-			$note   = $installed
-				? "Force-installed '{$this->plugin}': {$was} → {$now} (" . classify_wpcom_plugin_update_result( $was, $now ) . ').'
+			// The before/after verdict is only meaningful when the prior version was readable; an
+			// unreadable `$was` would make version_compare arbitrary, so report it as unverified.
+			$verdict = ( 'unknown' === $was ) ? 'unverified' : classify_wpcom_plugin_update_result( $was, $now );
+			$status  = $installed ? 'updated' : 'installed-new';
+			$note    = $installed
+				? "Force-installed '{$this->plugin}': {$was} → {$now} ({$verdict})."
 				: "Installed '{$this->plugin}' (new, " . ( $activate_new ? 'active' : 'inactive' ) . "): {$now}.";
 
 			return array(
@@ -483,8 +486,11 @@ final class Jetpack_Plugin_Force_Update extends Command {
 		$remote = 't51-force-' . $this->safe_slug() . '-' . \getmypid() . '.zip';
 		try {
 			$sftp->setTimeout( 600 );
-			$base = \rtrim( (string) $sftp->pwd(), '/' );
-			if ( '' !== $base ) {
+			$pwd = $sftp->pwd();
+			if ( \is_string( $pwd ) && '' !== $pwd ) {
+				// Absolute path so the separate SSH session finds the exact file. Handle pwd() === '/'
+				// (the SFTP root): rtrim would blank it and drop us back to a bare relative name.
+				$base   = ( '/' === $pwd ) ? '' : \rtrim( $pwd, '/' );
 				$remote = $base . '/' . $remote;
 			}
 			if ( ! $sftp->put( $remote, $this->local_zip, SFTP::SOURCE_LOCAL_FILE ) ) {
@@ -643,17 +649,26 @@ final class Jetpack_Plugin_Force_Update extends Command {
 	 * unable to answer at all.
 	 *
 	 * `wp plugin is-installed` exits 0 when installed and 1 (no output) when genuinely absent. When
-	 * wp-cli cannot bootstrap (no WordPress at the login dir, a wp-config fatal, or the seccomp SIGSYS
-	 * kill) it exits non-zero *with* an error on stderr — which must not be read as "absent".
+	 * wp-cli cannot bootstrap (no WordPress at the login dir, a wp-config fatal) it exits non-zero
+	 * *with* an error on stderr; a signal kill (the seccomp SIGSYS case) or a read timeout instead
+	 * yields no exit status at all. Neither must be read as "absent".
 	 *
 	 * @param   SSH2 $ssh The open SSH connection.
 	 *
 	 * @return  string One of `installed`, `absent`, `error`.
 	 */
 	private function plugin_install_state( SSH2 $ssh ): string {
-		$out = $ssh->exec( 'wp plugin is-installed ' . \escapeshellarg( $this->plugin ) . ' --skip-plugins --skip-themes 2>&1' );
-		if ( 0 === $ssh->getExitStatus() ) {
+		$out  = $ssh->exec( 'wp plugin is-installed ' . \escapeshellarg( $this->plugin ) . ' --skip-plugins --skip-themes 2>&1' );
+		$code = $ssh->getExitStatus();
+
+		if ( 0 === $code ) {
 			return 'installed';
+		}
+
+		// No exit status (false) means the command was killed by a signal or timed out with no reply —
+		// undeterminable, not absent.
+		if ( false === $code ) {
+			return 'error';
 		}
 
 		// A clean non-zero exit with no diagnostic output is a genuine "not installed"; any output on
@@ -689,9 +704,25 @@ final class Jetpack_Plugin_Force_Update extends Command {
 	// region LEDGER
 
 	/**
-	 * Loads the ledger from disk into $this->ledger_entries, keyed by site ID in first-seen order.
+	 * Builds the composite ledger key for an entry. The default ledger is a fixed filename shared
+	 * across plugins, so entries must be keyed by (plugin, site) — keying by site alone would collapse
+	 * a second plugin's rows into the first and drop them on the next rewrite.
 	 *
-	 * A later line for the same site supersedes an earlier one, collapsing duplicates from older runs.
+	 * @param   string     $plugin The plugin slug.
+	 * @param   int|string $id     The site ID.
+	 *
+	 * @return  string
+	 */
+	private function ledger_key( string $plugin, int|string $id ): string {
+		return $plugin . '|' . $id;
+	}
+
+	/**
+	 * Loads the ledger from disk into $this->ledger_entries, keyed by (plugin, site) in first-seen
+	 * order.
+	 *
+	 * A later line for the same (plugin, site) supersedes an earlier one, collapsing duplicates from
+	 * older runs while preserving rows for other plugins in the shared ledger.
 	 *
 	 * @return  void
 	 */
@@ -722,7 +753,7 @@ final class Jetpack_Plugin_Force_Update extends Command {
 				continue;
 			}
 
-			$this->ledger_entries[ $entry['id'] ] = $entry;
+			$this->ledger_entries[ $this->ledger_key( (string) ( $entry['plugin'] ?? '' ), $entry['id'] ) ] = $entry;
 		}
 
 		\fclose( $handle );
@@ -735,15 +766,15 @@ final class Jetpack_Plugin_Force_Update extends Command {
 	 */
 	private function completed_ids(): array {
 		$done = array();
-		foreach ( $this->ledger_entries as $id => $entry ) {
+		foreach ( $this->ledger_entries as $entry ) {
 			// The default ledger is a fixed filename shared across plugins, so a done entry only
 			// counts when it is for THIS plugin — otherwise force-updating a second plugin from the
 			// same directory would see every site as done and no-op.
 			if ( ( $entry['plugin'] ?? null ) !== $this->plugin ) {
 				continue;
 			}
-			if ( isset( $entry['status'] ) && \in_array( $entry['status'], self::DONE_STATUSES, true ) ) {
-				$done[ $id ] = true;
+			if ( isset( $entry['status'], $entry['id'] ) && \in_array( $entry['status'], self::DONE_STATUSES, true ) ) {
+				$done[ $entry['id'] ] = true;
 			}
 		}
 
@@ -764,7 +795,7 @@ final class Jetpack_Plugin_Force_Update extends Command {
 			return;
 		}
 
-		$this->ledger_entries[ $site->userblog_id ] = array(
+		$this->ledger_entries[ $this->ledger_key( $this->plugin, $site->userblog_id ) ] = array(
 			'id'        => $site->userblog_id,
 			'url'       => $site->siteurl ?? null,
 			'type'      => $this->site_is_atomic( $site ) ? 'wpcom' : 'pressable',
@@ -819,10 +850,11 @@ final class Jetpack_Plugin_Force_Update extends Command {
 	 * @return  bool True to proceed.
 	 */
 	private function confirm_force_is_intended( InputInterface $input, OutputInterface $output ): bool {
-		// --no-output is the explicit "I know what I'm doing, run unattended" opt-out. A plain
-		// non-interactive run (no TTY, --no-interaction) instead reaches the questions below, whose
-		// `false` default aborts — so a mistyped argument cannot silently force-install the fleet.
-		if ( $this->quiet ) {
+		// A dry run writes nothing, so gating it buys no safety and would block the recommended
+		// `--dry-run` first check from running unattended. --no-output is the explicit "run unattended"
+		// opt-out; a plain non-interactive real run instead reaches the questions below, whose `false`
+		// default aborts, so a mistyped argument cannot silently force-install the fleet.
+		if ( $this->quiet || $this->dry_run ) {
 			return true;
 		}
 
