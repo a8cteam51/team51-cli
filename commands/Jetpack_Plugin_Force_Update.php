@@ -377,7 +377,18 @@ final class Jetpack_Plugin_Force_Update extends Command {
 		try {
 			$ssh->setTimeout( 60 );
 
-			$installed = $this->plugin_is_installed( $ssh );
+			$install_state = $this->plugin_install_state( $ssh );
+			if ( 'error' === $install_state ) {
+				// wp-cli itself could not answer (no WordPress at the login dir, a wp-config fatal, or
+				// the seccomp SIGSYS kill). Treat as a failure rather than "absent" — otherwise an
+				// --install-new run could install/activate on a site that already has the plugin.
+				return array(
+					'status' => 'failed',
+					'note'   => "Could not determine whether '{$this->plugin}' is installed (wp-cli did not answer); skipped.",
+				);
+			}
+
+			$installed = ( 'installed' === $install_state );
 
 			if ( ! $installed && ! $this->install_new ) {
 				return array(
@@ -409,7 +420,19 @@ final class Jetpack_Plugin_Force_Update extends Command {
 				);
 			}
 
-			$now    = $this->read_plugin_version( $ssh );
+			$ssh->setTimeout( 60 ); // install_from_source raised it for the download; restore for the read.
+			$now = $this->read_plugin_version( $ssh );
+
+			// A green install exit but no readable version for this slug means the package unpacked
+			// under a different folder (e.g. a release zip expanding to `repo-1.2.3/`): the target was
+			// never replaced. Fail loudly so it is retried, not recorded as done.
+			if ( 'unknown' === $now ) {
+				return array(
+					'status' => 'failed',
+					'note'   => "Install exited 0 but '{$this->plugin}' has no readable version afterward — the package likely unpacked under a different folder. Not recorded as done.",
+				);
+			}
+
 			$status = $installed ? 'updated' : 'installed-new';
 			$note   = $installed
 				? "Force-installed '{$this->plugin}': {$was} → {$now} (" . classify_wpcom_plugin_update_result( $was, $now ) . ').'
@@ -442,7 +465,9 @@ final class Jetpack_Plugin_Force_Update extends Command {
 		}
 
 		if ( $this->is_url ) {
-			$ssh->setTimeout( 0 ); // Install downloads and unpacks; can take a while.
+			// A generous but finite read bound: a stalled download fails this site rather than hanging
+			// the whole fleet run (setTimeout( 0 ) would disable the timeout entirely).
+			$ssh->setTimeout( 600 );
 			$out = $ssh->exec( 'wp plugin install ' . \escapeshellarg( $this->package ) . " $flags 2>&1" );
 			return array( 0 === $ssh->getExitStatus(), (string) $out );
 		}
@@ -453,9 +478,15 @@ final class Jetpack_Plugin_Force_Update extends Command {
 			return array( false, 'SFTP connection failed for the zip upload.' );
 		}
 
+		// Resolve an absolute path from the SFTP login directory so the separate SSH session installs
+		// the exact file we uploaded, even if the two sessions' working directories differ.
 		$remote = 't51-force-' . $this->safe_slug() . '-' . \getmypid() . '.zip';
 		try {
-			$sftp->setTimeout( 0 );
+			$sftp->setTimeout( 600 );
+			$base = \rtrim( (string) $sftp->pwd(), '/' );
+			if ( '' !== $base ) {
+				$remote = $base . '/' . $remote;
+			}
 			if ( ! $sftp->put( $remote, $this->local_zip, SFTP::SOURCE_LOCAL_FILE ) ) {
 				return array( false, 'Failed to upload the plugin zip via SFTP.' );
 			}
@@ -463,7 +494,7 @@ final class Jetpack_Plugin_Force_Update extends Command {
 			$sftp->disconnect();
 		}
 
-		$ssh->setTimeout( 0 );
+		$ssh->setTimeout( 600 );
 		$out = $ssh->exec( 'wp plugin install ' . \escapeshellarg( $remote ) . " $flags 2>&1" );
 		$ok  = 0 === $ssh->getExitStatus();
 
@@ -518,13 +549,14 @@ final class Jetpack_Plugin_Force_Update extends Command {
 			exit( 1 );
 		}
 
-		if ( null === $this->sites_spec ) {
+		$keyword = \strtolower( \trim( (string) $this->sites_spec ) );
+
+		if ( null === $this->sites_spec || 'all' === $keyword ) {
 			$this->targets     = $fleet;
 			$this->scope_label = 'all Jetpack sites';
 			return;
 		}
 
-		$keyword = \strtolower( $this->sites_spec );
 		if ( 'staging' === $keyword || 'production' === $keyword ) {
 			$want_staging      = ( 'staging' === $keyword );
 			$this->targets     = \array_filter(
@@ -607,15 +639,26 @@ final class Jetpack_Plugin_Force_Update extends Command {
 	}
 
 	/**
-	 * Whether the plugin is installed on the connected site.
+	 * Determines whether the plugin is installed, distinguishing a genuine absence from wp-cli being
+	 * unable to answer at all.
+	 *
+	 * `wp plugin is-installed` exits 0 when installed and 1 (no output) when genuinely absent. When
+	 * wp-cli cannot bootstrap (no WordPress at the login dir, a wp-config fatal, or the seccomp SIGSYS
+	 * kill) it exits non-zero *with* an error on stderr — which must not be read as "absent".
 	 *
 	 * @param   SSH2 $ssh The open SSH connection.
 	 *
-	 * @return  bool
+	 * @return  string One of `installed`, `absent`, `error`.
 	 */
-	private function plugin_is_installed( SSH2 $ssh ): bool {
-		$ssh->exec( 'wp plugin is-installed ' . \escapeshellarg( $this->plugin ) . ' --skip-plugins --skip-themes 2>/dev/null' );
-		return 0 === $ssh->getExitStatus();
+	private function plugin_install_state( SSH2 $ssh ): string {
+		$out = $ssh->exec( 'wp plugin is-installed ' . \escapeshellarg( $this->plugin ) . ' --skip-plugins --skip-themes 2>&1' );
+		if ( 0 === $ssh->getExitStatus() ) {
+			return 'installed';
+		}
+
+		// A clean non-zero exit with no diagnostic output is a genuine "not installed"; any output on
+		// failure (an `Error:` line, a fatal) means wp-cli could not answer.
+		return '' === \trim( (string) $out ) ? 'absent' : 'error';
 	}
 
 	/**
@@ -693,6 +736,12 @@ final class Jetpack_Plugin_Force_Update extends Command {
 	private function completed_ids(): array {
 		$done = array();
 		foreach ( $this->ledger_entries as $id => $entry ) {
+			// The default ledger is a fixed filename shared across plugins, so a done entry only
+			// counts when it is for THIS plugin — otherwise force-updating a second plugin from the
+			// same directory would see every site as done and no-op.
+			if ( ( $entry['plugin'] ?? null ) !== $this->plugin ) {
+				continue;
+			}
 			if ( isset( $entry['status'] ) && \in_array( $entry['status'], self::DONE_STATUSES, true ) ) {
 				$done[ $id ] = true;
 			}
@@ -770,7 +819,10 @@ final class Jetpack_Plugin_Force_Update extends Command {
 	 * @return  bool True to proceed.
 	 */
 	private function confirm_force_is_intended( InputInterface $input, OutputInterface $output ): bool {
-		if ( $this->quiet || ! $input->isInteractive() ) {
+		// --no-output is the explicit "I know what I'm doing, run unattended" opt-out. A plain
+		// non-interactive run (no TTY, --no-interaction) instead reaches the questions below, whose
+		// `false` default aborts — so a mistyped argument cannot silently force-install the fleet.
+		if ( $this->quiet ) {
 			return true;
 		}
 
@@ -807,7 +859,7 @@ final class Jetpack_Plugin_Force_Update extends Command {
 	 * @return  bool True to proceed.
 	 */
 	private function confirm_batch( InputInterface $input, OutputInterface $output, int $count, int $skipped_done ): bool {
-		if ( $this->quiet || $this->dry_run || ! $input->isInteractive() ) {
+		if ( $this->quiet || $this->dry_run ) {
 			return true;
 		}
 
@@ -850,7 +902,10 @@ final class Jetpack_Plugin_Force_Update extends Command {
 			default                             => 'error',
 		};
 
-		$output->writeln( "  <{$style}>{$note}</{$style}>" );
+		// The note can contain remote wp-cli output; escape it so stray angle brackets are not parsed
+		// as Symfony style tags (which would swallow the very error text an operator needs).
+		$safe_note = \Symfony\Component\Console\Formatter\OutputFormatter::escape( $note );
+		$output->writeln( "  <{$style}>{$safe_note}</{$style}>" );
 	}
 
 	/**
