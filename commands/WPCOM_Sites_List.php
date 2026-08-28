@@ -155,7 +155,7 @@ final class WPCOM_Sites_List extends Command {
 		$this->sites = get_wpcom_sites(
 			array(
 				'include_domain_only' => 'true',
-				'fields'              => 'ID,name,URL,is_private,is_coming_soon,is_wpcom_atomic,jetpack,is_multisite,options',
+				'fields'              => 'ID,name,URL,is_private,is_coming_soon,is_wpcom_atomic,jetpack,options,is_multisite',
 			),
 		);
 		$output->writeln( '<comment>Successfully fetched ' . \count( $this->sites ) . ' WPCOM site(s).</comment>' );
@@ -175,12 +175,12 @@ final class WPCOM_Sites_List extends Command {
 				'Site ID'        => $site->ID,
 				'Site Name'      => \preg_replace( '/[^a-zA-Z0-9\s&!\/|\'#.()-:]/', '', $site->name ),
 				'Domain'         => $site->URL, // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
-				'Host'           => $this->eval_which_host( $site ),
+				'Host'           => $this->eval_which_host( $site, $output ),
 				'ignore'         => $this->eval_ignore_list( $site ),
 				'free_pass'      => $this->eval_pass_list( $site ),
 				'is_private'     => $this->eval_is_private( $site ),
 				'is_coming_soon' => $this->eval_is_coming_soon( $site ),
-				'is_multisite'   => $this->eval_is_multisite( $site ),
+				'is_multisite'   => $this->eval_is_multisite( $site, $output ),
 				'is_domain_only' => $this->eval_is_domain_only( $site ),
 			),
 			$this->sites
@@ -228,6 +228,8 @@ final class WPCOM_Sites_List extends Command {
 				'Atomic sites'           => $this->count_sites( $audited_site_list, 'Atomic', 'Host' ),
 				'Pressable sites'        => $this->count_sites( $audited_site_list, 'Pressable', 'Host' ),
 				'Simple sites'           => $this->count_sites( $audited_site_list, 'Simple', 'Host' ),
+				'WP VIP sites'           => $this->count_sites( $audited_site_list, 'wpvip.com', 'Host' ),
+				'WP Engine sites'        => $this->count_sites( $audited_site_list, 'WP Engine', 'Host' ),
 				'Other hosts'            => $this->count_sites( $audited_site_list, 'Other', 'Host' ),
 				'PASSED sites'           => $this->count_sites( $audited_site_list, 'PASS', 'Result' ),
 				'FAILED sites'           => $this->count_sites( $audited_site_list, 'FAIL', 'Result' ),
@@ -252,6 +254,8 @@ final class WPCOM_Sites_List extends Command {
 			'Atomic sites'    => $this->count_sites( $final_site_list, 'Atomic', 'Host' ),
 			'Pressable sites' => $this->count_sites( $final_site_list, 'Pressable', 'Host' ),
 			'Simple sites'    => $this->count_sites( $final_site_list, 'Simple', 'Host' ),
+			'WP VIP sites'    => $this->count_sites( $final_site_list, 'wpvip.com', 'Host' ),
+			'WP Engine sites' => $this->count_sites( $final_site_list, 'WP Engine', 'Host' ),
 			'Other hosts'     => $this->count_sites( $final_site_list, 'Other', 'Host' ),
 			'Total sites'     => count( $final_site_list ),
 		);
@@ -340,34 +344,120 @@ final class WPCOM_Sites_List extends Command {
 
 	/**
 	 * Tries to determine the host of the site.
+	 * Checks are ordered from least expensive to most expensive:
+	 * 1. Check data returned by the wpcom /me/sites API.
+	 * 2. Check site against the known list of Pressable sites.
+	 * 3. Check the site's well-known/hosting-provider.
+	 * 3a. Check the x-powered-by header.
+	 * 4. Check against wpcom site-profiler API.
 	 *
 	 * @param   \stdClass $site The site object.
+	 * @param   OutputInterface $output The output object.
 	 *
 	 * @return  string
 	 */
-	protected function eval_which_host( \stdClass $site ): string {
-		if ( true === $site->is_wpcom_atomic ) {
+	protected function eval_which_host( \stdClass $site, $output ): string {
+		# Strip any subdirectory from the URL, eg: https://example.com/subdir becomes https://example.com
+		# TODO - check for multisite before stripping the URL becuase it will mess with subdirectory multisites
+		if ( $site->is_wpcom_atomic && true === $site->is_wpcom_atomic ) {
 			$server = 'Atomic';
+		} elseif ( $site->URL && strpos( $site->URL, '.wordpress.com' ) !== false ) { 
+			$server = 'Simple'; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+		} elseif ( isset( $site->options->unmapped_url ) && strpos( $site->options->unmapped_url, '.wordpress.com' ) !== false ) { 
+			$server = 'Simple'; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+		} elseif ( isset( $site->options->unmapped_url ) && strpos( $site->options->unmapped_url, '.mystagingwebsite.com' ) !== false ) { 
+			$server = 'Pressable'; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+		} elseif ( $site->URL && (
+			strpos( $site->URL, '.wpengine.com' ) !== false ||
+			strpos( $site->URL, '.wpenginepowered.com' ) !== false ) ) { 
+			$server = 'WP Engine'; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 		} elseif ( true === $site->jetpack ) {
 			$pressable_urls = array_column( $this->pressable_sites, 'url' );
 			if ( in_array( parse_url( $site->URL, PHP_URL_HOST ), $pressable_urls, true ) ) { // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 				$server = 'Pressable';
 			} else {
-				// TODO: Handle the wpvip.com sites (that's the actual value of the following variable).
-				$known_host = get_remote_content( $site->URL . '/.well-known/hosting-provider' ); // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+				if ( isset( $site->URL ) ) {
+					$parts = parse_url( $site->URL );
+					if ( isset( $parts['scheme'], $parts['host'] ) ) {
+						$site_url = $parts['scheme'] . '://' . $parts['host'];
+					}
+				}
+				$known_host = get_remote_content( $site_url . '/.well-known/hosting-provider' ); // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 				if ( $known_host && 200 === $known_host['headers']['http_code'] ) {
 					$server = \str_replace( "\n", '', $known_host['body'] );
-					if ( 'Pressable' !== $server ) {
-						$server = 'Other';
+					switch ( $server ) {
+						case 'Pressable':
+						case 'wpvip.com':
+							break;
+						default:
+							$server = 'Other';
+							break;
 					}
+				} else if ( 404 === $known_host['headers']['http_code'] && isset( $known_host['headers']['X-Powered-By'] ) ) {
+					strpos( $known_host['headers']['X-Powered-By'], 'WP Engine' ) !== false ? $server = 'WP Engine' : $server = 'Other';
+				} 
+				else {
+					$server = $this->check_wpcom_site_profiles( $site->URL, $output );
+				}
+			}
+		} else {
+			$server = $this->check_wpcom_site_profiles( $site->URL, $output );
+		}
+
+		return $server;
+	}
+
+	/**
+	 * Check WordPress.com/site-profiles API for the site.
+	 * 
+	 * @param   string $site_url The site URL.
+	 * @param   OutputInterface $output The output object.
+	 * 
+	 * @return  string
+	 */
+	protected function check_wpcom_site_profiles( string $site_url, $output ): string {
+		$server = 'Other';
+		$parts = parse_url( $site_url );
+		if ( isset( $parts['host'] ) ) {
+			$site_url = $parts['host'];
+		}
+		
+		$maxAttempts = 5;
+		$attempt    = 0;
+		$delay      = 10; // initial delay in seconds
+	
+		do {
+			$site_profiles = get_remote_content( 'https://public-api.wordpress.com/wpcom/v2/site-profiler/hosting-provider/' . $site_url );
+			$httpCode      = $site_profiles['headers']['http_code'] ?? 0;
+			if ( 429 !== $httpCode ) {
+				break;
+			}
+			$output->writeln( "<error>Rate limited by WP.com site-profiler. Retrying in {$delay} seconds...</error>" );
+			sleep( $delay );
+			$delay   *= 2;
+			$attempt++;
+		} while ( $attempt < $maxAttempts );
+	
+		if ( 429 === ( $site_profiles['headers']['http_code'] ?? 0 ) ) {
+			$output->writeln( "<error>Exceeded maximum retry attempts for WP.com site-profiler. Skipping {$site_url}.</error>" );
+			return $server;
+		}
+	
+		if ( $site_profiles && 200 === $site_profiles['headers']['http_code'] ) {
+			$site_profiles = json_decode( $site_profiles['body'], true );
+			if ( isset( $site_profiles['hosting_provider']['is_cdn'] ) && $site_profiles['hosting_provider']['is_cdn'] ) {
+				$server = 'Other';
+			} else {
+				if ( isset( $site_profiles['hosting_provider']['name'] ) ) {
+					$server = $site_profiles['hosting_provider']['name'];
 				} else {
 					$server = 'Other';
 				}
 			}
 		} else {
-			$server = 'Simple'; // Need a better way to determine if site is simple. For example, 410'd Jurassic Ninja sites will show as Simple.
+			$server = 'Other';
 		}
-
+	
 		return $server;
 	}
 
@@ -434,21 +524,28 @@ final class WPCOM_Sites_List extends Command {
 	 * Evaluates if a site is single or multisite.
 	 *
 	 * @param   \stdClass $site Site object to be evaluated.
-	 *
+	 * @param   OutputInterface $output The output object.
+	 * 
 	 * @return  string
 	 */
-	protected function eval_is_multisite( \stdClass $site ): string {
+	protected function eval_is_multisite( \stdClass $site, $output ): string {
 		/**
 		 * An alternative to this implementation is to compare $site->URL against
 		 * $site->options->main_network_site, however all simple sites are returned
 		 * as multisites. More investigation required.
 		 */
-		if ( true === $site->is_multisite ) {
+		if ( isset( $site->is_multisite ) && true === $site->is_multisite ) {
+			# Sites with ".wordpress.com" in the unmmaped_url are Simple sites and therefore are subsites of the wp.com multisite.
+			if ( isset( $site->options->unmapped_url ) && strpos( $site->options->unmapped_url, '.wordpress.com' ) !== false ) { // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+				return '';
+			}
+			# Check for multisite patterns in the URL. In reality, this is a very weak check.
+			# It only checkes for a trailing / on the .com and .org TLDs as an indicator of a subdirectory multisite.
 			foreach ( $this->multisite_patterns as $pattern ) {
 				if ( str_contains( $site->URL, $pattern ) ) { // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 					return 'is_subsite';
 				}
-				if ( 'Simple' !== $this->eval_which_host( $site ) ) {
+				if ( 'Simple' !== $this->eval_which_host( $site, $output ) ) {
 					return 'is_parent';
 				}
 			}
