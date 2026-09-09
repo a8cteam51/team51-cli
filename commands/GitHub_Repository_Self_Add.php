@@ -46,7 +46,7 @@ final class GitHub_Repository_Self_Add extends Command {
 	 */
 	protected function configure(): void {
 		$this->setDescription( 'Adds your authenticated GitHub user (per `gh` CLI) to a repository as a push collaborator.' )
-			->setHelp( "This command resolves the currently authenticated GitHub username from the `gh` CLI and adds it to the given repository with `push` permission.\n\n`gh` must be installed and logged in (`gh auth login`). Adding any other user is intentionally not supported." );
+			->setHelp( "This command resolves the currently authenticated GitHub username from the `gh` CLI and adds it to the given repository with `push` permission.\n\n`gh` must be installed and logged in (`gh auth login`). Adding any other user is intentionally not supported.\n\nRepositories holding privileged credentials (e.g. `poseidon-runner`) are locked and cannot be joined through this command." );
 
 		$this->addArgument( 'repository', InputArgument::OPTIONAL, 'The slug of the GitHub repository to add yourself to.' );
 	}
@@ -61,6 +61,10 @@ final class GitHub_Repository_Self_Add extends Command {
 		}
 
 		$this->repository = get_github_repository_input( $input, fn() => $this->prompt_repository_input( $input, $output ) );
+		if ( is_github_repository_collaborator_locked( $this->repository->name ) ) {
+			$output->writeln( "<error>Adding collaborators to `{$this->repository->name}` via the CLI is disabled. Access to this repository is managed manually.</error>" );
+			exit( Command::FAILURE );
+		}
 	}
 
 	/**
@@ -155,7 +159,12 @@ final class GitHub_Repository_Self_Add extends Command {
 	private function prompt_repository_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Please enter the slug of the repository to add yourself to:</question> ' );
 		if ( ! $input->getOption( 'no-autocomplete' ) ) {
-			$question->setAutocompleterValues( array_column( get_github_repositories() ?? array(), 'name' ) );
+			$question->setAutocompleterValues(
+				array_filter(
+					array_column( get_github_repositories() ?? array(), 'name' ),
+					static fn( string $name ) => ! is_github_repository_collaborator_locked( $name )
+				)
+			);
 		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );

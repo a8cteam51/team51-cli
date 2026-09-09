@@ -4,6 +4,9 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Helper\ProgressBar;
 
+// Repositories holding privileged credentials; collaborator access is managed manually, never via the CLI.
+const GITHUB_COLLABORATOR_LOCKED_REPOSITORIES = array( 'poseidon-runner' );
+
 // region API
 
 /**
@@ -163,11 +166,26 @@ function set_github_repository_secret( string $repository, string $secret_name, 
  * @return  stdClass|true|null
  */
 function add_github_repository_collaborator( string $repository, string $username, string $permission = 'push' ): stdClass|true|null {
+	if ( is_github_repository_collaborator_locked( $repository ) ) {
+		return null;
+	}
+
 	return API_Helper::make_github_request(
 		"repositories/$repository/collaborators/$username",
 		'PUT',
 		array( 'permission' => $permission )
 	);
+}
+
+/**
+ * Checks whether collaborator management for a given GitHub repository is disabled in this tool.
+ *
+ * @param   string $repository The name of the repository to check.
+ *
+ * @return  bool
+ */
+function is_github_repository_collaborator_locked( string $repository ): bool {
+	return in_array( strtolower( $repository ), GITHUB_COLLABORATOR_LOCKED_REPOSITORIES, true );
 }
 
 // endregion
