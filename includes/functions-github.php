@@ -4,8 +4,8 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Helper\ProgressBar;
 
-// Repositories holding privileged credentials; collaborator access is managed manually, never via the CLI.
-const GITHUB_COLLABORATOR_LOCKED_REPOSITORIES = array( 'poseidon-runner' );
+// Poseidon infrastructure repositories; collaborator access is managed manually, never via the CLI.
+const GITHUB_COLLABORATOR_LOCKED_REPOSITORIES = array( 'poseidon-runner', 'poseidon-actions' );
 
 // region API
 

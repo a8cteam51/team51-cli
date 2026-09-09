@@ -46,7 +46,7 @@ final class GitHub_Repository_Self_Add extends Command {
 	 */
 	protected function configure(): void {
 		$this->setDescription( 'Adds your authenticated GitHub user (per `gh` CLI) to a repository as a push collaborator.' )
-			->setHelp( "This command resolves the currently authenticated GitHub username from the `gh` CLI and adds it to the given repository with `push` permission.\n\n`gh` must be installed and logged in (`gh auth login`). Adding any other user is intentionally not supported.\n\nRepositories holding privileged credentials (e.g. `poseidon-runner`) are locked and cannot be joined through this command." );
+			->setHelp( "This command resolves the currently authenticated GitHub username from the `gh` CLI and adds it to the given repository with `push` permission.\n\n`gh` must be installed and logged in (`gh auth login`). Adding any other user is intentionally not supported.\n\nPoseidon infrastructure repositories (`poseidon-runner`, `poseidon-actions`) are locked and cannot be joined through this command." );
 
 		$this->addArgument( 'repository', InputArgument::OPTIONAL, 'The slug of the GitHub repository to add yourself to.' );
 	}
