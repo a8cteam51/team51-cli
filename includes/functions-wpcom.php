@@ -1410,7 +1410,7 @@ function get_wpcom_site_code_deployment_webhook_secret_from_response( stdClass $
  */
 function create_wpcom_site_code_deployment( string $site_id_or_url, string $external_repository_id, string $branch_name, string $target_dir, ?array $params = null ): ?stdClass {
 	return API_Helper::make_wpcom_request(
-		"sites/$site_id_or_url/code-deployments",
+		"sites/$site_id_or_url/hosting/code-deployments",
 		'POST',
 		array(
 			'external_repository_id' => $external_repository_id,
@@ -1430,7 +1430,7 @@ function create_wpcom_site_code_deployment( string $site_id_or_url, string $exte
  * @return  stdClass|null
  */
 function create_wpcom_site_code_deployment_run( string $site_id_or_url, string $code_deployment_id ): ?stdClass {
-	return API_Helper::make_wpcom_request( "sites/$site_id_or_url/code-deployments/$code_deployment_id/runs", 'POST' );
+	return API_Helper::make_wpcom_request( "sites/$site_id_or_url/hosting/code-deployments/$code_deployment_id/runs", 'POST' );
 }
 
 /**
@@ -1441,7 +1441,7 @@ function create_wpcom_site_code_deployment_run( string $site_id_or_url, string $
  * @return  stdClass[]|null
  */
 function get_wpcom_site_code_deployments( string $site_id_or_url ): ?array {
-	return API_Helper::make_wpcom_request( "sites/$site_id_or_url/code-deployments" )?->records;
+	return API_Helper::make_wpcom_request( "sites/$site_id_or_url/hosting/code-deployments" )?->records;
 }
 
 /**
