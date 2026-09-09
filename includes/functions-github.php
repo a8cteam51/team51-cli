@@ -164,10 +164,12 @@ function set_github_repository_secret( string $repository, string $secret_name, 
  * @link    https://docs.github.com/en/rest/collaborators/collaborators#add-a-repository-collaborator
  *
  * @return  stdClass|true|null
+ *
+ * @throws  \InvalidArgumentException If collaborator management for the repository is locked.
  */
 function add_github_repository_collaborator( string $repository, string $username, string $permission = 'push' ): stdClass|true|null {
 	if ( is_github_repository_collaborator_locked( $repository ) ) {
-		return null;
+		throw new InvalidArgumentException( "Adding collaborators to `$repository` via the CLI is disabled. Access to this repository is managed manually." );
 	}
 
 	return API_Helper::make_github_request(
