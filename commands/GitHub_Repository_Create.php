@@ -320,17 +320,10 @@ final class GitHub_Repository_Create extends Command {
 			$custom_properties[ $property_parts[0] ] = $property_parts[1];
 		}
 
-		if ( ! isset( $custom_properties['human-title'] ) ) {
-			$custom_properties['human-title'] = $this->name;
-		}
+		// OpsOasis derives the title and the prefixes a template needs from the repository name, and
+		// refuses one that was sent and would not fill in.
 		if ( ! isset( $custom_properties['parent-theme'] ) ) {
 			$custom_properties['parent-theme'] = $this->no_code_theme;
-		}
-		if ( ! isset( $custom_properties['php-globals-long-prefix'] ) ) {
-			$custom_properties['php-globals-long-prefix'] = \str_replace( '-', '_', $this->name );
-		}
-		if ( ! isset( $custom_properties['php-globals-short-prefix'] ) ) {
-			$custom_properties['php-globals-short-prefix'] = \str_replace( '-', '_', $this->name );
 		}
 
 		return $custom_properties;
