@@ -45,7 +45,7 @@ final class GitHub_Repository_Create extends Command {
 	private ?string $description = null;
 
 	/**
-	 * The type of repository to create aka the name of the template repository to use.
+	 * The type of repository to create.
 	 *
 	 * @var string|null
 	 */
@@ -136,7 +136,7 @@ final class GitHub_Repository_Create extends Command {
 		$this->addArgument( 'name', InputArgument::REQUIRED, 'The name of the repository to create.' )
 			->addOption( 'homepage', null, InputOption::VALUE_REQUIRED, 'A URL with more information about the repository.' )
 			->addOption( 'description', null, InputOption::VALUE_REQUIRED, 'A short, human-friendly description for this project.' )
-			->addOption( 'type', null, InputOption::VALUE_REQUIRED, 'The name of the template repository to use, if any. One of either `project`, `no-code-project`, `plugin`, `issues`, or `empty`. Default empty repo.' )
+			->addOption( 'type', null, InputOption::VALUE_REQUIRED, 'The type of repository to create, which decides the template it is generated from. One of either `project`, `no-code-project`, `plugin`, `issues`, or `empty`. Default empty repo.' )
 			->addOption( 'no-code-theme', null, InputOption::VALUE_OPTIONAL, 'The name of the no-code theme to use for the repository.' )
 			->addOption( 'classification', null, InputOption::VALUE_REQUIRED, 'The classification taxonomy tag to apply to the repository. One of: ' . implode( ', ', array_keys( self::CLASSIFICATION_TAGS ) ) . '.' );
 
@@ -199,7 +199,7 @@ final class GitHub_Repository_Create extends Command {
 		$input->setOption( 'custom-properties', $this->custom_properties );
 
 		// Create the repository.
-		$repository = create_github_repository( $this->name, 'empty' === $this->type ? null : $this->type, $this->homepage, $this->description, $this->custom_properties );
+		$repository = create_github_repository( $this->name, $this->type, $this->homepage, $this->description, $this->custom_properties );
 		if ( \is_null( $repository ) ) {
 			$output->writeln( '<error>Failed to create the repository.</error>' );
 			return Command::FAILURE;
