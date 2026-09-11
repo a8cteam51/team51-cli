@@ -52,7 +52,7 @@ function set_github_repository_topics( string $repository, array $topics ): ?arr
  * Creates a new GitHub repository.
  *
  * @param   string      $name              The name of the repository to create.
- * @param   string|null $type              The type of repository to create aka the name of the template repository to use.
+ * @param   string|null $type              The type of repository to create; OpsOasis generates it from that type's template. Null or `empty` creates an empty repository.
  * @param   string|null $homepage          A URL with more information about the repository.
  * @param   string|null $description       A short, human-friendly description for this project.
  * @param   array|null  $custom_properties The custom properties to set for the repository. Must be an array of key-value pairs and match the properties defined on GitHub.
@@ -68,7 +68,7 @@ function create_github_repository( string $name, ?string $type = null, ?string $
 				'name'              => $name,
 				'description'       => $description,
 				'homepage'          => $homepage,
-				'template'          => $type ? "team51-$type-scaffold" : null,
+				'type'              => 'empty' === $type ? null : $type,
 				'custom_properties' => $custom_properties,
 			)
 		)
