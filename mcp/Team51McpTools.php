@@ -1575,42 +1575,6 @@ final class Team51McpTools {
 	}
 
 	/**
-	 * Create or update a secret in a GitHub repository.
-	 *
-	 * @param string $repository   The repository name.
-	 * @param string $secret_name  The name of the secret.
-	 * @param string $secret_value The value to set for the secret.
-	 */
-	#[McpTool(
-		name: 'github_set_secret',
-		annotations: new ToolAnnotations(
-			title: 'Set GitHub Repository Secret',
-			readOnlyHint: false,
-			destructiveHint: false,
-			idempotentHint: true,
-			openWorldHint: true,
-		)
-	)]
-	public function github_set_secret( string $repository, string $secret_name, string $secret_value ): array {
-		$identity_error = self::ensure_identity();
-		if ( $identity_error ) {
-			return $identity_error;
-		}
-
-		$result = set_github_repository_secret( $repository, $secret_name, $secret_value );
-		if ( null === $result ) {
-			return array( 'error' => "Failed to set secret '$secret_name' in repository: $repository" );
-		}
-
-		return array(
-			'success'    => true,
-			'repository' => $repository,
-			'secret'     => $secret_name,
-			'action'     => 'set',
-		);
-	}
-
-	/**
 	 * Create a new issue in a GitHub repository.
 	 *
 	 * @param string $repository The repository name.
