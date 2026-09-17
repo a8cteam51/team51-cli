@@ -1934,7 +1934,16 @@ final class Team51McpTools {
 		);
 	}
 
-	#[McpTool( name: 'wpcom_connect_site_repository' )]
+	#[McpTool(
+		name: 'wpcom_connect_site_repository',
+		annotations: new ToolAnnotations(
+			title: 'Connect WPCOM Site Repository',
+			readOnlyHint: false,
+			destructiveHint: true,
+			idempotentHint: false,
+			openWorldHint: true,
+		)
+	)]
 	public function wpcom_connect_site_repository( string $site_id_or_url, string $repository, string $branch = 'trunk', string $target_dir = '/wp-content/', bool $deploy = false, string $branch_source = '' ): array {
 		$identity_error = self::ensure_identity();
 		if ( $identity_error ) {
