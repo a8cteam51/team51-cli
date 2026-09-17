@@ -62,7 +62,7 @@ final class WPCOM_Site_Clone extends Command {
 			->setHelp( 'Use this command to create a staging staging site for an existing WordPress.com site.' );
 
 		$this->addArgument( 'site', InputArgument::REQUIRED, 'The site for which to create the staging site.' )
-			->addOption( 'branch', null, InputOption::VALUE_REQUIRED, 'The branch to deploy to the site from. Defaults to `develop`.' );
+			->addOption( 'branch', null, InputOption::VALUE_REQUIRED, 'The branch to deploy to the site from. Defaults to `develop`. Created off the repository default branch if it does not exist.' );
 
 		$this->addOption( 'skip-safety-net', null, InputOption::VALUE_NONE, 'Skip the installation of SafetyNet as a mu-plugin.' );
 	}
@@ -228,7 +228,7 @@ final class WPCOM_Site_Clone extends Command {
 				if ( Command::SUCCESS !== $status ) {
 					// Reported here but returned at the end: the SafetyNet verdict below must run - and be
 					// heard - even when the deployment failed.
-					$output->writeln( '<error>Failed to create the repository.</error>' );
+					$output->writeln( '<error>Failed to connect the staging site to the repository.</error>' );
 					$deployment_failed = true;
 				}
 			} else {

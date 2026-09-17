@@ -71,6 +71,7 @@ final class WPCOM_Site_Repository_Connect extends Command {
 			->addArgument( 'repository', InputArgument::REQUIRED, 'The slug of the GitHub repository to connect.' );
 
 		$this->addOption( 'branch', null, InputOption::VALUE_REQUIRED, 'The branch to deploy from.' )
+			->addOption( 'branch-source', null, InputOption::VALUE_REQUIRED, 'The existing branch to create the deploy branch off of if it does not exist. Defaults to the repository default branch.' )
 			->addOption( 'target_dir', null, InputOption::VALUE_REQUIRED, 'The target directory to deploy to.' )
 			->addOption( 'deploy', null, InputOption::VALUE_NONE, 'Trigger a deployment after the connection is complete.' );
 	}
@@ -110,6 +111,32 @@ final class WPCOM_Site_Repository_Connect extends Command {
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		$output->writeln( "<fg=magenta;options=bold>Connecting the WPCOM site `{$this->site->name}` (ID {$this->site->ID}, URL {$this->site->URL}) to the GitHub repository `{$this->gh_repository->full_name}`.</>" );
+
+		$existing_branches = get_github_repository_branches( $this->gh_repository->name );
+		if ( \is_null( $existing_branches ) ) {
+			$output->writeln( "<comment>Could not list the branches of {$this->gh_repository->full_name}. Skipping the branch existence check.</comment>" );
+		} elseif ( ! \in_array( $this->gh_repo_branch, array_column( $existing_branches, 'name' ), true ) ) {
+			$output->writeln( "<comment>Branch `$this->gh_repo_branch` does not exist in repository {$this->gh_repository->full_name}. Creating...</comment>" );
+
+			$existing_branches     = array_column( $existing_branches, 'name' );
+			$default_branch_source = $this->gh_repository->default_branch ?? 'trunk';
+			$branch_source         = get_enum_input(
+				$input,
+				'branch-source',
+				$existing_branches,
+				fn() => $this->prompt_branch_source_input( $input, $output, $existing_branches, $default_branch_source ),
+				$default_branch_source
+			);
+			$output->writeln( "<comment>Creating branch $this->gh_repo_branch off of $branch_source...</comment>" );
+
+			$branch = create_github_repository_branch( $this->gh_repository->name, $this->gh_repo_branch, $branch_source );
+			if ( \is_null( $branch ) ) {
+				$output->writeln( "<error>Failed to create branch $this->gh_repo_branch in the repository. Aborting!</error>" );
+				return Command::FAILURE;
+			}
+
+			$output->writeln( "<fg=green;options=bold>Branch $this->gh_repo_branch created successfully.</>" );
+		}
 
 		$code_deployment = create_wpcom_site_code_deployment( $this->site->ID, $this->gh_repository->id, $this->gh_repo_branch, $this->wpcom_target_dir );
 		if ( \is_null( $code_deployment ) ) {
@@ -288,6 +315,25 @@ final class WPCOM_Site_Repository_Connect extends Command {
 		$question = new Question( '<question>Enter the branch to deploy from [trunk]:</question> ', 'trunk' );
 		if ( ! $input->getOption( 'no-autocomplete' ) ) {
 			$question->setAutocompleterValues( array_column( get_github_repository_branches( $this->gh_repository->name ) ?? array(), 'name' ) );
+		}
+
+		return $this->ask_question( $input, $output, $question );
+	}
+
+	/**
+	 * Prompts the user for the branch to create the deploy branch off of.
+	 *
+	 * @param   InputInterface  $input             The input object.
+	 * @param   OutputInterface $output            The output object.
+	 * @param   string[]        $existing_branches The branches that already exist in the repository.
+	 * @param   string          $default_branch    The branch to suggest by default.
+	 *
+	 * @return  string|null
+	 */
+	private function prompt_branch_source_input( InputInterface $input, OutputInterface $output, array $existing_branches, string $default_branch ): ?string {
+		$question = new Question( "<question>Enter the branch to create the new one off of [$default_branch]:</question> ", $default_branch );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( $existing_branches );
 		}
 
 		return $this->ask_question( $input, $output, $question );
