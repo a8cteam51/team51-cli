@@ -1934,8 +1934,17 @@ final class Team51McpTools {
 		);
 	}
 
-	#[McpTool( name: 'wpcom_connect_site_repository' )]
-	public function wpcom_connect_site_repository( string $site_id_or_url, string $repository, string $branch = 'trunk', string $target_dir = '/wp-content/', bool $deploy = false ): array {
+	#[McpTool(
+		name: 'wpcom_connect_site_repository',
+		annotations: new ToolAnnotations(
+			title: 'Connect WPCOM Site Repository',
+			readOnlyHint: false,
+			destructiveHint: true,
+			idempotentHint: false,
+			openWorldHint: true,
+		)
+	)]
+	public function wpcom_connect_site_repository( string $site_id_or_url, string $repository, string $branch = 'trunk', string $target_dir = '/wp-content/', bool $deploy = false, string $branch_source = '' ): array {
 		$identity_error = self::ensure_identity();
 		if ( $identity_error ) {
 			return $identity_error;
@@ -1949,6 +1958,17 @@ final class Team51McpTools {
 		$site = get_wpcom_site( $site_id_or_url );
 		if ( null === $site || ! isset( $site->ID ) ) {
 			return array( 'error' => "Failed to fetch WPCOM site: $site_id_or_url" );
+		}
+
+		$existing_branches = get_github_repository_branches( $gh_repository->name );
+		if ( null !== $existing_branches && ! in_array( $branch, array_column( $existing_branches, 'name' ), true ) ) {
+			if ( '' === $branch_source ) {
+				$branch_source = $gh_repository->default_branch ?? 'trunk';
+			}
+			$created = create_github_repository_branch( $gh_repository->name, $branch, $branch_source );
+			if ( null === $created ) {
+				return array( 'error' => "Failed to create GitHub branch `$branch` off of `$branch_source`." );
+			}
 		}
 
 		$site_id    = (string) $site->ID;
