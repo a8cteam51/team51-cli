@@ -215,9 +215,9 @@ final class WPCOM_Sites_Stats_Summary_List extends Command {
 
 		// Output to file if destination is set.
 		if ( ! \is_null( $this->stream ) ) {
-			\fputcsv( $this->stream, array( 'Blog ID', 'Site URL', 'Total Views', 'Total Visitors', 'Total Comments', 'Total Followers' ) );
+			\fputcsv( $this->stream, array( 'Blog ID', 'Site URL', 'Total Views', 'Total Visitors', 'Total Comments', 'Total Followers' ), ',', '"', '' );
 			foreach ( $sites_stats_rows as $row ) {
-				\fputcsv( $this->stream, $row );
+				\fputcsv( $this->stream, $row, ',', '"', '' );
 			}
 			\fclose( $this->stream );
 

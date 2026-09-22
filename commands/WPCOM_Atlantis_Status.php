@@ -464,12 +464,12 @@ final class WPCOM_Atlantis_Status extends Command {
 	private function create_csv( array $headers, array $rows, array $summary ): void {
 		$filtered_data = $this->filter_export_columns( $headers, $rows );
 
-		\fputcsv( $this->stream, $filtered_data['headers'] );
+		\fputcsv( $this->stream, $filtered_data['headers'], ',', '"', '' );
 		foreach ( $filtered_data['rows'] as $fields ) {
-			\fputcsv( $this->stream, $fields );
+			\fputcsv( $this->stream, $fields, ',', '"', '' );
 		}
 		foreach ( $summary as $key => $item ) {
-			\fputcsv( $this->stream, array( $key, $item ) );
+			\fputcsv( $this->stream, array( $key, $item ), ',', '"', '' );
 		}
 		\fclose( $this->stream );
 	}

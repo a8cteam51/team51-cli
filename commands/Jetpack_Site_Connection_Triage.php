@@ -131,7 +131,7 @@ EOT
 			unset( $csv[0] ); // Remove header row
 			$sites_to_check = array();
 			foreach ( $csv as $row ) {
-				$line = str_getcsv( $row );
+				$line = str_getcsv( $row, ',', '"', '' );
 				if ( isset( $line[0], $line[1] ) ) {
 					$sites_to_check[] = array(
 						'blog_id' => $line[0],
