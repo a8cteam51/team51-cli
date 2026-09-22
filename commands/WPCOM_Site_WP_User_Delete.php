@@ -406,8 +406,7 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 		$failed_tasks = Parallel_Process::create( $output, $site_ids_with_errors )
 			->configure(
 				array(
-					'max_parallel' => 10,
-					'ssh_timeout'  => 60,
+					'ssh_timeout' => 60,
 				)
 			)
 			->add_callback(
