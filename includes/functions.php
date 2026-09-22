@@ -104,14 +104,25 @@ function parse_http_headers( array $http_response_header ): array {
 /**
  * Filters out the errors from a batch response and returns the successful responses.
  *
+ * Entries that are not objects (e.g. `null` for a site that returned no data) are treated as
+ * errors and surfaced via $errors, so that a single bad site does not abort the whole batch.
+ *
  * @param   stdClass   $responses The response to parse from the batch request.
  * @param   array|null $errors    The errors that occurred during the request.
  *
- * @return  array
+ * @return  stdClass[]
  */
 function parse_batch_response( stdClass $responses, ?array &$errors = null ): array {
-	$errors = array_filter( (array) $responses, static fn( $response ) => is_object( $response ) && property_exists( $response, 'errors' ) );
-	return array_filter( (array) $responses, static fn( $response ) => ! is_object( $response ) || ! property_exists( $response, 'errors' ) );
+	$responses = (array) $responses;
+
+	$errors = array_map(
+		static fn( $response ) => is_object( $response ) ? $response : (object) array(
+			'errors' => array( 'empty_response' => array( 'No data was returned for this site.' ) ),
+		),
+		array_filter( $responses, static fn( $response ) => ! is_object( $response ) || property_exists( $response, 'errors' ) )
+	);
+
+	return array_filter( $responses, static fn( $response ) => is_object( $response ) && ! property_exists( $response, 'errors' ) );
 }
 
 // endregion
