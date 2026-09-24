@@ -312,16 +312,6 @@ final class Pressable_Site_Create extends Command {
 			$question = new ConfirmationQuestion( "<question>Could not find GitHub repository `$name`. Would you like to create it? [Y/n]</question> ", true );
 
 			if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
-				$php_globals_long_prefix = \str_replace( '-', '_', $name );
-				if ( 2 <= \substr_count( $php_globals_long_prefix, '_' ) ) {
-					$php_globals_short_prefix = '';
-					foreach ( \explode( '_', $php_globals_long_prefix ) as $part ) {
-						$php_globals_short_prefix .= $part[0];
-					}
-				} else {
-					$php_globals_short_prefix = \explode( '_', $php_globals_long_prefix )[0];
-				}
-
 				$this->project_template = get_enum_input( $input, 'project-template', array( 'project', 'no-code-project' ), fn() => $this->prompt_project_template_input( $input, $output ), 'project' );
 				$input->setOption( 'project-template', $this->project_template );
 
@@ -334,14 +324,10 @@ final class Pressable_Site_Create extends Command {
 				$status = run_app_command(
 					GitHub_Repository_Create::getDefaultName(),
 					array(
-						'name'                => $name,
-						'--homepage'          => "https://$name-production.mystagingwebsite.com",
-						'--type'              => $this->project_template,
-						'--no-code-theme'     => $this->no_code_theme,
-						'--custom-properties' => array(
-							"php-globals-long-prefix=$php_globals_long_prefix",
-							"php-globals-short-prefix=$php_globals_short_prefix",
-						),
+						'name'            => $name,
+						'--homepage'      => "https://$name-production.mystagingwebsite.com",
+						'--type'          => $this->project_template,
+						'--no-code-theme' => $this->no_code_theme,
 					),
 				);
 				if ( Command::SUCCESS !== $status ) {
