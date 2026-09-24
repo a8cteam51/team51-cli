@@ -2,6 +2,9 @@
 .quiet
 .last-update-check
 
+# Ledger written by jetpack:plugin-force-update (audit log / resume skip-list; * covers the .tmp sidecar)
+plugin-force-update-ledger.jsonl*
+
 # Created by https://www.toptal.com/developers/gitignore/api/macos,linux,windows,node,yarn,composer,phpstorm+all,visualstudiocode,sublimetext
 # Edit at https://www.toptal.com/developers/gitignore?templates=macos,linux,windows,node,yarn,composer,phpstorm+all,visualstudiocode,sublimetext
 
