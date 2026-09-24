@@ -356,18 +356,16 @@ final class Poseidon_PR_Review extends Command {
 	}
 
 	/**
-	 * Fetches the Poseidon review system prompt from `a8cteam51/poseidon-actions` (trunk) and extracts it from the
-	 * inlined `--append-system-prompt` block of `pr-review/action.yml`.
+	 * Fetches the Poseidon review system prompt from `pr-review/system-prompt.md` in `a8cteam51/poseidon-actions` (trunk).
 	 *
-	 * The prompt is fetched at runtime rather than vendored so it tracks upstream. Once poseidon-actions exposes the
-	 * prompt as a standalone file, this should fetch that file directly and drop the string extraction.
+	 * The prompt is fetched at runtime rather than vendored so it tracks upstream.
 	 *
 	 * @param   OutputInterface $output The output object.
 	 *
 	 * @return  string|null
 	 */
 	private function fetch_review_prompt( OutputInterface $output ): ?string {
-		$process = new Process( array( 'gh', 'api', 'repos/a8cteam51/poseidon-actions/contents/pr-review/action.yml?ref=trunk', '--jq', '.content' ) );
+		$process = new Process( array( 'gh', 'api', 'repos/a8cteam51/poseidon-actions/contents/pr-review/system-prompt.md?ref=trunk', '--jq', '.content' ) );
 		$process->run();
 		if ( ! $process->isSuccessful() ) {
 			$output->writeln( '<error>Failed to fetch the Poseidon review prompt from `a8cteam51/poseidon-actions`. Check your `gh` access to the repository.</error>' );
@@ -375,30 +373,14 @@ final class Poseidon_PR_Review extends Command {
 			return null;
 		}
 
-		$yaml = base64_decode( trim( $process->getOutput() ), true );
-		if ( false === $yaml || '' === $yaml ) {
-			$output->writeln( '<error>Could not decode `pr-review/action.yml`.</error>' );
+		$prompt = base64_decode( trim( $process->getOutput() ), true );
+		if ( false === $prompt || '' === $prompt ) {
+			$output->writeln( '<error>Could not decode `pr-review/system-prompt.md`.</error>' );
 			return null;
 		}
-
-		if ( ! preg_match( '/^(\h*)--append-system-prompt\s+"/m', $yaml, $matches, PREG_OFFSET_CAPTURE ) ) {
-			$output->writeln( '<error>Could not locate the system prompt in `pr-review/action.yml` (upstream format may have changed).</error>' );
-			return null;
-		}
-
-		$indent = $matches[1][0];
-		$start  = $matches[0][1] + strlen( $matches[0][0] );
-		$end    = strpos( $yaml, '"', $start );
-		if ( false === $end ) {
-			$output->writeln( '<error>Malformed system prompt block in `pr-review/action.yml`.</error>' );
-			return null;
-		}
-
-		$prompt = substr( $yaml, $start, $end - $start );
-		$prompt = preg_replace( '/^' . preg_quote( $indent, '/' ) . '/m', '', $prompt );
 
 		if ( false === strpos( $prompt, 'poseidon-review:v2' ) ) {
-			$output->writeln( '<error>The extracted prompt failed its sanity check (missing the `poseidon-review:v2` marker).</error>' );
+			$output->writeln( '<error>The fetched prompt failed its sanity check (missing the `poseidon-review:v2` marker).</error>' );
 			return null;
 		}
 
