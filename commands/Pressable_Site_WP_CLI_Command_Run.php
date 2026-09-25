@@ -61,8 +61,8 @@ final class Pressable_Site_WP_CLI_Command_Run extends Command {
 		$this->setDescription( 'Runs a given WP-CLI command on a given Pressable site.' )
 			->setHelp( 'This command allows you to run an arbitrary WP-CLI command on a Pressable site.' );
 
-		$this->addArgument( 'wp-cli-command', InputArgument::REQUIRED, 'The WP-CLI command to run.' )
-			->addArgument( 'site', InputArgument::OPTIONAL, 'The domain or numeric Pressable ID of the site to open the shell to.' );
+		$this->addArgument( 'site', InputArgument::REQUIRED, 'The domain or numeric Pressable ID of the site to open the shell to.' )
+			->addArgument( 'wp-cli-command', InputArgument::REQUIRED, 'The WP-CLI command to run.' );
 
 		$this->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Determines whether the `site` argument is optional or not. Accepted values are `all` or a comma-separated list of site IDs or domains.' )
 			->addOption( 'skip-output', null, InputOption::VALUE_NONE, 'Skip outputting the response to the console.' );
