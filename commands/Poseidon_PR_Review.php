@@ -78,7 +78,7 @@ final class Poseidon_PR_Review extends Command {
 	private ?string $pr_title = null;
 
 	/**
-	 * Whether to skip cloning the repository and have the agent read the PR through the GitHub API instead.
+	 * Whether to skip cloning the repository and have the agent review from `gh pr diff` alone.
 	 *
 	 * @var boolean
 	 */
@@ -180,7 +180,7 @@ final class Poseidon_PR_Review extends Command {
 
 			if ( $this->no_clone ) {
 				$filesystem->mkdir( $work_dir );
-				$output->writeln( '<comment>Skipping clone (--no-clone); the agent will read the PR via the GitHub API.</comment>' );
+				$output->writeln( '<comment>Skipping clone (--no-clone); this is a diff-only review.</comment>' );
 			} else {
 				$output->writeln( "<comment>Cloning into a temporary directory:</comment> $work_dir" );
 				$clone = $this->gh_process( array( 'gh', 'repo', 'clone', "{$this->owner}/{$this->repo}", $work_dir, '--', '--depth=50' ) );
