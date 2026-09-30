@@ -8,7 +8,6 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\Process\Process;
@@ -33,6 +32,15 @@ final class Poseidon_PR_Review extends Command {
 	 * @see https://fieldguide.automattic.com/github-enterprise-for-automattic/#using-the-github-cli
 	 */
 	private const GHE_PROXY = 'socks5://127.0.0.1:8080';
+
+	/**
+	 * The permission rules for the review agent. `dontAsk` denies every other tool call, but built-in read-only commands still run, so network git commands are denied explicitly.
+	 */
+	private const AGENT_PERMISSIONS = array(
+		'allow'                               => array( 'Bash(gh pr view *)', 'Bash(gh pr diff *)' ),
+		'deny'                                => array( 'Bash(git fetch *)', 'Bash(git pull *)', 'Bash(git push *)', 'Bash(git ls-remote *)', 'Bash(git remote *)', 'Bash(git submodule *)', 'Bash(git clone *)' ),
+		'blockReadsOutsideWorkingDirectories' => true,
+	);
 
 	/**
 	 * The GitHub hostname of the target repository (e.g. `github.com` or a GitHub Enterprise host such as `github.a8c.com`).
@@ -70,14 +78,7 @@ final class Poseidon_PR_Review extends Command {
 	private ?string $pr_title = null;
 
 	/**
-	 * Whether the review should be posted to the PR. When false (default) the review is printed to the terminal only.
-	 *
-	 * @var boolean
-	 */
-	private bool $post_to_github = false;
-
-	/**
-	 * Whether to skip cloning the repository and have the agent read the PR through the GitHub API instead.
+	 * Whether to skip cloning the repository and have the agent review from `gh pr diff` alone.
 	 *
 	 * @var boolean
 	 */
@@ -97,13 +98,6 @@ final class Poseidon_PR_Review extends Command {
 	 */
 	private int $max_turns = 45;
 
-	/**
-	 * The GitHub username of the currently authenticated `gh` CLI user.
-	 *
-	 * @var string|null
-	 */
-	private ?string $gh_username = null;
-
 	// endregion
 
 	// region INHERITED METHODS
@@ -113,12 +107,11 @@ final class Poseidon_PR_Review extends Command {
 	 */
 	protected function configure(): void {
 		$this->setDescription( 'Runs the Poseidon AI code review against a pull request using your local `gh` and `claude` CLIs.' )
-			->setHelp( "This command fetches the Poseidon review prompt from `a8cteam51/poseidon-actions` (trunk), clones the PR locally, and runs the local `claude` CLI to review it.\n\nIt uses your own `gh` and `claude` authentication (not OpsOasis), so it works on any PR you have GitHub access to — including repos outside a8cteam51 such as `Automattic`.\n\nBy default the review is printed to the terminal and nothing is posted. Pass `--post-to-github` to post the review to the PR as your `gh` user." );
+			->setHelp( "This command fetches the Poseidon review prompt from `a8cteam51/poseidon-actions` (trunk), clones the PR locally, and runs the local `claude` CLI to review it.\n\nIt uses your own `gh` and `claude` authentication (not OpsOasis), so it works on any PR you have GitHub access to — including repos outside a8cteam51 such as `Automattic`.\n\nThe command is read-only: it prints the review to the terminal and posts nothing. The agent runs in Claude Code restricted mode, and its only GitHub access is `gh pr view` and `gh pr diff`." );
 
 		$this->addArgument( 'pr', InputArgument::OPTIONAL, 'Pull request URL (https://HOST/OWNER/REPO/pull/N, including GitHub Enterprise hosts) or OWNER/REPO#N for github.com. Prompted for if omitted.' );
 
-		$this->addOption( 'post-to-github', null, InputOption::VALUE_NONE, 'Post the review to the PR as your `gh` user. Off by default (prints to the terminal only).' );
-		$this->addOption( 'no-clone', null, InputOption::VALUE_NONE, 'Skip cloning the repository; the agent reads the PR through the GitHub API. Faster, but loses AGENTS.md/.agents grounding and surrounding-code context.' );
+		$this->addOption( 'no-clone', null, InputOption::VALUE_NONE, 'Skip cloning the repository; the agent reviews the diff only. Faster, but loses AGENTS.md/.agents grounding and all surrounding-code context.' );
 		$this->addOption( 'model', null, InputOption::VALUE_REQUIRED, 'The Claude model to use.', 'claude-opus-4-8' );
 		$this->addOption( 'max-turns', null, InputOption::VALUE_REQUIRED, 'The maximum number of agent turns.', '45' );
 	}
@@ -136,43 +129,27 @@ final class Poseidon_PR_Review extends Command {
 		}
 		list( $this->host, $this->owner, $this->repo, $this->pr_number ) = $parsed;
 
-		$this->post_to_github = (bool) $input->getOption( 'post-to-github' );
-		$this->no_clone       = (bool) $input->getOption( 'no-clone' );
-		$this->model          = get_string_input( $input, 'model' );
-		$this->max_turns      = (int) get_string_input( $input, 'max-turns' );
+		$this->no_clone  = (bool) $input->getOption( 'no-clone' );
+		$this->model     = get_string_input( $input, 'model' );
+		$this->max_turns = (int) get_string_input( $input, 'max-turns' );
 
 		if ( ! $this->command_exists( 'claude' ) ) {
 			$output->writeln( '<error>The `claude` CLI is not installed or not on PATH. Install Claude Code and try again.</error>' );
 			exit( Command::FAILURE );
 		}
 
-		$this->gh_username = $this->resolve_gh_username( $output );
-		if ( null === $this->gh_username ) {
+		if ( ! $this->claude_supports_restricted_mode() ) {
+			$output->writeln( '<error>Your `claude` CLI does not support restricted mode. Run `claude update` and try again.</error>' );
+			exit( Command::FAILURE );
+		}
+
+		if ( null === $this->resolve_gh_username( $output ) ) {
 			exit( Command::FAILURE );
 		}
 
 		$this->pr_title = $this->resolve_pr_title( $output );
 		if ( null === $this->pr_title ) {
 			exit( Command::FAILURE );
-		}
-	}
-
-	/**
-	 * {@inheritDoc}
-	 */
-	protected function interact( InputInterface $input, OutputInterface $output ): void {
-		if ( ! $this->post_to_github ) {
-			return;
-		}
-
-		$question = new ConfirmationQuestion(
-			"<question>Run Poseidon Review on `{$this->owner}/{$this->repo}#{$this->pr_number}` and POST the comment as `{$this->gh_username}`? [y/N]</question> ",
-			false
-		);
-
-		if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
-			$output->writeln( '<comment>Command aborted by user.</comment>' );
-			exit( 2 );
 		}
 	}
 
@@ -190,9 +167,7 @@ final class Poseidon_PR_Review extends Command {
 		if ( $this->no_clone ) {
 			$prompt .= "\n\n" . $this->no_clone_instructions();
 		}
-		if ( ! $this->post_to_github ) {
-			$prompt .= "\n\n" . $this->terminal_only_override();
-		}
+		$prompt .= "\n\n" . $this->terminal_only_override();
 
 		$filesystem  = new Filesystem();
 		$suffix      = bin2hex( random_bytes( 4 ) );
@@ -205,7 +180,7 @@ final class Poseidon_PR_Review extends Command {
 
 			if ( $this->no_clone ) {
 				$filesystem->mkdir( $work_dir );
-				$output->writeln( '<comment>Skipping clone (--no-clone); the agent will read the PR via the GitHub API.</comment>' );
+				$output->writeln( '<comment>Skipping clone (--no-clone); this is a diff-only review.</comment>' );
 			} else {
 				$output->writeln( "<comment>Cloning into a temporary directory:</comment> $work_dir" );
 				$clone = $this->gh_process( array( 'gh', 'repo', 'clone', "{$this->owner}/{$this->repo}", $work_dir, '--', '--depth=50' ) );
@@ -227,8 +202,7 @@ final class Poseidon_PR_Review extends Command {
 				}
 			}
 
-			$mode = $this->post_to_github ? 'the review will be posted to GitHub' : 'the review will be printed below — nothing will be posted';
-			$output->writeln( "<comment>Running Claude ({$this->model}); $mode.</comment>\n" );
+			$output->writeln( "<comment>Running Claude ({$this->model}) in restricted mode; the review will be printed below.</comment>\n" );
 
 			$claude_env = array( 'GH_HOST' => $this->host );
 			if ( $this->is_enterprise_host() ) {
@@ -246,8 +220,14 @@ final class Poseidon_PR_Review extends Command {
 					$this->model,
 					'--max-turns',
 					(string) $this->max_turns,
+					'--restricted',
+					'--tools',
+					'Read,Grep,Glob,Bash',
+					'--strict-mcp-config',
 					'--permission-mode',
-					'bypassPermissions',
+					'dontAsk',
+					'--settings',
+					encode_json_content( array( 'permissions' => self::AGENT_PERMISSIONS ), JSON_UNESCAPED_SLASHES ),
 				),
 				$work_dir,
 				$claude_env
@@ -265,9 +245,6 @@ final class Poseidon_PR_Review extends Command {
 			}
 
 			$output->writeln( "\n<fg=green;options=bold>Poseidon Review complete.</>" );
-			if ( $this->post_to_github ) {
-				$output->writeln( "<comment>Review posted to https://{$this->host}/{$this->owner}/{$this->repo}/pull/{$this->pr_number}</comment>" );
-			}
 
 			return Command::SUCCESS;
 		} finally {
@@ -375,6 +352,19 @@ final class Poseidon_PR_Review extends Command {
 	}
 
 	/**
+	 * Checks whether the installed `claude` CLI supports the flags that confine the review agent.
+	 *
+	 * @return  boolean
+	 */
+	private function claude_supports_restricted_mode(): bool {
+		$process = new Process( array( 'claude', '--help' ) );
+		$process->run();
+
+		$help = $process->getOutput();
+		return false !== strpos( $help, '--restricted' ) && false !== strpos( $help, 'dontAsk' ) && false !== strpos( $help, '--strict-mcp-config' );
+	}
+
+	/**
 	 * Resolves the currently authenticated GitHub username via the `gh` CLI.
 	 * Returns null and prints a diagnostic on failure (gh missing or not logged in).
 	 *
@@ -476,29 +466,35 @@ final class Poseidon_PR_Review extends Command {
 	}
 
 	/**
-	 * Instructions appended when running with --no-clone, telling the agent to read everything through the GitHub API.
+	 * Instructions appended when running with --no-clone, telling the agent to review from the diff alone.
 	 *
 	 * @return  string
 	 */
 	private function no_clone_instructions(): string {
 		return "## NO LOCAL CHECKOUT\n"
-			. "There is no local clone of the repository in this working directory. Read everything through the GitHub CLI for `{$this->owner}/{$this->repo}`:\n"
-			. "- The diff: `gh pr diff {$this->pr_number} --repo {$this->owner}/{$this->repo}` (or `gh api repos/{$this->owner}/{$this->repo}/pulls/{$this->pr_number}/files`).\n"
-			. "- File contents, `AGENTS.md`, and `.agents/`: `gh api repos/{$this->owner}/{$this->repo}/contents/<path>?ref=<head-sha>` then base64-decode.\n"
-			. "- Prior reviews: `gh api repos/{$this->owner}/{$this->repo}/pulls/{$this->pr_number}/reviews`.\n"
-			. 'Do not attempt to read project files from disk.';
+			. "There is no local clone of the repository in this working directory. You cannot read `AGENTS.md`, `.agents/`, or any other repository file.\n"
+			. "- Read the diff with `gh pr diff {$this->pr_number} --repo {$this->owner}/{$this->repo}`.\n"
+			. "- Review from the diff alone. Where the rules above tell you to open a file, use the diff, and downgrade any finding you cannot verify to a Suggestion.\n"
+			. '- State in the Review info section that this was a diff-only review.';
 	}
 
 	/**
-	 * The terminal-only override appended to the system prompt when not posting to GitHub. Produces clean,
+	 * The override appended to the system prompt. It matches the agent's tool limits and produces clean,
 	 * terminal-readable output with no HTML (the marker and collapsible blocks are only meaningful on GitHub).
 	 *
 	 * @return  string
 	 */
 	private function terminal_only_override(): string {
-		return <<<'PROMPT'
+		return <<<PROMPT
 ## OUTPUT MODE OVERRIDE — highest priority, overrides any instruction above
-This review runs in a local terminal, not on GitHub. Do NOT post anything: do not run `gh pr review`, `gh pr comment`, `gh api` with a write method, or any other `gh`/`git` mutation. Ignore every instruction above that tells you to post a review comment. Read-only commands (`gh pr diff`, `gh pr view`, `gh api` GET requests, git reads) are allowed.
+This review runs in a local terminal. Nothing is posted to GitHub. Ignore every instruction above that tells you to post a review or comment, or to write a body file with the Write tool.
+
+Your tools are limited for this run:
+- Your only GitHub access is `gh pr view` and `gh pr diff`. Always pass `--repo {$this->owner}/{$this->repo}`. The permission rules block `gh api` and every other `gh` command.
+- For prior Poseidon reviews, run `gh pr view {$this->pr_number} --repo {$this->owner}/{$this->repo} --json reviews`.
+- For the author, labels, draft state, and head commit, run `gh pr view {$this->pr_number} --repo {$this->owner}/{$this->repo} --json author,labels,isDraft,headRefOid`.
+- The file `/tmp/poseidon/review-threads.json` does not exist. Treat the PR as having no review threads.
+- If the prior review's commit is not in the local history, treat the entire diff as the delta.
 
 Print the review to stdout as clean, terminal-readable text:
 - Do NOT emit any HTML — no `<!-- ... -->` markers, no `<details>`/`<summary>` tags.
