@@ -28,6 +28,20 @@ final class Poseidon_PR_Review extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**
+	 * The AutoProxxy SOCKS proxy that `gh` needs to reach GitHub Enterprise hosts.
+	 *
+	 * @see https://fieldguide.automattic.com/github-enterprise-for-automattic/#using-the-github-cli
+	 */
+	private const GHE_PROXY = 'socks5://127.0.0.1:8080';
+
+	/**
+	 * The GitHub hostname of the target repository (e.g. `github.com` or a GitHub Enterprise host such as `github.a8c.com`).
+	 *
+	 * @var string
+	 */
+	private string $host = 'github.com';
+
+	/**
 	 * The owner (organisation or user) of the target repository.
 	 *
 	 * @var string|null
@@ -101,7 +115,7 @@ final class Poseidon_PR_Review extends Command {
 		$this->setDescription( 'Runs the Poseidon AI code review against a pull request using your local `gh` and `claude` CLIs.' )
 			->setHelp( "This command fetches the Poseidon review prompt from `a8cteam51/poseidon-actions` (trunk), clones the PR locally, and runs the local `claude` CLI to review it.\n\nIt uses your own `gh` and `claude` authentication (not OpsOasis), so it works on any PR you have GitHub access to — including repos outside a8cteam51 such as `Automattic`.\n\nBy default the review is printed to the terminal and nothing is posted. Pass `--post-to-github` to post the review to the PR as your `gh` user." );
 
-		$this->addArgument( 'pr', InputArgument::OPTIONAL, 'Pull request URL (https://github.com/OWNER/REPO/pull/N) or OWNER/REPO#N. Prompted for if omitted.' );
+		$this->addArgument( 'pr', InputArgument::OPTIONAL, 'Pull request URL (https://HOST/OWNER/REPO/pull/N, including GitHub Enterprise hosts) or OWNER/REPO#N for github.com. Prompted for if omitted.' );
 
 		$this->addOption( 'post-to-github', null, InputOption::VALUE_NONE, 'Post the review to the PR as your `gh` user. Off by default (prints to the terminal only).' );
 		$this->addOption( 'no-clone', null, InputOption::VALUE_NONE, 'Skip cloning the repository; the agent reads the PR through the GitHub API. Faster, but loses AGENTS.md/.agents grounding and surrounding-code context.' );
@@ -120,7 +134,7 @@ final class Poseidon_PR_Review extends Command {
 		if ( null === $parsed ) {
 			throw new \InvalidArgumentException( "Could not parse a pull request reference from `$reference`. Expected a PR URL or OWNER/REPO#N." );
 		}
-		list( $this->owner, $this->repo, $this->pr_number ) = $parsed;
+		list( $this->host, $this->owner, $this->repo, $this->pr_number ) = $parsed;
 
 		$this->post_to_github = (bool) $input->getOption( 'post-to-github' );
 		$this->no_clone       = (bool) $input->getOption( 'no-clone' );
@@ -184,6 +198,7 @@ final class Poseidon_PR_Review extends Command {
 		$suffix      = bin2hex( random_bytes( 4 ) );
 		$prompt_file = sys_get_temp_dir() . "/team51-poseidon-prompt-$suffix.md";
 		$work_dir    = sys_get_temp_dir() . "/team51-poseidon-review-{$this->pr_number}-$suffix";
+		$bin_dir     = sys_get_temp_dir() . "/team51-poseidon-bin-$suffix";
 
 		try {
 			$filesystem->dumpFile( $prompt_file, $prompt );
@@ -193,7 +208,7 @@ final class Poseidon_PR_Review extends Command {
 				$output->writeln( '<comment>Skipping clone (--no-clone); the agent will read the PR via the GitHub API.</comment>' );
 			} else {
 				$output->writeln( "<comment>Cloning into a temporary directory:</comment> $work_dir" );
-				$clone = new Process( array( 'gh', 'repo', 'clone', "{$this->owner}/{$this->repo}", $work_dir, '--', '--depth=50' ) );
+				$clone = $this->gh_process( array( 'gh', 'repo', 'clone', "{$this->owner}/{$this->repo}", $work_dir, '--', '--depth=50' ) );
 				$clone->setTimeout( 300 );
 				$clone->run();
 				if ( ! $clone->isSuccessful() ) {
@@ -202,7 +217,7 @@ final class Poseidon_PR_Review extends Command {
 					return Command::FAILURE;
 				}
 
-				$checkout = new Process( array( 'gh', 'pr', 'checkout', $this->pr_number, '--detach' ), $work_dir );
+				$checkout = $this->gh_process( array( 'gh', 'pr', 'checkout', $this->pr_number, '--detach' ), $work_dir );
 				$checkout->setTimeout( 300 );
 				$checkout->run();
 				if ( ! $checkout->isSuccessful() ) {
@@ -214,6 +229,11 @@ final class Poseidon_PR_Review extends Command {
 
 			$mode = $this->post_to_github ? 'the review will be posted to GitHub' : 'the review will be printed below — nothing will be posted';
 			$output->writeln( "<comment>Running Claude ({$this->model}); $mode.</comment>\n" );
+
+			$claude_env = array( 'GH_HOST' => $this->host );
+			if ( $this->is_enterprise_host() ) {
+				$claude_env['PATH'] = $this->create_proxied_gh_wrapper( $filesystem, $bin_dir ) . PATH_SEPARATOR . getenv( 'PATH' );
+			}
 
 			$claude = new Process(
 				array(
@@ -229,7 +249,8 @@ final class Poseidon_PR_Review extends Command {
 					'--permission-mode',
 					'bypassPermissions',
 				),
-				$work_dir
+				$work_dir,
+				$claude_env
 			);
 			$claude->setTimeout( 1200 );
 			$claude->run(
@@ -245,12 +266,12 @@ final class Poseidon_PR_Review extends Command {
 
 			$output->writeln( "\n<fg=green;options=bold>Poseidon Review complete.</>" );
 			if ( $this->post_to_github ) {
-				$output->writeln( "<comment>Review posted to https://github.com/{$this->owner}/{$this->repo}/pull/{$this->pr_number}</comment>" );
+				$output->writeln( "<comment>Review posted to https://{$this->host}/{$this->owner}/{$this->repo}/pull/{$this->pr_number}</comment>" );
 			}
 
 			return Command::SUCCESS;
 		} finally {
-			$filesystem->remove( array( $prompt_file, $work_dir ) );
+			$filesystem->remove( array( $prompt_file, $work_dir, $bin_dir ) );
 		}
 	}
 
@@ -276,20 +297,68 @@ final class Poseidon_PR_Review extends Command {
 	 *
 	 * @param   string $reference The raw reference.
 	 *
-	 * @return  array{0: string, 1: string, 2: string}|null
+	 * @return  array{0: string, 1: string, 2: string, 3: string}|null
 	 */
 	private function parse_pr_reference( string $reference ): ?array {
 		$reference = trim( $reference );
 
-		if ( preg_match( '#github\.com/([^/]+)/([^/]+)/pull/(\d+)#', $reference, $matches ) ) {
-			return array( $matches[1], $matches[2], $matches[3] );
+		if ( preg_match( '~^(?:https?://)?([^/\s]+)/([^/\s]+)/([^/\s]+)/pull/(\d+)~', $reference, $matches ) ) {
+			return array( preg_replace( '~^www\.~', '', strtolower( $matches[1] ) ), $matches[2], $matches[3], $matches[4] );
 		}
 
 		if ( preg_match( '~^([^/\s]+)/([^/\s#]+)#(\d+)$~', $reference, $matches ) ) {
-			return array( $matches[1], $matches[2], $matches[3] );
+			return array( 'github.com', $matches[1], $matches[2], $matches[3] );
 		}
 
 		return null;
+	}
+
+	/**
+	 * Creates a process whose `gh` calls (including those made by child processes) target the PR's GitHub host.
+	 *
+	 * @param   string[]    $command The command and its arguments.
+	 * @param   string|null $cwd     The working directory.
+	 *
+	 * @return  Process
+	 */
+	private function gh_process( array $command, ?string $cwd = null ): Process {
+		$env = array( 'GH_HOST' => $this->host );
+		if ( $this->is_enterprise_host() ) {
+			$env['HTTPS_PROXY'] = self::GHE_PROXY;
+		}
+
+		return new Process( $command, $cwd, $env );
+	}
+
+	/**
+	 * Whether the PR lives on a GitHub Enterprise host, which `gh` can only reach through the AutoProxxy SOCKS proxy.
+	 *
+	 * @return  boolean
+	 */
+	private function is_enterprise_host(): bool {
+		return 'github.com' !== $this->host;
+	}
+
+	/**
+	 * Writes a `gh` wrapper that routes only `gh` traffic through the SOCKS proxy, so the agent's own API traffic is not proxied.
+	 *
+	 * @param   Filesystem $filesystem The filesystem helper.
+	 * @param   string     $bin_dir    The directory to write the wrapper into.
+	 *
+	 * @return  string The directory to prepend to PATH.
+	 */
+	private function create_proxied_gh_wrapper( Filesystem $filesystem, string $bin_dir ): string {
+		$which = new Process( array( 'which', 'gh' ) );
+		$which->run();
+
+		$wrapper = $bin_dir . '/gh';
+		$filesystem->dumpFile(
+			$wrapper,
+			"#!/bin/sh\nHTTPS_PROXY=" . escapeshellarg( self::GHE_PROXY ) . ' exec ' . escapeshellarg( trim( $which->getOutput() ) ) . " \"\$@\"\n"
+		);
+		$filesystem->chmod( $wrapper, 0755 );
+
+		return $bin_dir;
 	}
 
 	/**
@@ -319,21 +388,31 @@ final class Poseidon_PR_Review extends Command {
 			return null;
 		}
 
-		$process = new Process( array( 'gh', 'api', 'user', '--jq', '.login' ) );
+		$process = $this->gh_process( array( 'gh', 'api', 'user', '--jq', '.login' ) );
 		$process->run();
 		if ( ! $process->isSuccessful() ) {
-			$output->writeln( '<error>`gh` is installed but not authenticated. Run `gh auth login` and try again.</error>' );
+			$output->writeln( "<error>`gh` is not authenticated to `{$this->host}`. Run `{$this->gh_login_command()}` and try again.</error>" );
 			$this->maybe_print_stderr( $output, $process );
 			return null;
 		}
 
 		$username = trim( $process->getOutput() );
 		if ( '' === $username ) {
-			$output->writeln( '<error>`gh api user` returned an empty username. Run `gh auth login` and try again.</error>' );
+			$output->writeln( "<error>`gh api user` returned an empty username. Run `{$this->gh_login_command()}` and try again.</error>" );
 			return null;
 		}
 
 		return $username;
+	}
+
+	/**
+	 * The `gh auth login` command for the PR's host, including the proxy prefix for GitHub Enterprise hosts.
+	 *
+	 * @return  string
+	 */
+	private function gh_login_command(): string {
+		$prefix = $this->is_enterprise_host() ? 'HTTPS_PROXY=' . self::GHE_PROXY . ' ' : '';
+		return "{$prefix}gh auth login --hostname {$this->host}";
 	}
 
 	/**
@@ -344,10 +423,10 @@ final class Poseidon_PR_Review extends Command {
 	 * @return  string|null
 	 */
 	private function resolve_pr_title( OutputInterface $output ): ?string {
-		$process = new Process( array( 'gh', 'pr', 'view', $this->pr_number, '--repo', "{$this->owner}/{$this->repo}", '--json', 'title', '--jq', '.title' ) );
+		$process = $this->gh_process( array( 'gh', 'pr', 'view', $this->pr_number, '--repo', "{$this->owner}/{$this->repo}", '--json', 'title', '--jq', '.title' ) );
 		$process->run();
 		if ( ! $process->isSuccessful() ) {
-			$output->writeln( "<error>Could not access `{$this->owner}/{$this->repo}#{$this->pr_number}`. Your `gh` user may lack access, or the PR does not exist.</error>" );
+			$output->writeln( "<error>Could not access `{$this->owner}/{$this->repo}#{$this->pr_number}` on `{$this->host}`. Your `gh` user may lack access, or the PR does not exist.</error>" );
 			$this->maybe_print_stderr( $output, $process );
 			return null;
 		}
@@ -365,7 +444,7 @@ final class Poseidon_PR_Review extends Command {
 	 * @return  string|null
 	 */
 	private function fetch_review_prompt( OutputInterface $output ): ?string {
-		$process = new Process( array( 'gh', 'api', 'repos/a8cteam51/poseidon-actions/contents/pr-review/system-prompt.md?ref=trunk', '--jq', '.content' ) );
+		$process = new Process( array( 'gh', 'api', '--hostname', 'github.com', 'repos/a8cteam51/poseidon-actions/contents/pr-review/system-prompt.md?ref=trunk', '--jq', '.content' ) );
 		$process->run();
 		if ( ! $process->isSuccessful() ) {
 			$output->writeln( '<error>Failed to fetch the Poseidon review prompt from `a8cteam51/poseidon-actions`. Check your `gh` access to the repository.</error>' );
