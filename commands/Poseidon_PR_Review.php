@@ -303,7 +303,7 @@ final class Poseidon_PR_Review extends Command {
 		$reference = trim( $reference );
 
 		if ( preg_match( '~^(?:https?://)?([^/\s]+)/([^/\s]+)/([^/\s]+)/pull/(\d+)~', $reference, $matches ) ) {
-			return array( strtolower( $matches[1] ), $matches[2], $matches[3], $matches[4] );
+			return array( preg_replace( '~^www\.~', '', strtolower( $matches[1] ) ), $matches[2], $matches[3], $matches[4] );
 		}
 
 		if ( preg_match( '~^([^/\s]+)/([^/\s#]+)#(\d+)$~', $reference, $matches ) ) {
