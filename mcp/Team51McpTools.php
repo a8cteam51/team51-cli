@@ -153,6 +153,21 @@ final class Team51McpTools {
 	}
 
 	/**
+	 * Whether a site identifier is safe to pass to a CLI subprocess as an argument.
+	 *
+	 * Both team51-cli.php and self-update.php scan raw argv before Symfony parses it and ignore `--`, so values
+	 * such as `--mcp`, `--shell`, `--force-update` or `completion` would change how the subprocess boots.
+	 *
+	 * @param string $site_id_or_url Site identifier passed by caller.
+	 *
+	 * @return bool
+	 */
+	private static function is_safe_site_argument( string $site_id_or_url ): bool {
+		return ! str_starts_with( ltrim( $site_id_or_url ), '-' )
+			&& ! in_array( $site_id_or_url, array( 'completion', '_complete' ), true );
+	}
+
+	/**
 	 * Emits a structured audit entry for high-risk WP-CLI execution.
 	 *
 	 * @param string $provider       Either wpcom or pressable.
@@ -1925,12 +1940,18 @@ final class Team51McpTools {
 			);
 		}
 
+		if ( ! self::is_safe_site_argument( $site_id_or_url ) ) {
+			return array( 'error' => 'Invalid site identifier.' );
+		}
+
 		self::audit_wp_cli_command( 'wpcom', $site_id_or_url, $wp_cli_command );
 
-		$exit_code = run_wpcom_site_wp_cli_command( $site_id_or_url, $wp_cli_command, true );
-		return array(
-			'exit_code' => $exit_code,
-			'output'    => $GLOBALS['wp_cli_output'] ?? '',
+		// Run out of process: the MCP server has no console application for run_app_command(), and the command
+		// can exit(). The `--` stops Symfony parsing the arguments as options; is_safe_site_argument() covers
+		// the raw argv scans that run before it.
+		return self::run_cli_command(
+			'wpcom:run-site-wp-cli-command',
+			array( '--', $site_id_or_url, $wp_cli_command )
 		);
 	}
 
@@ -2238,12 +2259,18 @@ final class Team51McpTools {
 			);
 		}
 
+		if ( ! self::is_safe_site_argument( $site_id_or_url ) ) {
+			return array( 'error' => 'Invalid site identifier.' );
+		}
+
 		self::audit_wp_cli_command( 'pressable', $site_id_or_url, $wp_cli_command );
 
-		$exit_code = run_pressable_site_wp_cli_command( $site_id_or_url, $wp_cli_command, true );
-		return array(
-			'exit_code' => $exit_code,
-			'output'    => $GLOBALS['wp_cli_output'] ?? '',
+		// Run out of process: the MCP server has no console application for run_app_command(), and the command
+		// can exit(). The `--` stops Symfony parsing the arguments as options; is_safe_site_argument() covers
+		// the raw argv scans that run before it.
+		return self::run_cli_command(
+			'pressable:run-site-wp-cli-command',
+			array( '--', $wp_cli_command, $site_id_or_url )
 		);
 	}
 
