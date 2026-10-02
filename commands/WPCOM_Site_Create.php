@@ -251,7 +251,7 @@ final class WPCOM_Site_Create extends Command {
 		if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 			$question = new Question( "<question>Please enter the slug of the GitHub repository to deploy from [$this->name]:</question> ", $this->name );
 			if ( ! $input->getOption( 'no-autocomplete' ) ) {
-				$question->setAutocompleterValues( array_column( get_github_repositories() ?? array(), 'name' ) );
+				$question->setAutocompleterValues( get_github_repository_autocomplete_values() );
 			}
 
 			return $this->getHelper( 'question' )->ask( $input, $output, $question );

@@ -297,7 +297,7 @@ final class WPCOM_Site_Repository_Connect extends Command {
 	private function prompt_repository_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Please enter the slug of the GitHub repository to connect the project to:</question> ' );
 		if ( ! $input->getOption( 'no-autocomplete' ) ) {
-			$question->setAutocompleterValues( array_column( get_github_repositories() ?? array(), 'name' ) );
+			$question->setAutocompleterValues( get_github_repository_autocomplete_values() );
 		}
 
 		return $this->ask_question( $input, $output, $question );
