@@ -24,7 +24,10 @@ if ( in_array( '--mcp', $argv ?? $_SERVER['argv'] ?? array(), true ) ) {
 require_once TEAM51_CLI_ROOT_DIR . '/self-update.php';
 require_once TEAM51_CLI_ROOT_DIR . '/vendor/autoload.php';
 
-$team51_cli_app        = new Application();
+// There are no tagged releases; the CLI self-updates from trunk, so the checked-out commit is the version.
+exec( sprintf( 'git -C %s log -1 --format="%%h (%%cs)" 2>/dev/null', escapeshellarg( TEAM51_CLI_ROOT_DIR ) ), $team51_cli_version );
+
+$team51_cli_app        = new Application( 'Team51 CLI', $team51_cli_version[0] ?? 'unknown' );
 $team51_cli_input      = new ArgvInput();
 $team51_cli_output     = new ConsoleOutput();
 $team51_cli_dispatcher = new EventDispatcher();
