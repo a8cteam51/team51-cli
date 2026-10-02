@@ -38,10 +38,10 @@ use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
  *   in place and its activation state is never changed. `--install-new` (gated) also installs on
  *   requested sites that lack it, left inactive unless `--activate` is also passed (which only affects
  *   those new installs).
- * - wp-cli runs with `--skip-plugins --skip-themes` so a site with a fatal plugin/theme can still be
- *   fixed.
- * - Every processed site is recorded in a resumable JSONL ledger (one entry per site, updated in
- *   place on retry) that doubles as the skip-list on the next run.
+ * - wp-cli runs with `--skip-plugins --skip-themes` (as globals, before the subcommand) so a site
+ *   with a fatal plugin/theme can still be fixed.
+ * - Every processed site is appended to a resumable JSONL ledger that doubles as the skip-list on the
+ *   next run; repeated rows for the same (plugin, site) are collapsed on read, latest winning.
  *
  * Examples:
  *   # Reinstall an Atlantis RC on staging only, from a URL (dry run first)
@@ -60,7 +60,21 @@ final class Jetpack_Plugin_Force_Update extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**
-	 * Default JSONL ledger filename, written in the current working directory.
+	 * The wp-cli invocation, with the bootstrap-skipping globals.
+	 *
+	 * `--skip-plugins` and `--skip-themes` are wp-cli *global* parameters and must precede the
+	 * subcommand: placed after it, both Pressable and WoA reject the whole call with
+	 * `Error: Parameter errors: unknown --skip-plugins parameter` (exit 1) before it does anything.
+	 * (`wp plugin list` tolerates them trailing because it reads unknown `--<field>=` args as
+	 * filters, which makes the mistake look harmless.) Skipping the bootstrap keeps a site whose
+	 * plugin or theme fatals still fixable — the whole point of reaching for this command.
+	 *
+	 * @var string
+	 */
+	private const WP = 'wp --skip-plugins --skip-themes';
+
+	/**
+	 * Default JSONL ledger filename, written in the CLI's own directory.
 	 *
 	 * @var string
 	 */
@@ -146,16 +160,23 @@ final class Jetpack_Plugin_Force_Update extends Command {
 	private bool $dry_run = false;
 
 	/**
-	 * Path to the JSONL ledger (audit log + resume skip-list).
+	 * Whether the confirmations were explicitly waived with --yes.
+	 *
+	 * @var bool
+	 */
+	private bool $yes = false;
+
+	/**
+	 * Absolute path to the JSONL ledger (append-only audit log + resume skip-list).
 	 *
 	 * @var string
 	 */
-	private string $ledger_path = self::DEFAULT_LEDGER;
+	private string $ledger_path = '';
 
 	/**
-	 * The ledger contents, one entry per site keyed by site ID, in first-seen order.
+	 * The ledger contents, keyed by (plugin, site) in first-seen order, latest row winning.
 	 *
-	 * @var array<int|string, array<string, mixed>>
+	 * @var array<string, array<string, mixed>>
 	 */
 	private array $ledger_entries = array();
 
@@ -204,8 +225,9 @@ final class Jetpack_Plugin_Force_Update extends Command {
 			->addOption( 'install-new', null, InputOption::VALUE_NONE, 'Also install the plugin on requested sites that do not yet have it (gated by an extra confirmation).' )
 			->addOption( 'activate', null, InputOption::VALUE_NONE, 'Activate the plugin on sites where it is newly installed. Only valid with --install-new; existing sites keep their current activation state.' )
 			->addOption( 'limit', null, InputOption::VALUE_REQUIRED, 'Process at most this many sites this run (applied after filtering and the ledger skip-list).' )
-			->addOption( 'log', null, InputOption::VALUE_REQUIRED, 'Path to the JSONL ledger (audit log + resume skip-list). Defaults to ./' . self::DEFAULT_LEDGER . '.' )
-			->addOption( 'no-output', null, InputOption::VALUE_NONE, 'Skip confirmations and minimize output (for large runs).' )
+			->addOption( 'log', null, InputOption::VALUE_REQUIRED, 'Path to the JSONL ledger (append-only audit log + resume skip-list). Defaults to ' . self::DEFAULT_LEDGER . ' in the CLI directory.' )
+			->addOption( 'no-output', null, InputOption::VALUE_NONE, 'Minimize output (for large runs). Does not skip the confirmations — use --yes for that.' )
+			->addOption( 'yes', null, InputOption::VALUE_NONE, 'Skip the confirmation prompts before force-installing.' )
 			->addOption( 'dry-run', null, InputOption::VALUE_NONE, 'Report what would change without writing anything (no installs, no ledger entries).' );
 	}
 
@@ -215,6 +237,7 @@ final class Jetpack_Plugin_Force_Update extends Command {
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
 		$this->dry_run     = (bool) $input->getOption( 'dry-run' );
 		$this->quiet       = (bool) $input->getOption( 'no-output' );
+		$this->yes         = (bool) $input->getOption( 'yes' );
 		$this->install_new = (bool) $input->getOption( 'install-new' );
 		$this->activate    = (bool) $input->getOption( 'activate' );
 
@@ -241,8 +264,13 @@ final class Jetpack_Plugin_Force_Update extends Command {
 			$this->limit = (int) $limit;
 		}
 
-		$log_path          = $input->getOption( 'log' );
-		$this->ledger_path = ( \is_string( $log_path ) && '' !== $log_path ) ? $log_path : self::DEFAULT_LEDGER;
+		// Resolve and pre-flight the ledger before any site is touched: it is both the audit trail and
+		// the resume skip-list, so finding it unwritable after the first install would lose the record
+		// of a change that already happened.
+		$this->ledger_path = $this->resolve_ledger_path( $input->getOption( 'log' ) );
+		if ( ! $this->dry_run ) {
+			$this->assert_ledger_writable( $output );
+		}
 
 		$sites_spec       = $input->getOption( 'sites' );
 		$this->sites_spec = ( \is_string( $sites_spec ) && '' !== $sites_spec ) ? $sites_spec : null;
@@ -452,8 +480,8 @@ final class Jetpack_Plugin_Force_Update extends Command {
 
 	/**
 	 * Installs the plugin from the configured source. For a URL the site fetches it directly; for a
-	 * local zip the file is uploaded via SFTP to the (non-web-accessible) home directory, installed,
-	 * then removed.
+	 * local zip the file is uploaded via SFTP to a staging directory outside the web root
+	 * ({@see self::resolve_upload_dir()}), installed, then removed.
 	 *
 	 * @param   \stdClass $site     The site object (needed to open a matching SFTP connection).
 	 * @param   SSH2      $ssh      The already-open SSH connection.
@@ -462,7 +490,7 @@ final class Jetpack_Plugin_Force_Update extends Command {
 	 * @return  array{ 0: bool, 1: string } Success flag and command output / error detail.
 	 */
 	private function install_from_source( \stdClass $site, SSH2 $ssh, bool $activate = false ): array {
-		$flags = '--force --skip-plugins --skip-themes';
+		$flags = '--force';
 		if ( $activate ) {
 			$flags .= ' --activate';
 		}
@@ -471,43 +499,68 @@ final class Jetpack_Plugin_Force_Update extends Command {
 			// A generous but finite read bound: a stalled download fails this site rather than hanging
 			// the whole fleet run (setTimeout( 0 ) would disable the timeout entirely).
 			$ssh->setTimeout( 600 );
-			$out = $ssh->exec( 'wp plugin install ' . \escapeshellarg( $this->package ) . " $flags 2>&1" );
+			$out = $ssh->exec( self::WP . ' plugin install ' . \escapeshellarg( $this->package ) . " $flags 2>&1" );
 			return array( 0 === $ssh->getExitStatus(), (string) $out );
 		}
 
-		// Local zip: upload to the home directory (above htdocs, so not web-accessible), then install.
+		// Local zip: upload it somewhere outside the web root, then install from there.
+		$upload_dir = $this->resolve_upload_dir( $ssh );
+		if ( '' === $upload_dir ) {
+			return array( false, 'Could not resolve a writable upload directory outside the web root.' );
+		}
+
+		$remote = $upload_dir . '/t51-force-' . $this->safe_slug() . '-' . \getmypid() . '.zip';
+
 		$sftp = $this->sftp_for_site( $site );
 		if ( null === $sftp ) {
 			return array( false, 'SFTP connection failed for the zip upload.' );
 		}
 
-		// Resolve an absolute path from the SFTP login directory so the separate SSH session installs
-		// the exact file we uploaded, even if the two sessions' working directories differ.
-		$remote = 't51-force-' . $this->safe_slug() . '-' . \getmypid() . '.zip';
 		try {
 			$sftp->setTimeout( 600 );
-			$pwd = $sftp->pwd();
-			if ( \is_string( $pwd ) && '' !== $pwd ) {
-				// Absolute path so the separate SSH session finds the exact file. Handle pwd() === '/'
-				// (the SFTP root): rtrim would blank it and drop us back to a bare relative name.
-				$base   = ( '/' === $pwd ) ? '' : \rtrim( $pwd, '/' );
-				$remote = $base . '/' . $remote;
-			}
 			if ( ! $sftp->put( $remote, $this->local_zip, SFTP::SOURCE_LOCAL_FILE ) ) {
-				return array( false, 'Failed to upload the plugin zip via SFTP.' );
+				return array( false, 'Failed to upload the plugin zip via SFTP to ' . $remote . '.' );
 			}
 		} finally {
 			$sftp->disconnect();
 		}
 
 		$ssh->setTimeout( 600 );
-		$out = $ssh->exec( 'wp plugin install ' . \escapeshellarg( $remote ) . " $flags 2>&1" );
+		$out = $ssh->exec( self::WP . ' plugin install ' . \escapeshellarg( $remote ) . " $flags 2>&1" );
 		$ok  = 0 === $ssh->getExitStatus();
 
 		// Best-effort cleanup; the install result is what matters.
 		$ssh->exec( 'rm -f ' . \escapeshellarg( $remote ) . ' 2>/dev/null' );
 
 		return array( $ok, (string) $out );
+	}
+
+	/**
+	 * Resolves an absolute directory to stage the zip in, outside the web root.
+	 *
+	 * The SFTP session lands in the *web root* (`pwd()` is `/srv/htdocs` on both Pressable and WoA),
+	 * so uploading to the login directory would publish the package under a predictable name for the
+	 * length of the install — and permanently if the session dies before the cleanup. The SFTP user
+	 * is not chrooted, and an absolute path means the same file to both sessions, so the staging
+	 * directory is resolved over SSH instead: `/tmp` where it is usable (as
+	 * `pressable:download-site-plugins` already does for its archive), else the home directory.
+	 *
+	 * @param   SSH2 $ssh The open SSH connection.
+	 *
+	 * @return  string The absolute directory, or an empty string if neither candidate is usable.
+	 */
+	private function resolve_upload_dir( SSH2 $ssh ): string {
+		$ssh->setTimeout( 60 );
+		$out = $ssh->exec(
+			'if [ -d /tmp ] && [ -w /tmp ]; then printf %s /tmp; '
+			. 'elif [ -d "$HOME" ] && [ -w "$HOME" ]; then printf %s "$HOME"; fi'
+		);
+
+		$dir = \trim( (string) $out );
+
+		// Only ever an absolute path: a relative answer would resolve against the SSH login
+		// directory, which is not where the SFTP session would have written.
+		return \str_starts_with( $dir, '/' ) ? \rtrim( $dir, '/' ) : '';
 	}
 
 	// endregion
@@ -658,7 +711,7 @@ final class Jetpack_Plugin_Force_Update extends Command {
 	 * @return  string One of `installed`, `absent`, `error`.
 	 */
 	private function plugin_install_state( SSH2 $ssh ): string {
-		$out  = $ssh->exec( 'wp plugin is-installed ' . \escapeshellarg( $this->plugin ) . ' --skip-plugins --skip-themes 2>&1' );
+		$out  = $ssh->exec( self::WP . ' plugin is-installed ' . \escapeshellarg( $this->plugin ) . ' 2>&1' );
 		$code = $ssh->getExitStatus();
 
 		if ( 0 === $code ) {
@@ -684,7 +737,7 @@ final class Jetpack_Plugin_Force_Update extends Command {
 	 * @return  string
 	 */
 	private function read_plugin_version( SSH2 $ssh ): string {
-		$out     = $ssh->exec( 'wp plugin get ' . \escapeshellarg( $this->plugin ) . ' --field=version --skip-plugins --skip-themes 2>/dev/null' );
+		$out     = $ssh->exec( self::WP . ' plugin get ' . \escapeshellarg( $this->plugin ) . ' --field=version 2>/dev/null' );
 		$version = \trim( (string) $out );
 		return '' !== $version ? $version : 'unknown';
 	}
@@ -718,11 +771,59 @@ final class Jetpack_Plugin_Force_Update extends Command {
 	}
 
 	/**
+	 * Resolves the ledger path to an absolute one.
+	 *
+	 * A bare filename resolves against the process CWD, and `team51` is installed on the PATH and run
+	 * from arbitrary directories — so a second run started elsewhere would find no ledger, skip
+	 * nothing, and re-process the whole fleet. The default is pinned to the CLI's own directory,
+	 * where .gitignore expects it.
+	 *
+	 * @param   mixed $log_option The raw `--log` option value.
+	 *
+	 * @return  string
+	 */
+	private function resolve_ledger_path( mixed $log_option ): string {
+		if ( ! \is_string( $log_option ) || '' === $log_option ) {
+			return TEAM51_CLI_ROOT_DIR . '/' . self::DEFAULT_LEDGER;
+		}
+
+		// An explicit relative --log stays relative to the CWD, which is what an operator typing a
+		// path means by it.
+		return \str_starts_with( $log_option, '/' ) ? $log_option : \getcwd() . '/' . $log_option;
+	}
+
+	/**
+	 * Verifies the ledger can be appended to, before any site is touched.
+	 *
+	 * @param   OutputInterface $output The output object.
+	 *
+	 * @return  void
+	 */
+	private function assert_ledger_writable( OutputInterface $output ): void {
+		if ( \is_file( $this->ledger_path ) ) {
+			if ( ! \is_writable( $this->ledger_path ) ) {
+				$output->writeln( "<error>The ledger at {$this->ledger_path} is not writable.</error>" );
+				exit( 1 );
+			}
+
+			return;
+		}
+
+		$directory = \dirname( $this->ledger_path );
+		if ( ! \is_dir( $directory ) || ! \is_writable( $directory ) ) {
+			$output->writeln( "<error>The ledger directory {$directory} does not exist or is not writable.</error>" );
+			exit( 1 );
+		}
+	}
+
+	/**
 	 * Loads the ledger from disk into $this->ledger_entries, keyed by (plugin, site) in first-seen
 	 * order.
 	 *
-	 * A later line for the same (plugin, site) supersedes an earlier one, collapsing duplicates from
-	 * older runs while preserving rows for other plugins in the shared ledger.
+	 * A later line for the same (plugin, site) supersedes an earlier one, collapsing the repeated rows
+	 * that append-only writing leaves while preserving rows for other plugins in the shared ledger.
+	 *
+	 * @throws  \RuntimeException If an existing ledger cannot be read (the resume skip-list must fail loudly).
 	 *
 	 * @return  void
 	 */
@@ -732,9 +833,11 @@ final class Jetpack_Plugin_Force_Update extends Command {
 			return;
 		}
 
-		$handle = \fopen( $this->ledger_path, 'r' );
+		// The ledger is the resume skip-list: silently treating an unreadable one as empty would
+		// re-process every site already recorded done.
+		$handle = \is_readable( $this->ledger_path ) ? \fopen( $this->ledger_path, 'r' ) : false;
 		if ( false === $handle ) {
-			return;
+			throw new \RuntimeException( "The ledger at {$this->ledger_path} exists but could not be read." );
 		}
 
 		while ( true ) {
@@ -782,8 +885,10 @@ final class Jetpack_Plugin_Force_Update extends Command {
 	}
 
 	/**
-	 * Records a single result in the ledger, replacing any existing entry for the same site, then
-	 * flushes the ledger to disk. No-op during a dry run.
+	 * Records a single result in the ledger, in memory and on disk. No-op during a dry run.
+	 *
+	 * The in-memory map is kept current so the skip-list stays right within a run; the on-disk
+	 * ledger is only ever appended to {@see self::append_ledger()}.
 	 *
 	 * @param   \stdClass                             $site   The processed site.
 	 * @param   array{ status: string, note: string } $result The processing result.
@@ -795,7 +900,7 @@ final class Jetpack_Plugin_Force_Update extends Command {
 			return;
 		}
 
-		$this->ledger_entries[ $this->ledger_key( $this->plugin, $site->userblog_id ) ] = array(
+		$entry = array(
 			'id'        => $site->userblog_id,
 			'url'       => $site->siteurl ?? null,
 			'type'      => $this->site_is_atomic( $site ) ? 'wpcom' : 'pressable',
@@ -805,35 +910,36 @@ final class Jetpack_Plugin_Force_Update extends Command {
 			'timestamp' => \gmdate( 'c' ),
 		);
 
-		$this->write_ledger();
+		$this->ledger_entries[ $this->ledger_key( $this->plugin, $site->userblog_id ) ] = $entry;
+		$this->append_ledger( $entry );
 	}
 
 	/**
-	 * Atomically rewrites the whole ledger from $this->ledger_entries.
+	 * Appends one entry to the ledger.
 	 *
-	 * @throws  \RuntimeException If the ledger cannot be written (the resume mechanism must fail loudly).
+	 * Append-only on purpose. Reading the file into memory and writing it back made this writer
+	 * capable of deleting rows it never wrote: a line the loader skipped, or anything a second run
+	 * against the shared default ledger recorded after this one loaded it, was dropped on the next
+	 * flush — and a full-fleet run re-wrote every row once per site. Appending under an exclusive
+	 * lock is concurrency-safe and cannot truncate, and `load_ledger()` already collapses repeated
+	 * rows for the same (plugin, site) on read, so history accumulating here costs nothing.
+	 *
+	 * @param   array<string, mixed> $entry The entry to record.
+	 *
+	 * @throws  \RuntimeException If the entry cannot be encoded or appended (the resume mechanism must fail loudly).
 	 *
 	 * @return  void
 	 */
-	private function write_ledger(): void {
-		$lines = array();
-		foreach ( $this->ledger_entries as $entry ) {
-			$encoded = \json_encode( $entry, JSON_UNESCAPED_SLASHES );
-			if ( false !== $encoded ) {
-				$lines[] = $encoded;
-			}
+	private function append_ledger( array $entry ): void {
+		// Substitute rather than fail on malformed UTF-8 from the API: a slightly degraded row still
+		// records that the site was acted on, which is the point of the ledger.
+		$encoded = \json_encode( $entry, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE );
+		if ( false === $encoded ) {
+			throw new \RuntimeException( 'Failed to encode the ledger entry for site ' . $entry['id'] . '.' );
 		}
 
-		$payload   = empty( $lines ) ? '' : \implode( "\n", $lines ) . "\n";
-		$temp_path = $this->ledger_path . '.' . \getmypid() . '.tmp';
-
-		if ( false === \file_put_contents( $temp_path, $payload, LOCK_EX ) ) {
-			throw new \RuntimeException( "Failed to write the ledger at {$this->ledger_path}." );
-		}
-
-		if ( ! \rename( $temp_path, $this->ledger_path ) ) {
-			\unlink( $temp_path );
-			throw new \RuntimeException( "Failed to finalize the ledger at {$this->ledger_path}." );
+		if ( false === \file_put_contents( $this->ledger_path, $encoded . "\n", FILE_APPEND | LOCK_EX ) ) {
+			throw new \RuntimeException( "Failed to append to the ledger at {$this->ledger_path}." );
 		}
 	}
 
@@ -851,10 +957,11 @@ final class Jetpack_Plugin_Force_Update extends Command {
 	 */
 	private function confirm_force_is_intended( InputInterface $input, OutputInterface $output ): bool {
 		// A dry run writes nothing, so gating it buys no safety and would block the recommended
-		// `--dry-run` first check from running unattended. --no-output is the explicit "run unattended"
-		// opt-out; a plain non-interactive real run instead reaches the questions below, whose `false`
-		// default aborts, so a mistyped argument cannot silently force-install the fleet.
-		if ( $this->quiet || $this->dry_run ) {
+		// `--dry-run` first check from running unattended. --yes is the explicit "I meant this"
+		// opt-out; quieting the output is not one, and a plain non-interactive real run reaches the
+		// questions below, whose `false` default aborts, so a mistyped argument cannot silently
+		// force-install the fleet.
+		if ( $this->yes || $this->dry_run ) {
 			return true;
 		}
 
@@ -891,7 +998,7 @@ final class Jetpack_Plugin_Force_Update extends Command {
 	 * @return  bool True to proceed.
 	 */
 	private function confirm_batch( InputInterface $input, OutputInterface $output, int $count, int $skipped_done ): bool {
-		if ( $this->quiet || $this->dry_run ) {
+		if ( $this->yes || $this->dry_run ) {
 			return true;
 		}
 
