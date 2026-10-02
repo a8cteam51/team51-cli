@@ -51,6 +51,13 @@ final class Jetpack_Plugin_Search extends Command {
 	private ?string $version_operator = null;
 
 	/**
+	 * The plugin status to filter by. Either `active`, `inactive`, or null for both.
+	 *
+	 * @var string|null
+	 */
+	private ?string $status = null;
+
+	/**
 	 * The list of connected sites.
 	 *
 	 * @var array|null
@@ -114,6 +121,8 @@ final class Jetpack_Plugin_Search extends Command {
 		$this->addOption( 'version-search', null, InputOption::VALUE_REQUIRED, 'The version of the plugin to search for.' )
 			->addOption( 'version-operator', null, InputOption::VALUE_REQUIRED, 'The operator to use for the version comparison.' );
 
+		$this->addOption( 'status', null, InputOption::VALUE_REQUIRED, 'Only list plugins with this status. Accepted values are `active` and `inactive`. Lists both if omitted.' );
+
 		$this->addOption( 'export', null, InputOption::VALUE_REQUIRED, 'If provided, the output will be saved inside the specified file in addition to the terminal.' )
 			->addOption( 'export-format', null, InputOption::VALUE_REQUIRED, 'The format to export the sites in. Accepted values are `json`, and `csv`.', 'csv' )
 			->addOption( 'export-exclude', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Exclude columns from the export option. Possible values: `Site ID`, `Site URL`, `Plugin Name`, `Plugin Slug`, `Plugin Version`, and `Plugin Status`.' );
@@ -137,6 +146,7 @@ final class Jetpack_Plugin_Search extends Command {
 				fn() => $this->prompt_version_operator_input( $input, $output )
 			);
 		}
+		$this->status = get_enum_input( $input, 'status', array( 'active', 'inactive' ) );
 
 		// Open the destination file if provided.
 		$this->format      = get_enum_input( $input, 'export-format', array( 'json', 'csv' ) );
@@ -171,7 +181,7 @@ final class Jetpack_Plugin_Search extends Command {
 				$plugin_file   = \basename( $plugin, '.php' );
 
 				if ( $this->is_exact_match( $plugin_data, $plugin_folder, $plugin_file ) || ( $this->partial && $this->is_partial_match( $plugin_data, $plugin_folder, $plugin_file ) ) ) {
-					if ( $this->is_version_match( $plugin_data ) ) {
+					if ( $this->is_version_match( $plugin_data ) && $this->is_status_match( $plugin_data ) ) {
 						$matches[ $site_id ][ $plugin ] = $plugin_data;
 					}
 				}
@@ -211,6 +221,7 @@ final class Jetpack_Plugin_Search extends Command {
 			'Plugin searched for'    => $this->plugin,
 			'Search type'            => $partial_match_text,
 			'Version filter'         => ! empty( $this->version ) ? $this->version_operator . ' ' . $this->version : 'None',
+			'Status filter'          => $this->status ?? 'None',
 			'Total sites found'      => \count( $matches ),
 			'Total plugin instances' => \count( $rows ),
 		);
@@ -341,6 +352,18 @@ final class Jetpack_Plugin_Search extends Command {
 	private function is_version_match( \stdClass $plugin_data ): bool {
 		return empty( $this->version )
 			|| \version_compare( $plugin_data->Version, $this->version, $this->version_operator ); // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+	}
+
+	/**
+	 * Checks if the plugin data matches the status filter.
+	 *
+	 * @param   \stdClass $plugin_data The plugin data.
+	 *
+	 * @return  boolean
+	 */
+	private function is_status_match( \stdClass $plugin_data ): bool {
+		return \is_null( $this->status )
+			|| ( 'active' === $this->status ) === (bool) $plugin_data->active;
 	}
 
 	/**
