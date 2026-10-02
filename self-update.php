@@ -56,18 +56,18 @@ function team51_cli_run_system_command( string $command ): array {
  */
 function team51_cli_self_update(): void {
 	// Get the current branch.
-	$command = team51_cli_run_system_command( sprintf( 'git -C %s branch --show-current', TEAM51_CLI_ROOT_DIR ) );
+	$command = team51_cli_run_system_command( sprintf( 'git -C %s branch --show-current', escapeshellarg( TEAM51_CLI_ROOT_DIR ) ) );
 
 	// Maybe switch to trunk.
 	if ( 'trunk' !== $command['output'][0] ) {
 		team51_cli_print_message( 'Not on `trunk`. Switching...' );
-		team51_cli_run_system_command( sprintf( 'git -C %s stash', TEAM51_CLI_ROOT_DIR ) );
-		team51_cli_run_system_command( sprintf( 'git -C %s checkout -f trunk', TEAM51_CLI_ROOT_DIR ) );
+		team51_cli_run_system_command( sprintf( 'git -C %s stash', escapeshellarg( TEAM51_CLI_ROOT_DIR ) ) );
+		team51_cli_run_system_command( sprintf( 'git -C %s checkout -f trunk', escapeshellarg( TEAM51_CLI_ROOT_DIR ) ) );
 	}
 
 	// Reset branch.
-	team51_cli_run_system_command( sprintf( 'git -C %s fetch origin', TEAM51_CLI_ROOT_DIR ) );
-	team51_cli_run_system_command( sprintf( 'git -C %s reset --hard origin/trunk', TEAM51_CLI_ROOT_DIR ) );
+	team51_cli_run_system_command( sprintf( 'git -C %s fetch origin', escapeshellarg( TEAM51_CLI_ROOT_DIR ) ) );
+	team51_cli_run_system_command( sprintf( 'git -C %s reset --hard origin/trunk', escapeshellarg( TEAM51_CLI_ROOT_DIR ) ) );
 }
 
 // endregion
@@ -162,7 +162,7 @@ if ( $team51_cli_is_dev && ! $team51_cli_force_update ) {
 }
 
 // Update Composer.
-team51_cli_run_system_command( sprintf( 'composer install --ignore-platform-reqs --working-dir %s --no-interaction', TEAM51_CLI_ROOT_DIR ) );
-team51_cli_run_system_command( sprintf( 'composer dump-autoload -o --ignore-platform-reqs --working-dir %s --no-interaction', TEAM51_CLI_ROOT_DIR ) );
+team51_cli_run_system_command( sprintf( 'composer install --ignore-platform-reqs --working-dir %s --no-interaction', escapeshellarg( TEAM51_CLI_ROOT_DIR ) ) );
+team51_cli_run_system_command( sprintf( 'composer dump-autoload -o --ignore-platform-reqs --working-dir %s --no-interaction', escapeshellarg( TEAM51_CLI_ROOT_DIR ) ) );
 
 // endregion
