@@ -13,7 +13,7 @@ use Symfony\Component\Console\Question\Question;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 
 /**
- * Enables WP Cloud Bot Protection on Pressable sites by defining the
+ * Enables WP Cloud Bot Protection on a Pressable site by defining the
  * WPC_BOT_PROTECTION_ENABLED constant in wp-config over SSH.
  *
  * Enablement of WP Cloud Bot Protection comes from WP Cloud's own tiers; the
@@ -23,25 +23,22 @@ use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
  * module can only inherit or force *off* — it has no enable path — so enabling
  * is done here, via the constant.)
  *
- * The command is idempotent (skips any site where the constant already exists,
- * recording its current value) and resumable: every processed site is recorded
- * in a JSONL ledger — one entry per site, updated in place on retry — that
- * doubles as the skip-list on the next run. It uses pure SSH `wp config`, so it
- * does not touch the WPCOM Jetpack tunnel or any shared OAuth token.
+ * The existing fleet was swept once when this was written; the standing use is
+ * arming a newly launched site, so the command takes one site at a time. There
+ * is deliberately no fleet mode: nothing here should be able to rewrite
+ * wp-config across every Pressable site in one invocation, not least because
+ * each connection rotates the concierge SFTP password for the site it touches.
+ *
+ * Every run appends to a JSONL ledger — the audit trail for a security control,
+ * so it is append-only and never rewritten or compacted in place.
  *
  * Examples:
- *   # Single site — first tests (dry run, then for real)
+ *   # Arm a newly launched site (dry run first, then for real)
  *   team51 pressable:enable-bot-protection example.mystagingwebsite.com --dry-run
  *   team51 pressable:enable-bot-protection example.mystagingwebsite.com
  *
- *   # Larger staging-only batch
- *   team51 pressable:enable-bot-protection --staging-only
- *
- *   # Everything else — already-recorded sites are skipped via the ledger
- *   team51 pressable:enable-bot-protection
- *
- *   # Small first batch, unattended
- *   team51 pressable:enable-bot-protection --limit=20 --no-output
+ *   # Unattended (skips the confirmation the conventional way)
+ *   team51 pressable:enable-bot-protection example.com --no-interaction
  */
 #[AsCommand( name: 'pressable:enable-bot-protection' )]
 final class Pressable_Enable_Bot_Protection extends Command {
@@ -57,7 +54,7 @@ final class Pressable_Enable_Bot_Protection extends Command {
 	private const CONSTANT_NAME = 'WPC_BOT_PROTECTION_ENABLED';
 
 	/**
-	 * Default JSONL ledger filename, written in the current working directory.
+	 * Default JSONL ledger filename, written in the CLI's own directory.
 	 *
 	 * @var string
 	 */
@@ -71,43 +68,15 @@ final class Pressable_Enable_Bot_Protection extends Command {
 	private const SSH_TIMEOUT = 30;
 
 	/**
-	 * Ledger statuses that mark a site as complete (skipped on future runs).
-	 *
-	 * @var array<int, string>
-	 */
-	private const DONE_STATUSES = array( 'success', 'exists', 'exists-disabled' );
-
-	/**
-	 * The single site to process, when a site argument is supplied. Null in
-	 * fleet mode.
+	 * The site to process.
 	 *
 	 * @var \stdClass|null
 	 */
 	private ?\stdClass $site = null;
 
 	/**
-	 * Whether to restrict the fleet to staging sites only.
-	 *
-	 * @var bool
-	 */
-	private bool $staging_only = false;
-
-	/**
-	 * Whether to restrict the fleet to non-staging (production) sites only.
-	 *
-	 * @var bool
-	 */
-	private bool $production_only = false;
-
-	/**
-	 * Maximum number of sites to process this run, or null for no limit.
-	 *
-	 * @var int|null
-	 */
-	private ?int $limit = null;
-
-	/**
-	 * Whether to skip confirmation and minimize output.
+	 * Whether to minimize output. Affects verbosity only — it never skips a
+	 * confirmation, which is what `--no-interaction` is for.
 	 *
 	 * @var bool
 	 */
@@ -121,19 +90,11 @@ final class Pressable_Enable_Bot_Protection extends Command {
 	private bool $dry_run = false;
 
 	/**
-	 * Path to the JSONL ledger (audit log + resume skip-list).
+	 * Absolute path to the JSONL ledger (append-only audit log).
 	 *
 	 * @var string
 	 */
-	private string $ledger_path = self::DEFAULT_LEDGER;
-
-	/**
-	 * The ledger contents, one entry per site keyed by site ID, in first-seen
-	 * order. Loaded from disk at the start of a run and rewritten on each upsert.
-	 *
-	 * @var array<int|string, array<string, mixed>>
-	 */
-	private array $ledger_entries = array();
+	private string $ledger_path = '';
 
 	// endregion
 
@@ -143,54 +104,50 @@ final class Pressable_Enable_Bot_Protection extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function configure(): void {
-		$this->setDescription( 'Enables WP Cloud Bot Protection on Pressable sites by setting the WPC_BOT_PROTECTION_ENABLED constant in wp-config.' )
-			->setHelp( 'Sets `WPC_BOT_PROTECTION_ENABLED = true` in wp-config on Pressable sites over SSH. WoA/Atomic sites already have this armed at the platform level, so only Pressable sites need it. The command is idempotent (skips sites where the constant already exists) and resumable via a JSONL ledger that records every processed site.' );
+		$this->setDescription( 'Enables WP Cloud Bot Protection on a Pressable site by setting the WPC_BOT_PROTECTION_ENABLED constant in wp-config.' )
+			->setHelp( 'Sets `WPC_BOT_PROTECTION_ENABLED = true` in wp-config on a Pressable site over SSH. WoA/Atomic sites already have this armed at the platform level, so only Pressable sites need it. Intended for newly launched sites — one site per run. The command is idempotent: a site that already has the constant set truthy is left alone. A site where the constant is present but *not* truthy is left unchanged and reported as a failure, so a deliberate manual disable is never clobbered but never passes silently either. Every run is appended to a JSONL ledger.' );
 
-		$this->addArgument( 'site', InputArgument::OPTIONAL, 'A single Pressable site (URL, domain, or ID) to process. Omit to process the whole fleet.' )
-			->addOption( 'staging-only', null, InputOption::VALUE_NONE, 'Only process staging sites (by the Pressable staging flag, not URL matching).' )
-			->addOption( 'production-only', null, InputOption::VALUE_NONE, 'Only process non-staging (production) sites.' )
-			->addOption( 'limit', null, InputOption::VALUE_REQUIRED, 'Process at most this many sites this run (applied after filtering and the ledger skip-list).' )
-			->addOption( 'log', null, InputOption::VALUE_REQUIRED, 'Path to the JSONL ledger (audit log + resume skip-list). Defaults to ./' . self::DEFAULT_LEDGER . '.' )
-			->addOption( 'no-output', null, InputOption::VALUE_NONE, 'Skip confirmation and minimize output (for large runs).' )
-			->addOption( 'dry-run', null, InputOption::VALUE_NONE, 'Report what would change without writing anything (no SSH writes, no ledger entries).' );
+		$this->addArgument( 'site', InputArgument::OPTIONAL, 'The Pressable site (URL, domain, or ID) to arm. Prompted for when omitted.' )
+			->addOption( 'log', null, InputOption::VALUE_REQUIRED, 'Path to the JSONL ledger (append-only audit log). Defaults to ' . self::DEFAULT_LEDGER . ' in the CLI directory.' )
+			->addOption( 'no-output', null, InputOption::VALUE_NONE, 'Minimize output. Does not skip the confirmation — use --no-interaction for that.' )
+			->addOption( 'dry-run', null, InputOption::VALUE_NONE, 'Report what would change without writing anything (no SSH writes, no ledger entry).' );
 	}
 
 	/**
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->staging_only    = (bool) $input->getOption( 'staging-only' );
-		$this->production_only = (bool) $input->getOption( 'production-only' );
-		$this->dry_run         = (bool) $input->getOption( 'dry-run' );
-		$this->quiet           = (bool) $input->getOption( 'no-output' );
+		$this->dry_run = (bool) $input->getOption( 'dry-run' );
+		$this->quiet   = (bool) $input->getOption( 'no-output' );
 
-		if ( $this->staging_only && $this->production_only ) {
-			$output->writeln( '<error>--staging-only and --production-only are mutually exclusive.</error>' );
-			exit( 1 );
+		// Resolve and pre-flight the ledger before anything is touched: the
+		// ledger is the audit trail, so discovering it is unwritable after the
+		// site has already been modified would lose the record of that write.
+		$this->ledger_path = $this->resolve_ledger_path( $input->getOption( 'log' ) );
+		if ( ! $this->dry_run ) {
+			$this->assert_ledger_writable( $output );
 		}
 
-		$limit = $input->getOption( 'limit' );
-		if ( null !== $limit ) {
-			if ( ! ctype_digit( (string) $limit ) || (int) $limit < 1 ) {
-				$output->writeln( '<error>--limit must be a positive integer.</error>' );
-				exit( 1 );
-			}
-			$this->limit = (int) $limit;
+		$this->site = get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
+		$input->setArgument( 'site', $this->site );
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	protected function interact( InputInterface $input, OutputInterface $output ): void {
+		if ( $this->dry_run ) {
+			return;
 		}
 
-		$log_path          = $input->getOption( 'log' );
-		$this->ledger_path = ( is_string( $log_path ) && '' !== $log_path ) ? $log_path : self::DEFAULT_LEDGER;
+		$question = new ConfirmationQuestion(
+			'<question>Set ' . self::CONSTANT_NAME . ' = true on ' . $this->site_label( $this->site ) . ' [pressable]? [y/N]</question> ',
+			false
+		);
 
-		// Single-site mode: resolve and validate the site argument. Filters and
-		// the fleet fetch only apply when no site is given.
-		$site_arg = $input->getArgument( 'site' );
-		if ( null !== $site_arg ) {
-			if ( $this->staging_only || $this->production_only ) {
-				$output->writeln( '<comment>Note: --staging-only/--production-only are ignored when a single site is given.</comment>' );
-			}
-
-			$this->site = get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
-			$input->setArgument( 'site', $this->site );
+		if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
+			$output->writeln( '<comment>Command aborted by user.</comment>' );
+			exit( 2 );
 		}
 	}
 
@@ -198,68 +155,31 @@ final class Pressable_Enable_Bot_Protection extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
-		if ( $this->dry_run && ! $this->quiet ) {
-			$output->writeln( '<fg=yellow;options=bold>--- DRY RUN: no changes will be written ---</>' );
-			$output->writeln( '' );
-		}
-
-		$is_fleet = null === $this->site;
-
-		// Build the (filtered) target list.
-		$targets = $this->resolve_targets( $output );
-		if ( null === $targets ) {
-			return Command::FAILURE;
-		}
-		if ( empty( $targets ) ) {
-			$output->writeln( '<comment>No sites matched after filtering.</comment>' );
-			return Command::SUCCESS;
-		}
-
-		// Load the existing ledger so results upsert in place (one entry per site).
-		$this->load_ledger();
-
-		// In fleet mode, drop any site already recorded complete in the ledger.
-		$pending      = $targets;
-		$skipped_done = 0;
-		if ( $is_fleet ) {
-			$done    = $this->completed_ids();
-			$pending = array();
-			foreach ( $targets as $site ) {
-				if ( isset( $done[ $site->id ] ) ) {
-					++$skipped_done;
-					continue;
-				}
-				$pending[] = $site;
+		if ( ! $this->quiet ) {
+			if ( $this->dry_run ) {
+				$output->writeln( '<fg=yellow;options=bold>--- DRY RUN: no changes will be written ---</>' );
 			}
+			$output->writeln( '<info>' . $this->site_label( $this->site ) . '</info>' );
 		}
 
-		// Cap to --limit.
-		if ( null !== $this->limit && count( $pending ) > $this->limit ) {
-			$pending = array_slice( $pending, 0, $this->limit );
-		}
-
-		if ( empty( $pending ) ) {
-			$output->writeln( "<info>Nothing to do: all {$skipped_done} matching site(s) are already recorded in the ledger ({$this->ledger_path}).</info>" );
-			return Command::SUCCESS;
-		}
-
-		// Confirm before making changes.
-		if ( ! $this->quiet && ! $this->dry_run ) {
-			$count    = count( $pending );
-			$scope    = $this->describe_scope();
-			$extra    = $skipped_done > 0 ? " ({$skipped_done} already done, skipped)" : '';
-			$question = new ConfirmationQuestion(
-				'<question>Set ' . self::CONSTANT_NAME . " = true on {$count} Pressable site(s) [{$scope}]{$extra}? [y/N]</question> ",
-				false
+		try {
+			$result = $this->process_site( $this->site );
+		} catch ( \Throwable $e ) {
+			$result = array(
+				'status' => 'failed',
+				'note'   => 'Error: ' . $e->getMessage(),
 			);
-			if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
-				$output->writeln( '<comment>Command aborted by user.</comment>' );
-				return Command::FAILURE;
-			}
-			$output->writeln( '' );
 		}
 
-		return $this->process( $pending, $skipped_done, $output );
+		$this->append_ledger( $this->site, $result );
+		$this->report_result( $result['status'], $result['note'], $output );
+
+		// `exists-disabled` is not an error in the site, but it does mean bot
+		// protection is off and a human has to look: a zero exit would let a
+		// security control read as handled when it is not.
+		return \in_array( $result['status'], array( 'failed', 'exists-disabled' ), true )
+			? Command::FAILURE
+			: Command::SUCCESS;
 	}
 
 	// endregion
@@ -267,64 +187,13 @@ final class Pressable_Enable_Bot_Protection extends Command {
 	// region PROCESSING
 
 	/**
-	 * Iterates the pending sites, applies the constant, and records each result
-	 * in the ledger.
+	 * Applies the constant to the site over a single SSH connection.
 	 *
-	 * @param   \stdClass[]     $pending      The sites to process.
-	 * @param   int             $skipped_done Sites skipped because they were already recorded done.
-	 * @param   OutputInterface $output       The output object.
-	 *
-	 * @return  int
-	 */
-	private function process( array $pending, int $skipped_done, OutputInterface $output ): int {
-		$total   = count( $pending );
-		$counter = 0;
-		$tally   = array(
-			'success'         => 0,
-			'exists'          => 0,
-			'exists-disabled' => 0,
-			'would-set'       => 0,
-			'failed'          => 0,
-		);
-
-		foreach ( $pending as $site ) {
-			++$counter;
-			$label = $this->site_label( $site );
-
-			if ( ! $this->quiet ) {
-				$output->writeln( "<info>[{$counter}/{$total}] {$label}</info>" );
-			}
-
-			try {
-				$result = $this->process_site( $site, $output );
-			} catch ( \Throwable $e ) {
-				$result = array(
-					'status' => 'failed',
-					'note'   => 'Error: ' . $e->getMessage(),
-				);
-			}
-
-			$status = $result['status'];
-			if ( isset( $tally[ $status ] ) ) {
-				++$tally[ $status ];
-			}
-
-			$this->upsert_ledger( $site, $result );
-			$this->report_result( $status, $result['note'], $output );
-		}
-
-		return $this->summarize( $tally, $total, $skipped_done, $output );
-	}
-
-	/**
-	 * Applies the constant to a single site over a single SSH connection.
-	 *
-	 * @param   \stdClass       $site   The Pressable site object.
-	 * @param   OutputInterface $output The output object.
+	 * @param   \stdClass $site The Pressable site object.
 	 *
 	 * @return  array{ status: string, note: string } Result status and descriptive note.
 	 */
-	private function process_site( \stdClass $site, OutputInterface $output ): array {
+	private function process_site( \stdClass $site ): array {
 		$ssh = \Pressable_Connection_Helper::get_ssh_connection( (string) $site->id );
 		if ( null === $ssh ) {
 			return array(
@@ -353,10 +222,12 @@ final class Pressable_Enable_Bot_Protection extends Command {
 				}
 
 				// Present but not truthy: never overwrite — this could be a
-				// deliberate manual disable. Flag it for review instead.
+				// deliberate manual disable. Report it instead. The value is
+				// quoted because the common case is an empty string, which is
+				// indistinguishable from a missing value unquoted.
 				return array(
 					'status' => 'exists-disabled',
-					'note'   => "Already present but NOT truthy (value: {$value}) — left unchanged, review manually.",
+					'note'   => 'Already defined but NOT truthy (value: "' . $value . '") — left unchanged. Bot protection is OFF on this site; review it by hand.',
 				);
 			}
 
@@ -393,118 +264,74 @@ final class Pressable_Enable_Bot_Protection extends Command {
 	// region HELPERS
 
 	/**
-	 * Resolves the list of sites to act on, applying environment filters in
-	 * fleet mode.
+	 * Resolves the ledger path to an absolute one.
+	 *
+	 * A bare filename would resolve against the process CWD, and `team51` is
+	 * installed on the PATH and run from arbitrary directories — so the default
+	 * is pinned to the CLI's own directory, where the ledger from the original
+	 * fleet sweep lives and where .gitignore expects it.
+	 *
+	 * @param   mixed $log_option The raw `--log` option value.
+	 *
+	 * @return  string
+	 */
+	private function resolve_ledger_path( mixed $log_option ): string {
+		if ( ! is_string( $log_option ) || '' === $log_option ) {
+			return TEAM51_CLI_ROOT_DIR . '/' . self::DEFAULT_LEDGER;
+		}
+
+		// An explicit relative --log stays relative to the CWD, which is what an
+		// operator typing a path means by it.
+		return str_starts_with( $log_option, '/' ) ? $log_option : getcwd() . '/' . $log_option;
+	}
+
+	/**
+	 * Verifies the ledger can be appended to, before any site is touched.
 	 *
 	 * @param   OutputInterface $output The output object.
 	 *
-	 * @return  \stdClass[]|null The target sites, or null on a fatal fetch error.
-	 */
-	private function resolve_targets( OutputInterface $output ): ?array {
-		if ( null !== $this->site ) {
-			return array( $this->site );
-		}
-
-		$sites = get_pressable_sites();
-		if ( null === $sites ) {
-			$output->writeln( '<error>Failed to fetch the Pressable sites list.</error>' );
-			return null;
-		}
-
-		$filtered = array();
-		foreach ( $sites as $site ) {
-			$is_staging = (bool) ( $site->staging ?? false );
-
-			if ( $this->staging_only && ! $is_staging ) {
-				continue;
-			}
-			if ( $this->production_only && $is_staging ) {
-				continue;
-			}
-
-			$filtered[] = $site;
-		}
-
-		return $filtered;
-	}
-
-	/**
-	 * Loads the ledger from disk into $this->ledger_entries, keyed by site ID in
-	 * first-seen order.
-	 *
-	 * A later line for the same site supersedes an earlier one, so any duplicate
-	 * rows left by older append-only runs are collapsed on load (and flushed on
-	 * the next upsert).
-	 *
 	 * @return  void
 	 */
-	private function load_ledger(): void {
-		$this->ledger_entries = array();
-		if ( ! is_file( $this->ledger_path ) ) {
+	private function assert_ledger_writable( OutputInterface $output ): void {
+		if ( is_file( $this->ledger_path ) ) {
+			if ( ! is_writable( $this->ledger_path ) ) {
+				$output->writeln( "<error>The ledger at {$this->ledger_path} is not writable.</error>" );
+				exit( 1 );
+			}
+
 			return;
 		}
 
-		$handle = fopen( $this->ledger_path, 'r' );
-		if ( false === $handle ) {
-			return;
+		$directory = \dirname( $this->ledger_path );
+		if ( ! is_dir( $directory ) || ! is_writable( $directory ) ) {
+			$output->writeln( "<error>The ledger directory {$directory} does not exist or is not writable.</error>" );
+			exit( 1 );
 		}
-
-		while ( true ) {
-			$line = fgets( $handle );
-			if ( false === $line ) {
-				break;
-			}
-
-			$line = trim( $line );
-			if ( '' === $line ) {
-				continue;
-			}
-
-			$entry = json_decode( $line, true );
-			if ( ! is_array( $entry ) || ! isset( $entry['id'] ) ) {
-				continue;
-			}
-
-			$this->ledger_entries[ $entry['id'] ] = $entry;
-		}
-
-		fclose( $handle );
 	}
 
 	/**
-	 * Derives the set of site IDs already recorded complete in the ledger.
+	 * Appends the result to the ledger. No-op during a dry run.
 	 *
-	 * A site is complete when its (single, latest) entry has a done status;
-	 * `failed` sites are absent and thus retried.
-	 *
-	 * @return  array<int|string, true> Map of completed site IDs.
-	 */
-	private function completed_ids(): array {
-		$done = array();
-		foreach ( $this->ledger_entries as $id => $entry ) {
-			if ( isset( $entry['status'] ) && in_array( $entry['status'], self::DONE_STATUSES, true ) ) {
-				$done[ $id ] = true;
-			}
-		}
-
-		return $done;
-	}
-
-	/**
-	 * Records a single result in the ledger, replacing any existing entry for the
-	 * same site, then flushes the ledger to disk. No-op during a dry run.
+	 * The ledger is the audit trail for a security control, so it is only ever
+	 * appended to: a run that reads the whole file and writes it back can lose
+	 * rows it never wrote — to a partial read, or to a second run that flushed
+	 * in between. Appending under an exclusive lock has neither failure mode,
+	 * and a repeated site simply gains a second row, which is history rather
+	 * than a duplicate.
 	 *
 	 * @param   \stdClass                             $site   The processed site.
 	 * @param   array{ status: string, note: string } $result The processing result.
 	 *
+	 * @throws  \RuntimeException If the entry cannot be encoded or appended (must fail loudly).
+	 *
 	 * @return  void
 	 */
-	private function upsert_ledger( \stdClass $site, array $result ): void {
+	private function append_ledger( \stdClass $site, array $result ): void {
 		if ( $this->dry_run ) {
 			return;
 		}
 
-		$this->ledger_entries[ $site->id ] = array(
+		$entry = array(
 			'id'        => $site->id,
 			'url'       => $site->url ?? null,
 			'name'      => $site->displayName ?? null, // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
@@ -514,43 +341,21 @@ final class Pressable_Enable_Bot_Protection extends Command {
 			'timestamp' => gmdate( 'c' ),
 		);
 
-		$this->write_ledger();
-	}
-
-	/**
-	 * Atomically rewrites the whole ledger from $this->ledger_entries.
-	 *
-	 * Writes to a temporary file and renames it over the target so a crash mid-run
-	 * cannot leave the ledger — the resume mechanism — truncated or corrupt.
-	 *
-	 * @throws  \RuntimeException If the ledger cannot be written (must fail loudly).
-	 *
-	 * @return  void
-	 */
-	private function write_ledger(): void {
-		$lines = array();
-		foreach ( $this->ledger_entries as $entry ) {
-			$encoded = json_encode( $entry, JSON_UNESCAPED_SLASHES );
-			if ( false !== $encoded ) {
-				$lines[] = $encoded;
-			}
+		// Substitute rather than fail on malformed UTF-8 from the API: a slightly
+		// degraded row still records that the site was written to, which is the
+		// point of the ledger.
+		$encoded = json_encode( $entry, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE );
+		if ( false === $encoded ) {
+			throw new \RuntimeException( 'Failed to encode the ledger entry for ' . $this->site_label( $site ) . '.' );
 		}
 
-		$payload   = empty( $lines ) ? '' : implode( "\n", $lines ) . "\n";
-		$temp_path = $this->ledger_path . '.' . getmypid() . '.tmp';
-
-		if ( false === file_put_contents( $temp_path, $payload, LOCK_EX ) ) {
-			throw new \RuntimeException( "Failed to write the ledger at {$this->ledger_path}." );
-		}
-
-		if ( ! rename( $temp_path, $this->ledger_path ) ) {
-			unlink( $temp_path );
-			throw new \RuntimeException( "Failed to finalize the ledger at {$this->ledger_path}." );
+		if ( false === file_put_contents( $this->ledger_path, $encoded . "\n", FILE_APPEND | LOCK_EX ) ) {
+			throw new \RuntimeException( "Failed to append to the ledger at {$this->ledger_path}." );
 		}
 	}
 
 	/**
-	 * Prints a single site's result line (skipped when --no-output).
+	 * Prints the result line (skipped when --no-output).
 	 *
 	 * @param   string          $status The result status.
 	 * @param   string          $note   The descriptive note.
@@ -566,45 +371,14 @@ final class Pressable_Enable_Bot_Protection extends Command {
 		$style = match ( $status ) {
 			'success', 'would-set' => 'info',
 			'exists'               => 'comment',
-			'exists-disabled'      => 'comment',
 			default                => 'error',
 		};
 
 		$output->writeln( "  <{$style}>{$note}</{$style}>" );
-	}
 
-	/**
-	 * Prints the run summary and returns the exit code.
-	 *
-	 * @param   array<string, int> $tally        Per-status counts.
-	 * @param   int                $total        Total sites processed this run.
-	 * @param   int                $skipped_done Sites skipped as already-done.
-	 * @param   OutputInterface    $output       The output object.
-	 *
-	 * @return  int
-	 */
-	private function summarize( array $tally, int $total, int $skipped_done, OutputInterface $output ): int {
-		if ( ! $this->quiet ) {
-			$output->writeln( '' );
-			$output->writeln( '<info>--- Summary ---</info>' );
-			$output->writeln(
-				sprintf(
-					'Processed: %d | Set: %d | Already enabled: %d | Present-but-off: %d | Would set: %d | Failed: %d | Skipped (already done): %d',
-					$total,
-					$tally['success'],
-					$tally['exists'],
-					$tally['exists-disabled'],
-					$tally['would-set'],
-					$tally['failed'],
-					$skipped_done
-				)
-			);
-			if ( ! $this->dry_run ) {
-				$output->writeln( "Ledger: {$this->ledger_path}" );
-			}
+		if ( ! $this->dry_run ) {
+			$output->writeln( "  Ledger: {$this->ledger_path}" );
 		}
-
-		return $tally['failed'] > 0 ? Command::FAILURE : Command::SUCCESS;
 	}
 
 	/**
@@ -619,33 +393,19 @@ final class Pressable_Enable_Bot_Protection extends Command {
 	}
 
 	/**
-	 * Describes the current run scope for the confirmation prompt.
-	 *
-	 * @return  string
-	 */
-	private function describe_scope(): string {
-		if ( null !== $this->site ) {
-			return 'single site';
-		}
-		if ( $this->staging_only ) {
-			return 'staging only';
-		}
-		if ( $this->production_only ) {
-			return 'production only';
-		}
-		return 'all Pressable sites';
-	}
-
-	/**
 	 * Prompts for a site when the argument is omitted in interactive mode.
 	 *
 	 * @param   InputInterface  $input  The input object.
 	 * @param   OutputInterface $output The output object.
 	 *
-	 * @return  string
+	 * @return  string|null
 	 */
-	private function prompt_site_input( InputInterface $input, OutputInterface $output ): string {
-		$question = new Question( '<question>Enter the site URL, domain, or ID:</question> ' );
+	private function prompt_site_input( InputInterface $input, OutputInterface $output ): ?string {
+		$question = new Question( '<question>Enter the domain or Pressable site ID to enable bot protection on:</question> ' );
+		if ( ! $input->getOption( 'no-autocomplete' ) ) {
+			$question->setAutocompleterValues( \array_column( get_pressable_sites( include_aliases: true ) ?? array(), 'url' ) );
+		}
+
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
 	}
 
