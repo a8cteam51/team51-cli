@@ -132,7 +132,7 @@ final class DeployHQ_Project_Repository_Connect extends Command {
 	private function prompt_repository_input( InputInterface $input, OutputInterface $output ): string {
 		$question = new Question( '<question>Enter the slug of the repository to connect:</question> ' );
 		if ( ! $input->getOption( 'no-autocomplete' ) ) {
-			$question->setAutocompleterValues( array_column( get_github_repositories() ?? array(), 'name' ) );
+			$question->setAutocompleterValues( get_github_repository_autocomplete_values() );
 		}
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );

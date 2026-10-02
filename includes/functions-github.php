@@ -221,6 +221,21 @@ function maybe_get_github_repository_input( InputInterface $input, ?callable $no
 	return $repository;
 }
 
+/**
+ * Returns the names of all GitHub repositories, sorted for use as autocomplete values.
+ *
+ * Symfony's autocompleter accepts the first value that starts with the typed text when Enter is pressed,
+ * so an exact name has to sort ahead of the longer names it prefixes (`julep-houston` before `julep-houston-2022`).
+ *
+ * @return  string[]
+ */
+function get_github_repository_autocomplete_values(): array {
+	$names = array_column( get_github_repositories() ?? array(), 'name' );
+	sort( $names, SORT_STRING );
+
+	return $names;
+}
+
 // endregion
 
 // region HELPERS

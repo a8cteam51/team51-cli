@@ -161,7 +161,7 @@ final class GitHub_Repository_Self_Add extends Command {
 		if ( ! $input->getOption( 'no-autocomplete' ) ) {
 			$question->setAutocompleterValues(
 				array_filter(
-					array_column( get_github_repositories() ?? array(), 'name' ),
+					get_github_repository_autocomplete_values(),
 					static fn( string $name ) => ! is_github_repository_collaborator_locked( $name )
 				)
 			);
