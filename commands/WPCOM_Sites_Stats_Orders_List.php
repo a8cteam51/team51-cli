@@ -230,9 +230,9 @@ final class WPCOM_Sites_Stats_Orders_List extends Command {
 
 		// Output to file if destination is set.
 		if ( ! \is_null( $this->stream ) ) {
-			\fputcsv( $this->stream, array( 'Blog ID', 'Site URL', 'Total Gross Sales', 'Total Net Sales', 'Total Orders', 'Total Products' ) );
+			\fputcsv( $this->stream, array( 'Blog ID', 'Site URL', 'Total Gross Sales', 'Total Net Sales', 'Total Orders', 'Total Products' ), ',', '"', '' );
 			foreach ( $sites_stats_rows as $row ) {
-				\fputcsv( $this->stream, $row );
+				\fputcsv( $this->stream, $row, ',', '"', '' );
 			}
 			\fclose( $this->stream );
 

@@ -299,7 +299,7 @@ final class GitHub_Checklist_Add extends Command {
 	private function prompt_repository_input( InputInterface $input, OutputInterface $output ): ?string {
 		$question = new Question( '<question>Please enter the slug of the GitHub repository to add the checklist to:</question> ' );
 		if ( ! $input->getOption( 'no-autocomplete' ) ) {
-			$question->setAutocompleterValues( array_column( get_github_repositories() ?? array(), 'name' ) );
+			$question->setAutocompleterValues( get_github_repository_autocomplete_values() );
 		}
 
 		$repository = $this->getHelper( 'question' )->ask( $input, $output, $question );

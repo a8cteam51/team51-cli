@@ -584,12 +584,12 @@ final class WPCOM_Sites_List extends Command {
 			}
 		}
 
-		\fputcsv( $this->stream, $headers );
+		\fputcsv( $this->stream, $headers, ',', '"', '' );
 		foreach ( $rows as $fields ) {
-			\fputcsv( $this->stream, $fields );
+			\fputcsv( $this->stream, $fields, ',', '"', '' );
 		}
 		foreach ( $summary as $key => $item ) {
-			\fputcsv( $this->stream, array( $key, $item ) );
+			\fputcsv( $this->stream, array( $key, $item ), ',', '"', '' );
 		}
 		\fclose( $this->stream );
 	}

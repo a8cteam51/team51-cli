@@ -4,6 +4,9 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Helper\ProgressBar;
 
+// Poseidon infrastructure repositories; collaborator access is managed manually, never via the CLI.
+const GITHUB_COLLABORATOR_LOCKED_REPOSITORIES = array( 'poseidon-runner', 'poseidon-actions' );
+
 // region API
 
 /**
@@ -49,7 +52,7 @@ function set_github_repository_topics( string $repository, array $topics ): ?arr
  * Creates a new GitHub repository.
  *
  * @param   string      $name              The name of the repository to create.
- * @param   string|null $type              The type of repository to create aka the name of the template repository to use.
+ * @param   string|null $type              The type of repository to create; OpsOasis generates it from that type's template. Null or `empty` creates an empty repository.
  * @param   string|null $homepage          A URL with more information about the repository.
  * @param   string|null $description       A short, human-friendly description for this project.
  * @param   array|null  $custom_properties The custom properties to set for the repository. Must be an array of key-value pairs and match the properties defined on GitHub.
@@ -65,7 +68,7 @@ function create_github_repository( string $name, ?string $type = null, ?string $
 				'name'              => $name,
 				'description'       => $description,
 				'homepage'          => $homepage,
-				'template'          => $type ? "team51-$type-scaffold" : null,
+				'type'              => 'empty' === $type ? null : $type,
 				'custom_properties' => $custom_properties,
 			)
 		)
@@ -137,21 +140,6 @@ function get_github_repository_secrets( string $repository ): ?array {
 }
 
 /**
- * Creates or updates a repository secret.
- *
- * @param   string $repository   The name of the repository. The name is not case-sensitive.
- * @param   string $secret_name  The name of the secret.
- * @param   string $secret_value The plaintext value of the secret. You can pass the name of a constant available on OpsOasis to use its value. OpsOasis will handle the encryption process.
- *
- * @link    https://docs.github.com/en/rest/actions/secrets#create-or-update-a-repository-secret
- *
- * @return  stdClass|null
- */
-function set_github_repository_secret( string $repository, string $secret_name, string $secret_value ): ?stdClass {
-	return API_Helper::make_github_request( "repositories/$repository/secrets/$secret_name", 'PUT', array( 'value' => $secret_value ) );
-}
-
-/**
  * Adds a user as a collaborator to a given GitHub repository.
  *
  * @param   string $repository The name of the repository to add the collaborator to.
@@ -161,13 +149,30 @@ function set_github_repository_secret( string $repository, string $secret_name, 
  * @link    https://docs.github.com/en/rest/collaborators/collaborators#add-a-repository-collaborator
  *
  * @return  stdClass|true|null
+ *
+ * @throws  \InvalidArgumentException If collaborator management for the repository is locked.
  */
 function add_github_repository_collaborator( string $repository, string $username, string $permission = 'push' ): stdClass|true|null {
+	if ( is_github_repository_collaborator_locked( $repository ) ) {
+		throw new InvalidArgumentException( "Adding collaborators to `$repository` via the CLI is disabled. Access to this repository is managed manually." );
+	}
+
 	return API_Helper::make_github_request(
 		"repositories/$repository/collaborators/$username",
 		'PUT',
 		array( 'permission' => $permission )
 	);
+}
+
+/**
+ * Checks whether collaborator management for a given GitHub repository is disabled in this tool.
+ *
+ * @param   string $repository The name of the repository to check.
+ *
+ * @return  bool
+ */
+function is_github_repository_collaborator_locked( string $repository ): bool {
+	return in_array( strtolower( $repository ), GITHUB_COLLABORATOR_LOCKED_REPOSITORIES, true );
 }
 
 // endregion
@@ -214,6 +219,21 @@ function maybe_get_github_repository_input( InputInterface $input, ?callable $no
 	}
 
 	return $repository;
+}
+
+/**
+ * Returns the names of all GitHub repositories, sorted for use as autocomplete values.
+ *
+ * Symfony's autocompleter accepts the first value that starts with the typed text when Enter is pressed,
+ * so an exact name has to sort ahead of the longer names it prefixes (`julep-houston` before `julep-houston-2022`).
+ *
+ * @return  string[]
+ */
+function get_github_repository_autocomplete_values(): array {
+	$names = array_column( get_github_repositories() ?? array(), 'name' );
+	sort( $names, SORT_STRING );
+
+	return $names;
 }
 
 // endregion

@@ -38,9 +38,13 @@ class Parallel_Process {
 	/**
 	 * The number of processes to run in parallel.
 	 *
+	 * Every process is an SSH worker whose credentials come from OpsOasis, where each request holds one of
+	 * its few PHP workers for up to tens of seconds and requests are turned away once all are busy. This
+	 * caps how many of them a single run takes.
+	 *
 	 * @var int|null
 	 */
-	protected ?int $max_parallel = 10;
+	protected ?int $max_parallel = 3;
 
 	/**
 	 * The tasks to run in parallel.
@@ -126,7 +130,7 @@ class Parallel_Process {
 	 * @return self
 	 */
 	public function configure( array $config ): self {
-		$this->max_parallel = $config['max_parallel'] ?? 10;
+		$this->max_parallel = $config['max_parallel'] ?? $this->max_parallel;
 		$this->ssh_timeout  = $config['ssh_timeout'] ?? 120;
 		return $this;
 	}

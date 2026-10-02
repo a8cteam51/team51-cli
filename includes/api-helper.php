@@ -137,16 +137,10 @@ final class API_Helper {
 		);
 
 		if ( ! str_starts_with( (string) $result['headers']['http_code'], '2' ) ) {
-			if ( 500 === $result['headers']['http_code'] && str_contains( $result['body'], 'site_already_exists' ) ) {
-				console_writeln( "❌ API error ({$result['headers']['http_code']} $endpoint): " . $result['body'] );
-				return (object) array(
-					'code'    => 'site_already_exists',
-					'message' => 'A site with this name already exists',
-				);
-			}
-
 			console_writeln( "❌ API error ({$result['headers']['http_code']} $endpoint): " . $result['body'] );
-			return null;
+
+			$error = json_decode( (string) $result['body'] );
+			return \is_object( $error ) && 'site_already_exists' === ( $error->code ?? '' ) ? $error : null;
 		}
 
 		$result['body'] = ( '' === $result['body'] ) ? null : decode_json_content( $result['body'] );

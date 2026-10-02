@@ -131,10 +131,16 @@ final class Pressable_Site_PHP_Errors_List extends Command {
 			$php_errors = $this->get_php_errors( $output, $site );
 			if ( \is_null( $php_errors ) ) {
 				$output->writeln( '<error>Could not retrieve the PHP errors.</error>' );
+				if ( ! $this->is_audit ) {
+					return Command::FAILURE;
+				}
 				continue;
 			}
 			if ( 0 === \count( $php_errors ) ) {
 				$output->writeln( '<info>The PHP error log appears to be empty. Go make some errors and try again!</info>' );
+				if ( ! $this->is_audit ) {
+					return Command::SUCCESS;
+				}
 				continue;
 			}
 

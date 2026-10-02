@@ -153,6 +153,21 @@ final class Team51McpTools {
 	}
 
 	/**
+	 * Whether a site identifier is safe to pass to a CLI subprocess as an argument.
+	 *
+	 * Both team51-cli.php and self-update.php scan raw argv before Symfony parses it and ignore `--`, so values
+	 * such as `--mcp`, `--shell`, `--force-update` or `completion` would change how the subprocess boots.
+	 *
+	 * @param string $site_id_or_url Site identifier passed by caller.
+	 *
+	 * @return bool
+	 */
+	private static function is_safe_site_argument( string $site_id_or_url ): bool {
+		return ! str_starts_with( ltrim( $site_id_or_url ), '-' )
+			&& ! in_array( $site_id_or_url, array( 'completion', '_complete' ), true );
+	}
+
+	/**
 	 * Emits a structured audit entry for high-risk WP-CLI execution.
 	 *
 	 * @param string $provider       Either wpcom or pressable.
@@ -1575,42 +1590,6 @@ final class Team51McpTools {
 	}
 
 	/**
-	 * Create or update a secret in a GitHub repository.
-	 *
-	 * @param string $repository   The repository name.
-	 * @param string $secret_name  The name of the secret.
-	 * @param string $secret_value The value to set for the secret.
-	 */
-	#[McpTool(
-		name: 'github_set_secret',
-		annotations: new ToolAnnotations(
-			title: 'Set GitHub Repository Secret',
-			readOnlyHint: false,
-			destructiveHint: false,
-			idempotentHint: true,
-			openWorldHint: true,
-		)
-	)]
-	public function github_set_secret( string $repository, string $secret_name, string $secret_value ): array {
-		$identity_error = self::ensure_identity();
-		if ( $identity_error ) {
-			return $identity_error;
-		}
-
-		$result = set_github_repository_secret( $repository, $secret_name, $secret_value );
-		if ( null === $result ) {
-			return array( 'error' => "Failed to set secret '$secret_name' in repository: $repository" );
-		}
-
-		return array(
-			'success'    => true,
-			'repository' => $repository,
-			'secret'     => $secret_name,
-			'action'     => 'set',
-		);
-	}
-
-	/**
 	 * Create a new issue in a GitHub repository.
 	 *
 	 * @param string $repository The repository name.
@@ -1961,17 +1940,32 @@ final class Team51McpTools {
 			);
 		}
 
+		if ( ! self::is_safe_site_argument( $site_id_or_url ) ) {
+			return array( 'error' => 'Invalid site identifier.' );
+		}
+
 		self::audit_wp_cli_command( 'wpcom', $site_id_or_url, $wp_cli_command );
 
-		$exit_code = run_wpcom_site_wp_cli_command( $site_id_or_url, $wp_cli_command, true );
-		return array(
-			'exit_code' => $exit_code,
-			'output'    => $GLOBALS['wp_cli_output'] ?? '',
+		// Run out of process: the MCP server has no console application for run_app_command(), and the command
+		// can exit(). The `--` stops Symfony parsing the arguments as options; is_safe_site_argument() covers
+		// the raw argv scans that run before it.
+		return self::run_cli_command(
+			'wpcom:run-site-wp-cli-command',
+			array( '--', $site_id_or_url, $wp_cli_command )
 		);
 	}
 
-	#[McpTool( name: 'wpcom_connect_site_repository' )]
-	public function wpcom_connect_site_repository( string $site_id_or_url, string $repository, string $branch = 'trunk', string $target_dir = '/wp-content/', bool $deploy = false ): array {
+	#[McpTool(
+		name: 'wpcom_connect_site_repository',
+		annotations: new ToolAnnotations(
+			title: 'Connect WPCOM Site Repository',
+			readOnlyHint: false,
+			destructiveHint: true,
+			idempotentHint: false,
+			openWorldHint: true,
+		)
+	)]
+	public function wpcom_connect_site_repository( string $site_id_or_url, string $repository, string $branch = 'trunk', string $target_dir = '/wp-content/', bool $deploy = false, string $branch_source = '' ): array {
 		$identity_error = self::ensure_identity();
 		if ( $identity_error ) {
 			return $identity_error;
@@ -1985,6 +1979,17 @@ final class Team51McpTools {
 		$site = get_wpcom_site( $site_id_or_url );
 		if ( null === $site || ! isset( $site->ID ) ) {
 			return array( 'error' => "Failed to fetch WPCOM site: $site_id_or_url" );
+		}
+
+		$existing_branches = get_github_repository_branches( $gh_repository->name );
+		if ( null !== $existing_branches && ! in_array( $branch, array_column( $existing_branches, 'name' ), true ) ) {
+			if ( '' === $branch_source ) {
+				$branch_source = $gh_repository->default_branch ?? 'trunk';
+			}
+			$created = create_github_repository_branch( $gh_repository->name, $branch, $branch_source );
+			if ( null === $created ) {
+				return array( 'error' => "Failed to create GitHub branch `$branch` off of `$branch_source`." );
+			}
 		}
 
 		$site_id    = (string) $site->ID;
@@ -2254,12 +2259,18 @@ final class Team51McpTools {
 			);
 		}
 
+		if ( ! self::is_safe_site_argument( $site_id_or_url ) ) {
+			return array( 'error' => 'Invalid site identifier.' );
+		}
+
 		self::audit_wp_cli_command( 'pressable', $site_id_or_url, $wp_cli_command );
 
-		$exit_code = run_pressable_site_wp_cli_command( $site_id_or_url, $wp_cli_command, true );
-		return array(
-			'exit_code' => $exit_code,
-			'output'    => $GLOBALS['wp_cli_output'] ?? '',
+		// Run out of process: the MCP server has no console application for run_app_command(), and the command
+		// can exit(). The `--` stops Symfony parsing the arguments as options; is_safe_site_argument() covers
+		// the raw argv scans that run before it.
+		return self::run_cli_command(
+			'pressable:run-site-wp-cli-command',
+			array( '--', $wp_cli_command, $site_id_or_url )
 		);
 	}
 

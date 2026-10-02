@@ -105,7 +105,7 @@ final class Jetpack_Site_Plugins_Export extends Command {
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		$output->writeln( '<fg=magenta;options=bold>Exporting plugins installed on ' . count( $this->plugins ) . " Jetpack site(s) to $this->destination.</>" );
 
-		\fputcsv( $this->stream, array( 'Site ID', 'Site URL', 'Plugin Name', 'Plugin Slug', 'Plugin Version', 'Plugin Status' ) );
+		\fputcsv( $this->stream, array( 'Site ID', 'Site URL', 'Plugin Name', 'Plugin Slug', 'Plugin Version', 'Plugin Status' ), ',', '"', '' );
 		foreach ( $this->plugins as $site_id => $plugins ) {
 			foreach ( $plugins as $plugin => $plugin_data ) {
 				\fputcsv(
@@ -119,7 +119,10 @@ final class Jetpack_Site_Plugins_Export extends Command {
 						$plugin_data->Version,
 						$plugin_data->active ? 'Active' : 'Inactive',
 						// phpcs:enable WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
-					)
+					),
+					',',
+					'"',
+					''
 				);
 			}
 		}

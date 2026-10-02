@@ -117,7 +117,7 @@ final class WPCOM_Site_Create extends Command {
 		}
 
 		if ( isset( $agency_site->code ) && 'site_already_exists' === $agency_site->code ) {
-			$output->writeln( "<error>Failed to create the site. {$agency_site->message}.</error>" );
+			$output->writeln( "<error>Failed to create the site. {$agency_site->message}</error>" );
 			return Command::FAILURE;
 		}
 
@@ -251,7 +251,7 @@ final class WPCOM_Site_Create extends Command {
 		if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 			$question = new Question( "<question>Please enter the slug of the GitHub repository to deploy from [$this->name]:</question> ", $this->name );
 			if ( ! $input->getOption( 'no-autocomplete' ) ) {
-				$question->setAutocompleterValues( array_column( get_github_repositories() ?? array(), 'name' ) );
+				$question->setAutocompleterValues( get_github_repository_autocomplete_values() );
 			}
 
 			return $this->getHelper( 'question' )->ask( $input, $output, $question );
@@ -276,16 +276,6 @@ final class WPCOM_Site_Create extends Command {
 		if ( \is_null( $repository ) ) {
 			$question = new ConfirmationQuestion( "<question>Could not find GitHub repository `$name`. Would you like to create it? [Y/n]</question> ", true );
 			if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
-				$php_globals_long_prefix = \str_replace( '-', '_', $name );
-				if ( 2 <= \substr_count( $php_globals_long_prefix, '_' ) ) {
-					$php_globals_short_prefix = '';
-					foreach ( \explode( '_', $php_globals_long_prefix ) as $part ) {
-						$php_globals_short_prefix .= $part[0];
-					}
-				} else {
-					$php_globals_short_prefix = \explode( '_', $php_globals_long_prefix )[0];
-				}
-
 				$this->project_template = get_enum_input( $input, 'project-template', array( 'project', 'no-code-project' ), fn() => $this->prompt_project_template_input( $input, $output ), 'project' );
 				$input->setOption( 'project-template', $this->project_template );
 
@@ -298,14 +288,10 @@ final class WPCOM_Site_Create extends Command {
 				$status = run_app_command(
 					GitHub_Repository_Create::getDefaultName(),
 					array(
-						'name'                => $name,
-						'--homepage'          => "https://$name.wpcomstaging.com",
-						'--type'              => $this->project_template,
-						'--no-code-theme'     => $this->no_code_theme,
-						'--custom-properties' => array(
-							"php-globals-long-prefix=$php_globals_long_prefix",
-							"php-globals-short-prefix=$php_globals_short_prefix",
-						),
+						'name'            => $name,
+						'--homepage'      => "https://$name.wpcomstaging.com",
+						'--type'          => $this->project_template,
+						'--no-code-theme' => $this->no_code_theme,
 					),
 				);
 				if ( Command::SUCCESS !== $status ) {
