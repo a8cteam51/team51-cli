@@ -1927,10 +1927,11 @@ final class Team51McpTools {
 
 		self::audit_wp_cli_command( 'wpcom', $site_id_or_url, $wp_cli_command );
 
-		$exit_code = run_wpcom_site_wp_cli_command( $site_id_or_url, $wp_cli_command, true );
-		return array(
-			'exit_code' => $exit_code,
-			'output'    => $GLOBALS['wp_cli_output'] ?? '',
+		// Run out of process: the MCP server has no console application for run_app_command(), and the command
+		// can exit(). The `--` keeps a site value starting with a dash from being parsed as an option.
+		return self::run_cli_command(
+			'wpcom:run-site-wp-cli-command',
+			array( '--', $site_id_or_url, $wp_cli_command )
 		);
 	}
 
@@ -2240,10 +2241,11 @@ final class Team51McpTools {
 
 		self::audit_wp_cli_command( 'pressable', $site_id_or_url, $wp_cli_command );
 
-		$exit_code = run_pressable_site_wp_cli_command( $site_id_or_url, $wp_cli_command, true );
-		return array(
-			'exit_code' => $exit_code,
-			'output'    => $GLOBALS['wp_cli_output'] ?? '',
+		// Run out of process: the MCP server has no console application for run_app_command(), and the command
+		// can exit(). The `--` keeps a site value starting with a dash from being parsed as an option.
+		return self::run_cli_command(
+			'pressable:run-site-wp-cli-command',
+			array( '--', $wp_cli_command, $site_id_or_url )
 		);
 	}
 
