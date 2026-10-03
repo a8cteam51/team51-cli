@@ -34,8 +34,8 @@ use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
  *   "production"), a comma-separated list, or a CSV file (first column).
  * - Each site is reached over SSH via the helper matching its platform, resolved in order: the fleet
  *   record's `is_wpcom_atomic` flag, then the platform default domain (`*.wpcomstaging.com` → WoA,
- *   `*.mystagingwebsite.com` → Pressable), then a full WPCOM site lookup. A site none of those can
- *   settle is reported as a failure rather than guessed at.
+ *   `*.mystagingwebsite.com` → Pressable), then a full WPCOM site lookup, then a Pressable lookup. A
+ *   site none of those can settle is reported as a failure rather than guessed at.
  * - By default only sites that already have the plugin are touched; the plugin is updated/reinstalled
  *   in place and its activation state is never changed. `--install-new` (gated) also installs on
  *   requested sites that lack it, left inactive unless `--activate` is also passed (which only affects
@@ -43,7 +43,9 @@ use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
  * - wp-cli runs with `--skip-plugins --skip-themes` (as globals, before the subcommand) so a site
  *   with a fatal plugin/theme can still be fixed.
  * - Every processed site is appended to a resumable JSONL ledger that doubles as the skip-list on the
- *   next run; repeated rows for the same (plugin, site) are collapsed on read, latest winning.
+ *   next run; repeated rows for the same (plugin, site) are collapsed on read, latest winning. A
+ *   finished install is only settled for the package it was done with, so pushing a second build of
+ *   the same plugin re-visits every site rather than reading as already done.
  *
  * Examples:
  *   # Reinstall an Atlantis RC on staging only, from a URL (dry run first)
@@ -346,6 +348,7 @@ final class Jetpack_Plugin_Force_Update extends Command {
 
 		if ( empty( $pending ) ) {
 			$output->writeln( "<info>Nothing to do: all {$skipped_done} matching site(s) are already recorded in the ledger ({$this->ledger_path}).</info>" );
+			$this->report_absent( $output );
 			return Command::SUCCESS;
 		}
 
@@ -696,14 +699,13 @@ final class Jetpack_Plugin_Force_Update extends Command {
 	}
 
 	/**
-	 * Whether the site is a WPCOM/WoA (Atomic) site, as opposed to Pressable.
+	 * Which platform hosts the site, or null when it cannot be established.
 	 *
-	 * Uses the `is_wpcom_atomic` flag when the list carries it, otherwise enriches once from the full
-	 * site object (cached per site).
+	 * Resolved once per site and cached. See self::determine_platform() for the order.
 	 *
 	 * @param   \stdClass $site The site object.
 	 *
-	 * @return  bool
+	 * @return  string|null self::PLATFORM_WPCOM, self::PLATFORM_PRESSABLE, or null if undetermined.
 	 */
 	private function site_platform( \stdClass $site ): ?string {
 		$id = (string) $site->userblog_id;
@@ -751,6 +753,14 @@ final class Jetpack_Plugin_Force_Update extends Command {
 		$full = get_wpcom_site( (string) $site->userblog_id );
 		if ( isset( $full->is_wpcom_atomic ) ) {
 			return $full->is_wpcom_atomic ? self::PLATFORM_WPCOM : self::PLATFORM_PRESSABLE;
+		}
+
+		// A Pressable site on a custom domain whose Jetpack JSON API is off answers nothing above —
+		// the WPCOM lookup 400s with `jetpack.jsonAPI does not exist` — so ask Pressable directly
+		// rather than writing the site off. This is a positive identification, not the old guess: a
+		// site Pressable does not know (a VIP host, say) still falls through to null.
+		if ( null !== get_pressable_site( $this->pressable_identifier( $site ) ) ) {
+			return self::PLATFORM_PRESSABLE;
 		}
 
 		return null;
@@ -942,24 +952,76 @@ final class Jetpack_Plugin_Force_Update extends Command {
 	 * @return  array<int|string, true> Map of completed site IDs.
 	 */
 	private function completed_ids(): array {
-		$done_statuses = $this->install_new
-			? self::DONE_STATUSES
-			: \array_merge( self::DONE_STATUSES, self::DONE_UNLESS_INSTALLING_NEW );
+		$package = $this->package_id();
+		$done    = array();
 
-		$done = array();
 		foreach ( $this->ledger_entries as $entry ) {
 			// The default ledger is a fixed filename shared across plugins, so a done entry only
 			// counts when it is for THIS plugin — otherwise force-updating a second plugin from the
 			// same directory would see every site as done and no-op.
-			if ( ( $entry['plugin'] ?? null ) !== $this->plugin ) {
+			if ( ( $entry['plugin'] ?? null ) !== $this->plugin || ! isset( $entry['status'], $entry['id'] ) ) {
 				continue;
 			}
-			if ( isset( $entry['status'], $entry['id'] ) && \in_array( $entry['status'], $done_statuses, true ) ) {
+
+			// A finished install is only settled for the package it was done with. Keyed on the plugin
+			// alone, pushing a second build of the same plugin — the RC-iteration this command exists
+			// for — would see every site as done and no-op.
+			if ( \in_array( $entry['status'], self::DONE_STATUSES, true ) ) {
+				if ( ( $entry['package'] ?? null ) === $package ) {
+					$done[ $entry['id'] ] = true;
+				}
+				continue;
+			}
+
+			// Absence is a property of the site, not of the build being pushed, so it is not package
+			// scoped — otherwise the --limit clog it exists to prevent would return with every build.
+			if ( ! $this->install_new && \in_array( $entry['status'], self::DONE_UNLESS_INSTALLING_NEW, true ) ) {
 				$done[ $entry['id'] ] = true;
 			}
 		}
 
 		return $done;
+	}
+
+	/**
+	 * A stable identifier for the package being installed, recorded in the ledger and used to decide
+	 * whether a site is already done.
+	 *
+	 * A URL identifies itself. A local zip is identified by name *and* content hash, so rebuilding a
+	 * zip at the same path counts as a new package rather than silently reading as already-installed.
+	 *
+	 * @return  string
+	 */
+	private function package_id(): string {
+		if ( $this->is_url || null === $this->local_zip ) {
+			return $this->package;
+		}
+
+		$hash = \sha1_file( $this->local_zip );
+		return \basename( $this->local_zip ) . '@' . ( false === $hash ? 'unhashed' : \substr( $hash, 0, 12 ) );
+	}
+
+	/**
+	 * Names how many targeted sites are parked because the plugin is not installed on them.
+	 *
+	 * Once a site is recorded `skipped-absent` it folds into the "already done" tally, so without this
+	 * a deliberately terminal status would be invisible after the single run that found it. Printed
+	 * from both exits, including the "nothing to do" one — the second-pass run is exactly when the
+	 * whole remaining set is parked and the notice matters most.
+	 *
+	 * @param   OutputInterface $output The output object.
+	 *
+	 * @return  void
+	 */
+	private function report_absent( OutputInterface $output ): void {
+		if ( $this->quiet || $this->install_new ) {
+			return;
+		}
+
+		$absent = $this->ledger_absent_count();
+		if ( $absent > 0 ) {
+			$output->writeln( "<comment>{$absent} site(s) recorded as not having '{$this->plugin}' and skipped. Re-run with --install-new to install it there.</comment>" );
+		}
 	}
 
 	/**
@@ -970,7 +1032,13 @@ final class Jetpack_Plugin_Force_Update extends Command {
 	private function ledger_absent_count(): int {
 		$count = 0;
 		foreach ( $this->ledger_entries as $entry ) {
-			if ( ( $entry['plugin'] ?? null ) === $this->plugin && \in_array( $entry['status'] ?? '', self::DONE_UNLESS_INSTALLING_NEW, true ) ) {
+			if ( ( $entry['plugin'] ?? null ) !== $this->plugin || ! \in_array( $entry['status'] ?? '', self::DONE_UNLESS_INSTALLING_NEW, true ) ) {
+				continue;
+			}
+
+			// Only the sites this run was asked about: the shared ledger also holds rows from runs with
+			// a wider --sites scope, and counting those would over-report against the current scope.
+			if ( isset( $entry['id'], $this->targets[ $entry['id'] ] ) ) {
 				++$count;
 			}
 		}
@@ -999,6 +1067,7 @@ final class Jetpack_Plugin_Force_Update extends Command {
 			'url'       => $site->siteurl ?? null,
 			'type'      => $this->site_platform( $site ) ?? 'unknown',
 			'plugin'    => $this->plugin,
+			'package'   => $this->package_id(),
 			'status'    => $result['status'],
 			'note'      => $result['note'],
 			'timestamp' => \gmdate( 'c' ),
@@ -1167,13 +1236,7 @@ final class Jetpack_Plugin_Force_Update extends Command {
 					$skipped_done
 				)
 			);
-			// Once a site is recorded `skipped-absent` it folds into the "already done" count above, so
-			// say plainly that the plugin is missing on those sites and how to reach them — otherwise
-			// a status that is deliberately terminal becomes invisible after the run that found it.
-			$absent = $this->ledger_absent_count();
-			if ( ! $this->install_new && $absent > 0 ) {
-				$output->writeln( "<comment>{$absent} site(s) recorded as not having '{$this->plugin}' and skipped. Re-run with --install-new to install it there.</comment>" );
-			}
+			$this->report_absent( $output );
 
 			if ( ! $this->dry_run ) {
 				$output->writeln( "Ledger: {$this->ledger_path}" );
