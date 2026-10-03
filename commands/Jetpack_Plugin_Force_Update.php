@@ -81,12 +81,25 @@ final class Jetpack_Plugin_Force_Update extends Command {
 	private const DEFAULT_LEDGER = 'plugin-force-update-ledger.jsonl';
 
 	/**
-	 * Ledger statuses that mark a site as complete (skipped on future runs). A `skipped-absent` or
-	 * `failed` site is deliberately re-attempted next run.
+	 * Ledger statuses that mark a site as complete (skipped on future runs). A `failed` site is
+	 * deliberately re-attempted next run.
 	 *
 	 * @var array<int, string>
 	 */
 	private const DONE_STATUSES = array( 'updated', 'installed-new' );
+
+	/**
+	 * Ledger statuses that count as complete only while `--install-new` is off.
+	 *
+	 * A site without the plugin is a settled no-op for a default run, and re-probing it every time
+	 * would clog `--limit`: `--limit` slices *after* the ledger skip, so sites that can only ever
+	 * answer `skipped-absent` sit at the front of the list and a batched rollout never advances past
+	 * them. Under `--install-new` the same row is not settled at all — that run is precisely the one
+	 * meant to reach those sites — so it is re-probed instead.
+	 *
+	 * @var array<int, string>
+	 */
+	private const DONE_UNLESS_INSTALLING_NEW = array( 'skipped-absent' );
 
 	/**
 	 * The plugin slug (folder name) to force-install.
@@ -865,9 +878,15 @@ final class Jetpack_Plugin_Force_Update extends Command {
 	/**
 	 * Derives the set of site IDs already recorded complete in the ledger.
 	 *
+	 * What counts as complete depends on the mode: see self::DONE_UNLESS_INSTALLING_NEW.
+	 *
 	 * @return  array<int|string, true> Map of completed site IDs.
 	 */
 	private function completed_ids(): array {
+		$done_statuses = $this->install_new
+			? self::DONE_STATUSES
+			: \array_merge( self::DONE_STATUSES, self::DONE_UNLESS_INSTALLING_NEW );
+
 		$done = array();
 		foreach ( $this->ledger_entries as $entry ) {
 			// The default ledger is a fixed filename shared across plugins, so a done entry only
@@ -876,12 +895,28 @@ final class Jetpack_Plugin_Force_Update extends Command {
 			if ( ( $entry['plugin'] ?? null ) !== $this->plugin ) {
 				continue;
 			}
-			if ( isset( $entry['status'], $entry['id'] ) && \in_array( $entry['status'], self::DONE_STATUSES, true ) ) {
+			if ( isset( $entry['status'], $entry['id'] ) && \in_array( $entry['status'], $done_statuses, true ) ) {
 				$done[ $entry['id'] ] = true;
 			}
 		}
 
 		return $done;
+	}
+
+	/**
+	 * Counts the sites the ledger records as not having this plugin.
+	 *
+	 * @return  int
+	 */
+	private function ledger_absent_count(): int {
+		$count = 0;
+		foreach ( $this->ledger_entries as $entry ) {
+			if ( ( $entry['plugin'] ?? null ) === $this->plugin && \in_array( $entry['status'] ?? '', self::DONE_UNLESS_INSTALLING_NEW, true ) ) {
+				++$count;
+			}
+		}
+
+		return $count;
 	}
 
 	/**
@@ -1073,6 +1108,14 @@ final class Jetpack_Plugin_Force_Update extends Command {
 					$skipped_done
 				)
 			);
+			// Once a site is recorded `skipped-absent` it folds into the "already done" count above, so
+			// say plainly that the plugin is missing on those sites and how to reach them — otherwise
+			// a status that is deliberately terminal becomes invisible after the run that found it.
+			$absent = $this->ledger_absent_count();
+			if ( ! $this->install_new && $absent > 0 ) {
+				$output->writeln( "<comment>{$absent} site(s) recorded as not having '{$this->plugin}' and skipped. Re-run with --install-new to install it there.</comment>" );
+			}
+
 			if ( ! $this->dry_run ) {
 				$output->writeln( "Ledger: {$this->ledger_path}" );
 			}
