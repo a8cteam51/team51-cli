@@ -32,8 +32,10 @@ use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
  * - Site universe is the Jetpack-connected fleet. `--sites` narrows it to `production`, `staging`
  *   (both filtered by URL substring, not API status — Pressable staging URLs are often flagged
  *   "production"), a comma-separated list, or a CSV file (first column).
- * - Each site is reached over SSH via the helper matching its type (`is_wpcom_atomic` → WPCOM/WoA,
- *   otherwise Pressable).
+ * - Each site is reached over SSH via the helper matching its platform, resolved in order: the fleet
+ *   record's `is_wpcom_atomic` flag, then the platform default domain (`*.wpcomstaging.com` → WoA,
+ *   `*.mystagingwebsite.com` → Pressable), then a full WPCOM site lookup. A site none of those can
+ *   settle is reported as a failure rather than guessed at.
  * - By default only sites that already have the plugin are touched; the plugin is updated/reinstalled
  *   in place and its activation state is never changed. `--install-new` (gated) also installs on
  *   requested sites that lack it, left inactive unless `--activate` is also passed (which only affects
@@ -58,6 +60,14 @@ final class Jetpack_Plugin_Force_Update extends Command {
 	use AutocompleteTrait;
 
 	// region FIELDS AND CONSTANTS
+
+	/**
+	 * Platform identifiers, as recorded in the ledger's `type` field.
+	 *
+	 * @var string
+	 */
+	private const PLATFORM_WPCOM     = 'wpcom';
+	private const PLATFORM_PRESSABLE = 'pressable';
 
 	/**
 	 * The wp-cli invocation, with the bootstrap-skipping globals.
@@ -215,11 +225,12 @@ final class Jetpack_Plugin_Force_Update extends Command {
 	private string $scope_label = 'all Jetpack sites';
 
 	/**
-	 * Cache of resolved site-is-atomic decisions, keyed by WPCOM ID.
+	 * Cache of resolved platform decisions, keyed by WPCOM ID. A null value is a cached "could not
+	 * determine", which must be preserved rather than re-resolved.
 	 *
-	 * @var array<string, bool>
+	 * @var array<string, string|null>
 	 */
-	private array $atomic_cache = array();
+	private array $platform_cache = array();
 
 	// endregion
 
@@ -407,6 +418,15 @@ final class Jetpack_Plugin_Force_Update extends Command {
 	 * @return  array{ status: string, note: string } Result status and descriptive note.
 	 */
 	private function process_site( \stdClass $site ): array {
+		// Established before connecting, so an undetermined platform reports itself rather than
+		// surfacing as a confusing failure from whichever helper was picked by default.
+		if ( null === $this->site_platform( $site ) ) {
+			return array(
+				'status' => 'failed',
+				'note'   => 'Could not determine whether this is a WoA or Pressable site (no platform flag, no platform default domain, and the WPCOM lookup did not answer); skipped rather than guessing.',
+			);
+		}
+
 		$ssh = $this->ssh_for_site( $site );
 		if ( null === $ssh ) {
 			return array(
@@ -653,9 +673,11 @@ final class Jetpack_Plugin_Force_Update extends Command {
 	 * @return  SSH2|null
 	 */
 	private function ssh_for_site( \stdClass $site ): ?SSH2 {
-		return $this->site_is_atomic( $site )
-			? \WPCOM_Connection_Helper::get_ssh_connection( (string) $site->userblog_id )
-			: \Pressable_Connection_Helper::get_ssh_connection( $this->pressable_identifier( $site ) );
+		return match ( $this->site_platform( $site ) ) {
+			self::PLATFORM_WPCOM     => \WPCOM_Connection_Helper::get_ssh_connection( (string) $site->userblog_id ),
+			self::PLATFORM_PRESSABLE => \Pressable_Connection_Helper::get_ssh_connection( $this->pressable_identifier( $site ) ),
+			default                  => null,
+		};
 	}
 
 	/**
@@ -666,9 +688,11 @@ final class Jetpack_Plugin_Force_Update extends Command {
 	 * @return  SFTP|null
 	 */
 	private function sftp_for_site( \stdClass $site ): ?SFTP {
-		return $this->site_is_atomic( $site )
-			? \WPCOM_Connection_Helper::get_sftp_connection( (string) $site->userblog_id )
-			: \Pressable_Connection_Helper::get_sftp_connection( $this->pressable_identifier( $site ) );
+		return match ( $this->site_platform( $site ) ) {
+			self::PLATFORM_WPCOM     => \WPCOM_Connection_Helper::get_sftp_connection( (string) $site->userblog_id ),
+			self::PLATFORM_PRESSABLE => \Pressable_Connection_Helper::get_sftp_connection( $this->pressable_identifier( $site ) ),
+			default                  => null,
+		};
 	}
 
 	/**
@@ -681,20 +705,55 @@ final class Jetpack_Plugin_Force_Update extends Command {
 	 *
 	 * @return  bool
 	 */
-	private function site_is_atomic( \stdClass $site ): bool {
+	private function site_platform( \stdClass $site ): ?string {
 		$id = (string) $site->userblog_id;
-		if ( isset( $this->atomic_cache[ $id ] ) ) {
-			return $this->atomic_cache[ $id ];
+
+		// array_key_exists, not isset: a cached "unknown" is a null value that must not be re-resolved.
+		if ( \array_key_exists( $id, $this->platform_cache ) ) {
+			return $this->platform_cache[ $id ];
 		}
 
+		$this->platform_cache[ $id ] = $this->determine_platform( $site );
+		return $this->platform_cache[ $id ];
+	}
+
+	/**
+	 * Works out which platform hosts a site, or null when it cannot be established.
+	 *
+	 * Never guesses. The previous version read `$full->is_wpcom_atomic ?? false` off a failed lookup,
+	 * and because `??` also suppresses the read-on-null warning, any site whose WPCOM lookup errored
+	 * was silently declared Pressable: a WoA site then got a Pressable SSH attempt, reported
+	 * "Could not find the Pressable site SFTP user", and was recorded in the ledger as
+	 * `type: pressable`. Sites whose API access is disabled are exactly the ones whose fleet record
+	 * omits the flag, so the fallback was guaranteed to fail for the sites that depended on it.
+	 *
+	 * @param   \stdClass $site The site object.
+	 *
+	 * @return  string|null self::PLATFORM_WPCOM, self::PLATFORM_PRESSABLE, or null if undetermined.
+	 */
+	private function determine_platform( \stdClass $site ): ?string {
+		// The fleet record's own flag, when it carries one.
 		if ( isset( $site->is_wpcom_atomic ) ) {
-			$this->atomic_cache[ $id ] = (bool) $site->is_wpcom_atomic;
-			return $this->atomic_cache[ $id ];
+			return $site->is_wpcom_atomic ? self::PLATFORM_WPCOM : self::PLATFORM_PRESSABLE;
 		}
 
-		$full                      = get_wpcom_site( $id );
-		$this->atomic_cache[ $id ] = (bool) ( $full->is_wpcom_atomic ?? false );
-		return $this->atomic_cache[ $id ];
+		// Each platform's default domain is unambiguous, and costs no API call. This resolves most of
+		// the fleet before the lookup below — including the sites the lookup cannot answer for.
+		$host = normalize_wpcom_site_host( (string) ( $site->siteurl ?? '' ) );
+		if ( \str_ends_with( $host, '.wpcomstaging.com' ) ) {
+			return self::PLATFORM_WPCOM;
+		}
+		if ( \str_ends_with( $host, '.mystagingwebsite.com' ) ) {
+			return self::PLATFORM_PRESSABLE;
+		}
+
+		// A custom primary domain names neither platform, so ask WPCOM.
+		$full = get_wpcom_site( (string) $site->userblog_id );
+		if ( isset( $full->is_wpcom_atomic ) ) {
+			return $full->is_wpcom_atomic ? self::PLATFORM_WPCOM : self::PLATFORM_PRESSABLE;
+		}
+
+		return null;
 	}
 
 	/**
@@ -938,7 +997,7 @@ final class Jetpack_Plugin_Force_Update extends Command {
 		$entry = array(
 			'id'        => $site->userblog_id,
 			'url'       => $site->siteurl ?? null,
-			'type'      => $this->site_is_atomic( $site ) ? 'wpcom' : 'pressable',
+			'type'      => $this->site_platform( $site ) ?? 'unknown',
 			'plugin'    => $this->plugin,
 			'status'    => $result['status'],
 			'note'      => $result['note'],
