@@ -147,12 +147,20 @@ final class Pressable_Site_Clone extends Command {
 
 			$this->gh_repository = get_github_repository_from_deployhq_project( $this->deployhq_project->permalink );
 			if ( \is_null( $this->gh_repository ) ) {
-				$output->writeln( '<error>Failed to get the GitHub repository connected to the project or invalid connected repository. Aborting!</error>' );
-				exit( 1 );
-			}
+				// A repository outside our GitHub organization cannot be looked up, but the clone does not need it.
+				$output->writeln( '<error>Failed to get the GitHub repository connected to the project or invalid connected repository.</error>' );
 
-			$this->gh_repo_branch = get_string_input( $input, 'branch', fn() => $this->prompt_branch_input( $input, $output ) );
-			$input->setOption( 'branch', $this->gh_repo_branch );
+				$question = new ConfirmationQuestion( '<question>Do you want to continue without connecting the clone to a GitHub repository? [y/N]</question> ', false );
+				if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
+					$output->writeln( '<comment>Command aborted by user.</comment>' );
+					exit( 1 );
+				}
+
+				$this->deployhq_project = null;
+			} else {
+				$this->gh_repo_branch = get_string_input( $input, 'branch', fn() => $this->prompt_branch_input( $input, $output ) );
+				$input->setOption( 'branch', $this->gh_repo_branch );
+			}
 		}
 
 		$this->label = slugify( get_string_input( $input, 'label', fn() => $this->prompt_label_input( $input, $output ) ) );
