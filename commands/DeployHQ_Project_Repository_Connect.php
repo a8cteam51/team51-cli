@@ -77,6 +77,13 @@ final class DeployHQ_Project_Repository_Connect extends Command {
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		$output->writeln( "<fg=magenta;options=bold>Connecting the DeployHQ project `{$this->project->name}` (permalink {$this->project->permalink}) to the GitHub repository `{$this->gh_repository->full_name}`.</>" );
 
+		// The project is connected on the `trunk` branch, which a repository created as empty does not have until its first push.
+		$branches = get_github_repository_branches( $this->gh_repository->name );
+		if ( \is_array( $branches ) && ! \in_array( 'trunk', \array_column( $branches, 'name' ), true ) ) {
+			$output->writeln( "<error>The repository `{$this->gh_repository->full_name}` has no `trunk` branch yet, so the project cannot be connected to it. Push a first commit to `trunk`, then run `team51 deployhq:connect-project-repository {$this->project->permalink} {$this->gh_repository->name}`.</error>" );
+			return Command::FAILURE;
+		}
+
 		$project_repository = update_deployhq_project_repository( $this->project->permalink, $this->gh_repository->ssh_url );
 		if ( \is_null( $project_repository ) ) {
 			$output->writeln( '<error>Failed to connect the project to the repository.</error>' );
