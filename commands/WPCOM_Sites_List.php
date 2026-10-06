@@ -63,13 +63,6 @@ final class WPCOM_Sites_List extends Command {
 	private array $ignore = array( 'staging', 'testing', 'jurassic', 'wpengine', 'wordpress', 'develop', 'mdrovdahl', '/dev.', 'woocommerce.com', 'opsoasis' );
 
 	/**
-	 * List of url patterns to help identify multisite sites.
-	 *
-	 * @var array
-	 */
-	private array $multisite_patterns = array( 'com/', 'org/' );
-
-	/**
 	 * List of sites that are allowed to pass the ignore list.
 	 *
 	 * @var array
@@ -227,6 +220,7 @@ final class WPCOM_Sites_List extends Command {
 				'Domain only sites'      => $this->count_sites( $audited_site_list, 'is_domain_only', 'is_domain_only' ),
 				'Atomic sites'           => $this->count_sites( $audited_site_list, 'Atomic', 'Host' ),
 				'Pressable sites'        => $this->count_sites( $audited_site_list, 'Pressable', 'Host' ),
+				'VIP sites'              => $this->count_sites( $audited_site_list, 'VIP', 'Host' ),
 				'Simple sites'           => $this->count_sites( $audited_site_list, 'Simple', 'Host' ),
 				'Other hosts'            => $this->count_sites( $audited_site_list, 'Other', 'Host' ),
 				'PASSED sites'           => $this->count_sites( $audited_site_list, 'PASS', 'Result' ),
@@ -251,6 +245,7 @@ final class WPCOM_Sites_List extends Command {
 			'REPORT SUMMARY'  => '',
 			'Atomic sites'    => $this->count_sites( $final_site_list, 'Atomic', 'Host' ),
 			'Pressable sites' => $this->count_sites( $final_site_list, 'Pressable', 'Host' ),
+			'VIP sites'       => $this->count_sites( $final_site_list, 'VIP', 'Host' ),
 			'Simple sites'    => $this->count_sites( $final_site_list, 'Simple', 'Host' ),
 			'Other hosts'     => $this->count_sites( $final_site_list, 'Other', 'Host' ),
 			'Total sites'     => count( $final_site_list ),
@@ -348,27 +343,37 @@ final class WPCOM_Sites_List extends Command {
 	protected function eval_which_host( \stdClass $site ): string {
 		if ( true === $site->is_wpcom_atomic ) {
 			$server = 'Atomic';
+		} elseif ( $this->is_simple_site( $site ) ) {
+			$server = 'Simple';
+		} elseif ( in_array( parse_url( $site->URL, PHP_URL_HOST ), array_column( $this->pressable_sites, 'url' ), true ) ) { // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+			$server = 'Pressable';
 		} elseif ( true === $site->jetpack ) {
-			$pressable_urls = array_column( $this->pressable_sites, 'url' );
-			if ( in_array( parse_url( $site->URL, PHP_URL_HOST ), $pressable_urls, true ) ) { // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
-				$server = 'Pressable';
-			} else {
-				// TODO: Handle the wpvip.com sites (that's the actual value of the following variable).
-				$known_host = get_remote_content( $site->URL . '/.well-known/hosting-provider' ); // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
-				if ( $known_host && 200 === $known_host['headers']['http_code'] ) {
-					$server = \str_replace( "\n", '', $known_host['body'] );
-					if ( 'Pressable' !== $server ) {
-						$server = 'Other';
-					}
-				} else {
-					$server = 'Other';
-				}
-			}
+			$known_host = get_remote_content( $site->URL . '/.well-known/hosting-provider' ); // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+			$server     = match ( $known_host && 200 === $known_host['headers']['http_code'] ? \trim( $known_host['body'] ) : '' ) {
+				'Pressable' => 'Pressable',
+				'wpvip.com' => 'VIP',
+				default => 'Other',
+			};
 		} else {
-			$server = 'Simple'; // Need a better way to determine if site is simple. For example, 410'd Jurassic Ninja sites will show as Simple.
+			$server = 'Other';
 		}
 
 		return $server;
+	}
+
+	/**
+	 * Returns whether a site is a WordPress.com Simple site.
+	 *
+	 * A Simple site keeps its `*.wordpress.com` address as the unmapped URL whatever domain is mapped to it,
+	 * and no Atomic or Jetpack site has one.
+	 *
+	 * @param   \stdClass $site The site object.
+	 *
+	 * @return  boolean
+	 */
+	protected function is_simple_site( \stdClass $site ): bool {
+		$unmapped_host = parse_url( $site->options->unmapped_url ?? '', PHP_URL_HOST );
+		return is_string( $unmapped_host ) && str_ends_with( $unmapped_host, '.wordpress.com' );
 	}
 
 	/**
@@ -438,23 +443,15 @@ final class WPCOM_Sites_List extends Command {
 	 * @return  string
 	 */
 	protected function eval_is_multisite( \stdClass $site ): string {
-		/**
-		 * An alternative to this implementation is to compare $site->URL against
-		 * $site->options->main_network_site, however all simple sites are returned
-		 * as multisites. More investigation required.
-		 */
-		if ( true === $site->is_multisite ) {
-			foreach ( $this->multisite_patterns as $pattern ) {
-				if ( str_contains( $site->URL, $pattern ) ) { // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
-					return 'is_subsite';
-				}
-				if ( 'Simple' !== $this->eval_which_host( $site ) ) {
-					return 'is_parent';
-				}
-			}
+		// Every Simple site reports as a multisite, because WordPress.com itself is one.
+		if ( true !== $site->is_multisite || $this->is_simple_site( $site ) ) {
+			return '';
 		}
 
-		return '';
+		// A subsite's address differs from that of the network it belongs to. The scheme is left out of the comparison.
+		$network_url = $site->options->main_network_site ?? $site->URL; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+		$address     = static fn( string $url ): string => rtrim( preg_replace( '#^https?://#i', '', $url ), '/' );
+		return $address( $network_url ) === $address( $site->URL ) ? 'is_parent' : 'is_subsite'; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 	}
 
 	/**
