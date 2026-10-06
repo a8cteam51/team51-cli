@@ -460,13 +460,19 @@ function get_enum_input( InputInterface $input, string $name, array $valid_value
 /**
  * Grabs a value from the console input and validates it as a boolean.
  *
- * @param   InputInterface $input The console input.
- * @param   string         $name  The name of the value to grab.
+ * @param   InputInterface $input         The console input.
+ * @param   string         $name          The name of the value to grab.
+ * @param   callable|null  $no_input_func The function to call if no input is given. A flag that was not passed
+ *                                        reads the same as one set to false, so it is called for both.
  *
  * @return  boolean
  */
-function get_bool_input( InputInterface $input, string $name ): bool {
+function get_bool_input( InputInterface $input, string $name, ?callable $no_input_func = null ): bool {
 	$option = $input->hasOption( $name ) ? $input->getOption( $name ) : $input->getArgument( $name );
+	if ( empty( $option ) && is_callable( $no_input_func ) ) {
+		$option = $no_input_func();
+	}
+
 	return filter_var( $option, FILTER_VALIDATE_BOOLEAN );
 }
 
