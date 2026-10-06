@@ -448,9 +448,10 @@ final class WPCOM_Sites_List extends Command {
 			return '';
 		}
 
-		// A subsite's address differs from that of the network it belongs to.
+		// A subsite's address differs from that of the network it belongs to. The scheme is left out of the comparison.
 		$network_url = $site->options->main_network_site ?? $site->URL; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
-		return rtrim( $network_url, '/' ) === rtrim( $site->URL, '/' ) ? 'is_parent' : 'is_subsite'; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+		$address     = static fn( string $url ): string => rtrim( preg_replace( '#^https?://#i', '', $url ), '/' );
+		return $address( $network_url ) === $address( $site->URL ) ? 'is_parent' : 'is_subsite'; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 	}
 
 	/**
