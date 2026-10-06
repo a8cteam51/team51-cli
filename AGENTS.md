@@ -71,7 +71,7 @@ composer dump-autoload -o
 # Symlink: sudo ln -sf "$(pwd)/team51-cli.php" /usr/local/bin/team51
 ```
 
-**When to use**: After cloning, or when dependencies change. Run `ulimit -n 8192` before install if you hit "too many open files" later.
+**When to use**: After cloning, or when dependencies change.
 
 ### Lint / Format
 
