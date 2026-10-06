@@ -42,7 +42,6 @@ This skill describes how to set up and verify the Team51 CLI development environ
 | `env: php: No such file or directory` | Install PHP: `brew install php@8.3` and `brew link php@8.3` |
 | `git@github.com: Permission denied (publickey)` | Set up SSH key for GitHub. See [GitHub SSH guide](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-github-agent). |
 | `Your local changes to the following files would be overwritten by merge` | If unintentional: `git reset --hard` to discard local changes. |
-| `failed to open stream: Too many open files` | Run `ulimit -n 8192` before commands that use many workers (e.g. remove-user). |
 | Deprecated / Fatal PHP errors after long idle | Run `./install-osx` again to refresh dependencies. |
 
 ## Developer Flags
