@@ -859,3 +859,116 @@ function decompress_gzip_file( string $source, string $destination ): bool {
 }
 
 // endregion
+
+// region ATLANTIS
+
+/**
+ * Returns the address a managed site reads the fleet's autoupdate settings from.
+ *
+ * Neither Atlantis nor this CLI carries it: both are public, and the address is what tells a site it
+ * is one of ours. OpsOasis is asked instead, so a site is only ever given it by someone who can sign
+ * in there, and moving the settings route moves what new sites are told with it.
+ *
+ * @return  string|null Null when OpsOasis could not be asked or did not answer with a URL.
+ */
+function get_atlantis_autoupdate_settings_url(): ?string {
+	static $settings_url = null;
+	if ( ! is_null( $settings_url ) ) {
+		return $settings_url;
+	}
+
+	$config = API_Helper::make_opsoasis_request( 'autoupdate-plugin/v1/client-config' );
+	$url    = $config instanceof stdClass ? ( $config->settings_url ?? null ) : null;
+
+	// What comes back is written into a site's database and then requested by that site, so anything
+	// that is not a plain http(s) URL is refused here rather than stored.
+	if ( ! is_string( $url ) || false === filter_var( $url, FILTER_VALIDATE_URL ) || ! in_array( parse_url( $url, PHP_URL_SCHEME ), array( 'http', 'https' ), true ) ) {
+		return null;
+	}
+
+	$settings_url = $url;
+	return $settings_url;
+}
+
+/**
+ * Tells the Atlantis plugin on a site that the site is one the team manages.
+ *
+ * Atlantis treats a site as a stranger's until told otherwise: it forces no tracking on, reads no
+ * central autoupdate settings and routes no update emails. Two options are what tell it otherwise,
+ * and both are written here over a connection the caller already holds, so that marking a site
+ * costs it no connection of its own.
+ *
+ * Both are plain `wp option update` calls on purpose. They work before Atlantis is installed, which
+ * is what lets a new site be marked first and never run a request as an unmanaged one, and they
+ * work on a release of Atlantis that predates the options, which ignores them until it is updated.
+ *
+ * @param   \phpseclib3\Net\SSH2|null $ssh          An open SSH connection to the site, or null when there is none.
+ * @param   string|null               $settings_url The autoupdate settings address, or null when it could not be fetched.
+ * @param   boolean                   $dry_run      Whether to only report what would change.
+ *
+ * @return  array{ status: string, note: string } `status` is one of `success`, `unchanged`, `would-set` or `failed`.
+ */
+function mark_site_as_atlantis_managed( ?\phpseclib3\Net\SSH2 $ssh, ?string $settings_url, bool $dry_run = false ): array {
+	if ( is_null( $ssh ) ) {
+		return array(
+			'status' => 'failed',
+			'note'   => 'No SSH connection to the site.',
+		);
+	}
+	if ( is_null( $settings_url ) ) {
+		return array(
+			'status' => 'failed',
+			'note'   => 'OpsOasis did not provide the autoupdate settings address, so nothing was written.',
+		);
+	}
+
+	$options = array(
+		'a8csp_atlantis_managed_site'            => '1',
+		'a8csp_atlantis_autoupdate_settings_url' => $settings_url,
+	);
+
+	// Plugins and themes are skipped because nothing here needs them, and a site whose own code is
+	// broken is still one whose options can be read and written.
+	$wp      = 'wp --skip-plugins --skip-themes';
+	$pending = array();
+	foreach ( $options as $name => $value ) {
+		$current = $ssh->exec( "$wp option get $name 2>/dev/null" );
+		if ( 0 !== $ssh->getExitStatus() || trim( (string) $current ) !== $value ) {
+			$pending[ $name ] = $value;
+		}
+	}
+
+	if ( empty( $pending ) ) {
+		return array(
+			'status' => 'unchanged',
+			'note'   => 'Already marked as managed, with the current settings address.',
+		);
+	}
+
+	// The settings address is deliberately left out of every note: notes end up in ledgers and logs.
+	$names = implode( ', ', array_keys( $pending ) );
+	if ( $dry_run ) {
+		return array(
+			'status' => 'would-set',
+			'note'   => "Would set: $names.",
+		);
+	}
+
+	foreach ( $pending as $name => $value ) {
+		$reply = $ssh->exec( "$wp option update $name " . escapeshellarg( $value ) . ' 2>&1' );
+		if ( 0 !== $ssh->getExitStatus() ) {
+			$detail = trim( str_replace( $settings_url, '[settings address]', (string) $reply ) );
+			return array(
+				'status' => 'failed',
+				'note'   => "Could not set $name" . ( '' !== $detail ? ": $detail" : '.' ),
+			);
+		}
+	}
+
+	return array(
+		'status' => 'success',
+		'note'   => "Set: $names.",
+	);
+}
+
+// endregion
