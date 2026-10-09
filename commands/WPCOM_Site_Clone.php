@@ -325,6 +325,7 @@ final class WPCOM_Site_Clone extends Command {
 			$staging_site_https_url,
 			$output,
 			expect_kept_data: $expect_kept_data,
+			expect_keep_until: $this->keep_until,
 			problem: $safety_net_problem
 		);
 
