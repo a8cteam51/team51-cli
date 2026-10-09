@@ -4,6 +4,7 @@ namespace WPCOMSpecialProjects\CLI\Mcp;
 
 use PhpMcp\Server\Attributes\McpTool;
 use PhpMcp\Schema\ToolAnnotations;
+use Symfony\Component\Process\Exception\ProcessTimedOutException;
 
 /**
  * MCP Tool definitions for the Team51 CLI.
@@ -20,6 +21,14 @@ use PhpMcp\Schema\ToolAnnotations;
  * JSON-RPC communication. Use STDERR for any debug output.
  */
 final class Team51McpTools {
+
+	/**
+	 * Seconds a clone tool waits for its clone command: creating the copy, waiting for SSH, installing Safety Net
+	 * and confirming it usually takes 10-25 minutes.
+	 *
+	 * @var float
+	 */
+	private const CLONE_TIMEOUT = 3600;
 
 	// region IDENTITY
 
@@ -57,26 +66,40 @@ final class Team51McpTools {
 	/**
 	 * Runs a Team51 CLI command and returns a structured result.
 	 *
-	 * @param string $command_name The command name, e.g. wpcom:create-site.
-	 * @param array  $args         Positional/flag arguments as a flat list.
+	 * @param string     $command_name The command name, e.g. wpcom:create-site.
+	 * @param array      $args         Positional/flag arguments as a flat list.
+	 * @param float|null $timeout      Seconds before the command is stopped, or null for no limit.
 	 *
 	 * @return array
 	 */
-	private static function run_cli_command( string $command_name, array $args = array() ): array {
-		$process = run_system_command(
-			array_merge(
-				array(
-					PHP_BINARY,
-					TEAM51_CLI_FILE,
-					$command_name,
-					'--no-interaction',
-					'--no-ansi',
+	private static function run_cli_command( string $command_name, array $args = array(), ?float $timeout = 60 ): array {
+		try {
+			$process = run_system_command(
+				array_merge(
+					array(
+						PHP_BINARY,
+						TEAM51_CLI_FILE,
+						$command_name,
+						'--no-interaction',
+						'--no-ansi',
+					),
+					$args
 				),
-				$args
-			),
-			TEAM51_CLI_ROOT_DIR,
-			false
-		);
+				TEAM51_CLI_ROOT_DIR,
+				false,
+				$timeout
+			);
+		} catch ( ProcessTimedOutException $exception ) {
+			// The command is stopped part way, so what it did so far is all the caller can be told about.
+			return array(
+				'ok'           => false,
+				'exit_code'    => null,
+				'timed_out'    => true,
+				'error'        => "The command was stopped after $timeout seconds and may have done only part of its work.",
+				'output'       => trim( $exception->getProcess()->getOutput() ),
+				'error_output' => trim( $exception->getProcess()->getErrorOutput() ),
+			);
+		}
 
 		return array(
 			'ok'           => 0 === $process->getExitCode(),
@@ -84,6 +107,46 @@ final class Team51McpTools {
 			'output'       => trim( $process->getOutput() ),
 			'error_output' => trim( $process->getErrorOutput() ),
 		);
+	}
+
+	/**
+	 * Builds the options and arguments of a clone command run without a terminal.
+	 *
+	 * Without a branch the clone skips the repository, since the questions about a missing one could not be
+	 * answered and would abort it. Options come before `--`, which stops the arguments being read as options.
+	 *
+	 * @param array       $arguments  The positional arguments.
+	 * @param bool        $keep_data  Whether to keep the users, orders and subscriptions.
+	 * @param string|null $keep_until The YYYY-MM-DD date until which to keep them, if any.
+	 * @param string|null $branch     The branch to deploy, if any.
+	 *
+	 * @return array
+	 */
+	private static function get_clone_arguments( array $arguments, bool $keep_data, ?string $keep_until, ?string $branch ): array {
+		$options = null === $branch || '' === $branch ? array( '--skip-repository' ) : array( "--branch=$branch" );
+		if ( $keep_data ) {
+			$options[] = '--keep-data';
+		}
+		if ( null !== $keep_until && '' !== $keep_until ) {
+			$options[] = "--keep-until=$keep_until";
+		}
+
+		return array_merge( $options, array( '--' ), $arguments );
+	}
+
+	/**
+	 * Adds a warning to a clone command's result when it was stopped before it finished.
+	 *
+	 * @param array $result The result of run_cli_command().
+	 *
+	 * @return array
+	 */
+	private static function with_clone_timeout_warning( array $result ): array {
+		if ( ! empty( $result['timed_out'] ) ) {
+			$result['warning'] = 'The copy may already exist without Safety Net installed or confirmed. Treat it as holding unscrubbed production data until it has been checked.';
+		}
+
+		return $result;
 	}
 
 	/**
@@ -1877,6 +1940,16 @@ final class Team51McpTools {
 		return $site ? (array) $site : array( 'error' => 'Failed to create WPCOM site.' );
 	}
 
+	/**
+	 * Creates a WordPress.com staging site of a site and secures it with Safety Net, which deletes its users, orders and subscriptions unless keep_data is set. Takes 10-25 minutes; the result says whether Safety Net confirmed the copy. Leave keep_data off unless the user explicitly asked to keep the real customer data on the copy, and confirm that with them first.
+	 *
+	 * @param string      $site_id_or_url The site to copy.
+	 * @param bool        $keep_data      Keep the real users, orders and subscriptions on the copy. Only when the user explicitly asked for it.
+	 * @param string|null $keep_until     With keep_data: a YYYY-MM-DD date after which Safety Net deletes the kept data.
+	 * @param string|null $branch         The repository branch to deploy; without it the copy is not connected to the repository. A site with several GitHub deployments deploys the first one.
+	 *
+	 * @return array
+	 */
 	#[McpTool(
 		name: 'wpcom_clone_site',
 		annotations: new ToolAnnotations(
@@ -1887,14 +1960,17 @@ final class Team51McpTools {
 			openWorldHint: true,
 		)
 	)]
-	public function wpcom_clone_site( string $site_id_or_url ): array {
+	public function wpcom_clone_site( string $site_id_or_url, bool $keep_data = false, ?string $keep_until = null, ?string $branch = null ): array {
 		$identity_error = self::ensure_identity();
 		if ( $identity_error ) {
 			return $identity_error;
 		}
 
-		$staging = create_wpcom_staging_site( $site_id_or_url );
-		return $staging ? (array) $staging : array( 'error' => 'Failed to create WPCOM staging site.' );
+		if ( ! self::is_safe_site_argument( $site_id_or_url ) ) {
+			return array( 'error' => 'Invalid site identifier.' );
+		}
+
+		return self::with_clone_timeout_warning( self::run_cli_command( 'wpcom:clone-site', self::get_clone_arguments( array( $site_id_or_url ), $keep_data, $keep_until, $branch ), self::CLONE_TIMEOUT ) );
 	}
 
 	#[McpTool(
@@ -2207,6 +2283,18 @@ final class Team51McpTools {
 		return $site ? (array) $site : array( 'error' => 'Failed to create Pressable site.' );
 	}
 
+	/**
+	 * Creates a development clone of a Pressable site and secures it with Safety Net, which deletes its users, orders and subscriptions unless keep_data is set. Takes 10-25 minutes; the result says whether Safety Net confirmed the clone. Leave keep_data off unless the user explicitly asked to keep the real customer data on the clone, and confirm that with them first.
+	 *
+	 * @param string      $site_id_or_url The site to clone.
+	 * @param string      $label          The suffix of the clone's name, e.g. development.
+	 * @param string|null $datacenter     The datacenter code; defaults to the source site's.
+	 * @param bool        $keep_data      Keep the real users, orders and subscriptions on the clone. Only when the user explicitly asked for it.
+	 * @param string|null $keep_until     With keep_data: a YYYY-MM-DD date after which Safety Net deletes the kept data.
+	 * @param string|null $branch         The repository branch to deploy; without it the clone is not connected to the repository.
+	 *
+	 * @return array
+	 */
 	#[McpTool(
 		name: 'pressable_clone_site',
 		annotations: new ToolAnnotations(
@@ -2217,13 +2305,18 @@ final class Team51McpTools {
 			openWorldHint: true,
 		)
 	)]
-	public function pressable_clone_site( string $site_id_or_url, string $name, ?string $datacenter = null, bool $staging = true ): array {
+	public function pressable_clone_site( string $site_id_or_url, string $label = 'development', ?string $datacenter = null, bool $keep_data = false, ?string $keep_until = null, ?string $branch = null ): array {
 		$identity_error = self::ensure_identity();
 		if ( $identity_error ) {
 			return $identity_error;
 		}
-		$site = create_pressable_site_clone( $site_id_or_url, $name, $datacenter, $staging );
-		return $site ? (array) $site : array( 'error' => 'Failed to clone Pressable site.' );
+
+		if ( ! self::is_safe_site_argument( $site_id_or_url ) || ! self::is_safe_site_argument( $label ) ) {
+			return array( 'error' => 'Invalid site identifier or label.' );
+		}
+
+		$options = null === $datacenter ? array() : array( "--datacenter=$datacenter" );
+		return self::with_clone_timeout_warning( self::run_cli_command( 'pressable:clone-site', array_merge( $options, self::get_clone_arguments( array( $site_id_or_url, $label ), $keep_data, $keep_until, $branch ) ), self::CLONE_TIMEOUT ) );
 	}
 
 	#[McpTool( name: 'pressable_rotate_wp_user_password' )]
