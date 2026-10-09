@@ -320,6 +320,10 @@ final class Team51McpTools {
 	 * Jetpack-connected fleet. Sites without Atlantis are reported with
 	 * `atlantis_installed: false`.
 	 *
+	 * `managed` says whether Atlantis treats the site as one of the team's (null on a
+	 * release older than the flag). A site reporting `managed: false`, or an autoupdates
+	 * module reading `on (no settings address)`, counts as an issue.
+	 *
 	 * @param string|null $site_id_or_url     Optional. Single site URL or WPCOM numeric ID.
 	 * @param string|null $module             Optional. Restrict the report to a single module column. One of: messages, colophon, tracking, autoupdates, bot-protection.
 	 * @param bool        $exclude_staging    Exclude sites whose URL contains "staging" (case-insensitive). Ignored in single-site mode.
@@ -431,6 +435,7 @@ final class Team51McpTools {
 				'site_url'              => $site->siteurl ?? null,
 				'atlantis_installed'    => false,
 				'atlantis_version'      => null,
+				'managed'               => null,
 				'custom_messages_count' => null,
 				'modules'               => \array_fill_keys( $module_keys, null ),
 			);
@@ -443,6 +448,13 @@ final class Team51McpTools {
 				$has_issue                 = false;
 				$row['atlantis_installed'] = true;
 				$row['atlantis_version']   = $status->plugin->version ?? 'unknown';
+
+				// Null on a release older than the flag, which still behaves as managed.
+				$managed = $status->plugin->managed ?? null;
+				if ( \is_bool( $managed ) ) {
+					$row['managed'] = $managed;
+					$has_issue      = ! $managed;
+				}
 
 				$count_raw = $status->modules->messages->count ?? null;
 				if ( \is_int( $count_raw ) || ( \is_string( $count_raw ) && \ctype_digit( $count_raw ) ) ) {
@@ -467,6 +479,12 @@ final class Team51McpTools {
 					if ( true === $enabled ) {
 						$row['modules'][ $module_key ] = 'on';
 						++$module_enabled_counts[ $module_key ];
+
+						// Running, but never told where the fleet's settings are.
+						if ( false === ( $status->modules->$module_key->settings_url_configured ?? null ) ) {
+							$row['modules'][ $module_key ] = 'on (no settings address)';
+							$has_issue                     = true;
+						}
 					} elseif ( false === $enabled ) {
 						$row['modules'][ $module_key ] = 'off';
 						$has_issue                     = true;
