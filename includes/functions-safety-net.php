@@ -181,12 +181,13 @@ function write_safety_net_loader( SSH2 $ssh_connection ): bool {
  * @param   callable $run_wp_cli Runs one WP-CLI command on the site and returns its output.
  * @param   string   $name       The name of the constant.
  *
- * @return  string|false|null  Null if the constant is not defined, false if the reply could not be read.
+ * @return  string|false|null  Null if WP-CLI says the constant is not defined, false if the reply could not be read.
  */
 function get_wp_config_constant_json( callable $run_wp_cli, string $name ): string|false|null {
 	$reply = (string) $run_wp_cli( "config get $name --type=constant --format=json" );
 	if ( is_wp_cli_error_output( $reply ) ) {
-		return null;
+		// Any other error, such as an older WP-CLI rejecting --format, says nothing about whether it is defined.
+		return str_contains( $reply, 'is not defined' ) ? null : false;
 	}
 
 	$lines = array_reverse( array_filter( array_map( 'trim', preg_split( '/\R/', $reply ) ), 'strlen' ) );
