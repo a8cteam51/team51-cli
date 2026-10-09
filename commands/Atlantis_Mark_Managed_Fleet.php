@@ -32,8 +32,8 @@ use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
  * - Each site is reached over SSH via the helper matching its platform, resolved the way
  *   `jetpack:plugin-force-update` resolves it. A site neither platform claims is reported as a
  *   failure rather than guessed at.
- * - Each site costs one SSH connection, and on Pressable a connection rotates the concierge SFTP
- *   password for that site.
+ * - Each site costs one SSH connection, and opening one rotates that site's SFTP/SSH password, on
+ *   WordPress.com as well as on Pressable. A dry run opens the connection too.
  * - Every processed site is appended to a JSONL ledger that doubles as the skip-list on the next
  *   run, so an interrupted sweep resumes where it stopped. The settings address is never written to
  *   it, nor printed.
@@ -127,7 +127,7 @@ final class Atlantis_Mark_Managed_Fleet extends Command {
 		$this->addOption( 'limit', null, InputOption::VALUE_REQUIRED, 'Process at most this many sites this run (applied after the ledger skip-list). Use it to canary.' )
 			->addOption( 'log', null, InputOption::VALUE_REQUIRED, 'Path to the JSONL ledger (append-only audit log + resume skip-list). Defaults to ' . self::DEFAULT_LEDGER . ' in the CLI directory.' )
 			->addOption( 'yes', null, InputOption::VALUE_NONE, 'Skip the confirmation prompt.' )
-			->addOption( 'dry-run', null, InputOption::VALUE_NONE, 'Report what would change without writing anything (no option writes, no ledger entries). Still opens a connection to each site.' );
+			->addOption( 'dry-run', null, InputOption::VALUE_NONE, 'Report what would change without writing anything (no option writes, no ledger entries). Still opens a connection to each pending site, which rotates its SFTP/SSH password.' );
 	}
 
 	/**
@@ -197,7 +197,9 @@ final class Atlantis_Mark_Managed_Fleet extends Command {
 		$targets    = \array_filter( $sites, static fn( \stdClass $site ) => isset( $statuses[ $site->userblog_id ] ) );
 		$unanswered = \array_filter( $sites, static fn( \stdClass $site ) => ! isset( $statuses[ $site->userblog_id ] ) );
 
-		$done    = $this->dry_run ? array() : $this->completed_ids();
+		// Read on a dry run too: reading the ledger writes nothing, and a preview that ignored it
+		// would reconnect to every site already settled, rotating each one's password again.
+		$done    = $this->completed_ids();
 		$pending = \array_filter( $targets, static fn( \stdClass $site ) => ! isset( $done[ (string) $site->userblog_id ] ) );
 		$skipped = \count( $targets ) - \count( $pending );
 		if ( null !== $this->limit ) {
@@ -216,7 +218,7 @@ final class Atlantis_Mark_Managed_Fleet extends Command {
 		}
 
 		if ( ! $this->dry_run && ! $this->yes ) {
-			$question = new ConfirmationQuestion( '<question>Mark ' . \count( $pending ) . ' site(s) as managed for Atlantis? Each is one SSH connection, which on Pressable rotates that site\'s concierge SFTP password. [y/N]</question> ', false );
+			$question = new ConfirmationQuestion( '<question>Mark ' . \count( $pending ) . ' site(s) as managed for Atlantis? Each is one SSH connection, and opening it rotates that site\'s SFTP/SSH password, on WordPress.com as well as Pressable. [y/N]</question> ', false );
 			if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 				$output->writeln( '<comment>Aborted. Nothing was changed.</comment>' );
 				return Command::SUCCESS;
