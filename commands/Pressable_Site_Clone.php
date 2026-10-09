@@ -85,6 +85,20 @@ final class Pressable_Site_Clone extends Command {
 	 */
 	private ?bool $skip_safety_net = null;
 
+	/**
+	 * Whether to keep the source site's users, orders and subscriptions on the clone.
+	 *
+	 * @var bool|null
+	 */
+	private ?bool $keep_data = null;
+
+	/**
+	 * The YYYY-MM-DD date after which Safety Net deletes the kept data.
+	 *
+	 * @var string|null
+	 */
+	private ?string $keep_until = null;
+
 	// endregion
 
 	// region INHERITED METHODS
@@ -101,11 +115,15 @@ final class Pressable_Site_Clone extends Command {
 			->addOption( 'datacenter', null, InputOption::VALUE_REQUIRED, 'The datacenter to clone the site in. Defaults to the datacenter of the given site.' )
 			->addOption( 'branch', null, InputOption::VALUE_REQUIRED, 'The branch to deploy to the site from. Defaults to `develop`.' );
 
-		$this->addOption( 'skip-safety-net', null, InputOption::VALUE_NONE, 'Skip the installation of SafetyNet as a mu-plugin.' );
+		$this->addOption( 'skip-safety-net', null, InputOption::VALUE_NONE, 'Skip the installation of SafetyNet as a mu-plugin.' )
+			->addOption( 'keep-data', null, InputOption::VALUE_NONE, "Keep the source site's users, orders and subscriptions on the clone (sets SAFETY_NET_DELETE_DATA to false). Safety Net still scrubs credentials, deactivates risky plugins, blocks emails and blocks logins of copied customer accounts." )
+			->addOption( 'keep-until', null, InputOption::VALUE_REQUIRED, 'With --keep-data: delete the kept data on the first page load after this date, YYYY-MM-DD (sets SAFETY_NET_KEEP_UNTIL). Without it, the data is kept until SAFETY_NET_DELETE_DATA is removed.' );
 	}
 
 	/**
 	 * {@inheritDoc}
+	 *
+	 * @throws  \InvalidArgumentException If --keep-data or --keep-until is used in a combination that cannot work.
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
 		$this->site = get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
@@ -171,6 +189,30 @@ final class Pressable_Site_Clone extends Command {
 
 		$this->skip_safety_net = get_bool_input( $input, 'skip-safety-net' );
 		$input->setOption( 'skip-safety-net', $this->skip_safety_net );
+
+		$this->keep_data = get_bool_input( $input, 'keep-data' );
+		$input->setOption( 'keep-data', $this->keep_data );
+
+		// Not maybe_get_string_input(): it reads '' and '0' as no date, which would keep the data with no expiry.
+		$keep_until       = $input->getOption( 'keep-until' );
+		$this->keep_until = \is_null( $keep_until ) ? null : (string) $keep_until;
+		$input->setOption( 'keep-until', $this->keep_until );
+
+		if ( ! \is_null( $this->keep_until ) && ! $this->keep_data ) {
+			throw new \InvalidArgumentException( '--keep-until only works together with --keep-data.' );
+		}
+		if ( $this->keep_data && $this->skip_safety_net ) {
+			throw new \InvalidArgumentException( '--keep-data needs Safety Net, which --skip-safety-net does not install.' );
+		}
+
+		// Safety Net deletes the kept data on the first load after this day, counted in UTC, so a past date would
+		// have it delete the data on the clone's very first request instead of keeping it.
+		if ( ! \is_null( $this->keep_until ) ) {
+			validate_date_format( $this->keep_until, 'Y-m-d' );
+			if ( $this->keep_until < \gmdate( 'Y-m-d' ) ) {
+				throw new \InvalidArgumentException( 'The --keep-until date is in the past.' );
+			}
+		}
 	}
 
 	/**
@@ -186,6 +228,14 @@ final class Pressable_Site_Clone extends Command {
 
 		if ( $this->skip_safety_net ) {
 			$question = new ConfirmationQuestion( '<question>Are you sure you want to <fg=red;options=bold>skip the installation of SafetyNet</>? [y/N]</question> ', false );
+			if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
+				$output->writeln( '<comment>Command aborted by user.</comment>' );
+				exit( 2 );
+			}
+		}
+
+		if ( $this->keep_data ) {
+			$question = new ConfirmationQuestion( "<question>Are you sure you want to <fg=red;options=bold>keep the real users, orders and subscriptions</> of the source site on the clone ({$this->get_keep_data_duration()})? [y/N]</question> ", false );
 			if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 				$output->writeln( '<comment>Command aborted by user.</comment>' );
 				exit( 2 );
@@ -232,6 +282,23 @@ final class Pressable_Site_Clone extends Command {
 		// pass - so cutting it short here would strand a clone that was moments from being reachable, holding
 		// unscrubbed production data. The reason is already on screen; the budget is the safety margin.
 		$ssh_connection = wait_on_pressable_site_ssh( $site_clone->id, $output );
+
+		// Must run before anything loads WordPress on the clone - the password rotation's WP-CLI fallback below
+		// does - because Safety Net's first run there decides whether the data is kept or deleted.
+		$keep_data_applied = configure_safety_net_keep_data(
+			static function ( string $command ) use ( $site_clone ): string {
+				// An empty reply fails the keep request closed, where a thrown site lookup would skip the cleanup.
+				try {
+					run_pressable_site_wp_cli_command( $site_clone->id, $command, true );
+				} catch ( \Throwable ) {
+					return '';
+				}
+				return (string) ( $GLOBALS['wp_cli_output'] ?? '' );
+			},
+			$this->keep_data,
+			$this->keep_until,
+			$output
+		);
 
 		// Run a few commands to set up the site.
 		$rotate_status = run_app_command(
@@ -287,20 +354,51 @@ final class Pressable_Site_Clone extends Command {
 		// above is what makes true. The file check only proves the files are present; this endpoint is the
 		// authoritative signal that Safety Net actually booted and scrubbed, so it decides the final verdict
 		// on every run - not just when the files were missing.
-		$safety_net_installed = $this->skip_safety_net ? true : is_safety_net_confirmed_via_http( $site_clone->url, $output );
+		$expect_kept_data     = $this->keep_data && $keep_data_applied;
+		$safety_net_problem   = null;
+		$safety_net_installed = $this->skip_safety_net ? true : is_safety_net_confirmed_via_http(
+			$site_clone->url,
+			$output,
+			expect_kept_data: $expect_kept_data,
+			problem: $safety_net_problem
+		);
+
+		// Repeated here because the banner of the failed keep request has long scrolled away, and the run would
+		// otherwise end without saying that the data was not kept as asked.
+		if ( $this->keep_data && ! $keep_data_applied ) {
+			$output->writeln( "<error>The source site's users, orders and subscriptions were NOT kept on the clone: the request to keep them could not be applied.</error>" );
+		}
 
 		if ( true !== $safety_net_installed ) {
 			$headline = \is_null( $safety_net_installed )
 				? "⚠  Could not verify SafetyNet on $site_clone->url."
-				: "⚠  SafetyNet is NOT installed on $site_clone->url.";
+				: "⚠  SafetyNet did not confirm that $site_clone->url is safe to hand off.";
 
 			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 			$output->writeln( "<error>$headline</error>" );
+			if ( ! \is_null( $safety_net_problem ) ) {
+				$output->writeln( "<error>    $safety_net_problem</error>" );
+			}
 			if ( ! $environment_set ) {
 				$output->writeln( '<error>    Setting WP_ENVIRONMENT_TYPE failed, which alone keeps Safety Net from scrubbing.</error>' );
 			}
+			if ( $expect_kept_data ) {
+				$output->writeln( '<error>    The clone was asked to keep customer data; check it before handing it off.</error>' );
+			}
 			$output->writeln( '<error>    Treat the clone as holding unscrubbed production data until you have checked it.</error>' );
 			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			return Command::FAILURE;
+		}
+
+		if ( $expect_kept_data ) {
+			$output->writeln( '<comment>════════════════════════════════════════════════════════════════</comment>' );
+			$output->writeln( "<comment>⚠  The clone keeps the source site's real users, orders and subscriptions ({$this->get_keep_data_duration()}).</comment>" );
+			$output->writeln( '<comment>    Safety Net blocks emails, payments and customer logins on it. To delete the data, remove the constant: wp config delete SAFETY_NET_DELETE_DATA --type=constant</comment>' );
+			$output->writeln( '<comment>════════════════════════════════════════════════════════════════</comment>' );
+		}
+
+		// The clone is safe, but it is not what was asked for, so the run must not exit 0 as though it were.
+		if ( $this->keep_data && ! $keep_data_applied ) {
 			return Command::FAILURE;
 		}
 
@@ -310,6 +408,15 @@ final class Pressable_Site_Clone extends Command {
 	// endregion
 
 	// region HELPERS
+
+	/**
+	 * Returns how long the kept data stays on the clone, for the messages that mention it.
+	 *
+	 * @return  string
+	 */
+	private function get_keep_data_duration(): string {
+		return \is_null( $this->keep_until ) ? 'with no expiry date' : "until $this->keep_until";
+	}
 
 	/**
 	 * Prompts the user for a site.
