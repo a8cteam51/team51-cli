@@ -187,7 +187,7 @@ function get_wp_config_constant_json( callable $run_wp_cli, string $name ): stri
 	$reply = (string) $run_wp_cli( "config get $name --type=constant --format=json" );
 	if ( is_wp_cli_error_output( $reply ) ) {
 		// Any other error, such as an older WP-CLI rejecting --format, says nothing about whether it is defined.
-		return str_contains( $reply, 'is not defined' ) ? null : false;
+		return preg_match( "/^\s*Error: The constant '.+' is not defined/m", $reply ) ? null : false;
 	}
 
 	$lines = array_reverse( array_filter( array_map( 'trim', preg_split( '/\R/', $reply ) ), 'strlen' ) );
@@ -340,12 +340,13 @@ function configure_safety_net_keep_data( callable $run_wp_cli, bool $keep_data, 
  * the keep step ran and that the constants still ask for it. Safety Net before 1.10.0 ignores the constants and
  * omits those keys, so a missing key is named as an outdated plugin rather than read as a falsy flag.
  *
- * @param   array   $report           The decoded status report.
- * @param   boolean $expect_kept_data Whether the clone was asked to keep its users, orders and subscriptions.
+ * @param   array       $report            The decoded status report.
+ * @param   boolean     $expect_kept_data  Whether the clone was asked to keep its users, orders and subscriptions.
+ * @param   string|null $expect_keep_until The YYYY-MM-DD date they were asked to be kept until, if any.
  *
  * @return  string|null
  */
-function get_safety_net_report_problem( array $report, bool $expect_kept_data ): ?string {
+function get_safety_net_report_problem( array $report, bool $expect_kept_data, ?string $expect_keep_until = null ): ?string {
 	// Mirrors the plugin's own semantics rather than a narrower allowlist: Safety Net treats every environment
 	// except `production` as non-production - including `sandbox`/`dev`/`develop`, which it reads from the
 	// server environment and which core's allowlist would not pass - and it bails on production before the
@@ -374,6 +375,7 @@ function get_safety_net_report_problem( array $report, bool $expect_kept_data ):
 		! $reports_keep_step => "The clone's Safety Net is older than 1.10.0, so it ignored SAFETY_NET_DELETE_DATA and deleted the customer data.",
 		! empty( $report['data_deleted'] ) => 'Safety Net deleted the customer data before the keep request was applied, because something loaded the clone first. Clone again if you need the data.',
 		true !== $report['data_kept'] || true !== $report['data_deletion_disabled'] => "Safety Net has not kept the clone's customer data as asked.",
+		$expect_keep_until !== $report['keep_until'] => 'Safety Net keeps the customer data ' . ( null === $report['keep_until'] ? 'with no expiry date' : 'until ' . \Symfony\Component\Console\Formatter\OutputFormatter::escape( (string) $report['keep_until'] ) ) . ', not ' . ( null === $expect_keep_until ? 'with no expiry date' : "until $expect_keep_until" ) . ' as asked.',
 		default => null,
 	};
 }
@@ -388,15 +390,16 @@ function get_safety_net_report_problem( array $report, bool $expect_kept_data ):
  * hostname may not resolve yet - so callers can say they could not verify instead of asserting the site holds
  * unscrubbed data. A site that does answer fails closed on anything unexpected.
  *
- * @param   string               $site_url         The URL of the site to check.
- * @param   OutputInterface|null $output           The output instance, for announcing the poll.
- * @param   integer              $max_attempts     The maximum number of probes, 5 seconds apart.
- * @param   boolean              $expect_kept_data Whether the clone was asked to keep its users, orders and subscriptions.
- * @param   string|null          $problem          Receives why the report does not confirm the clone, if it does not.
+ * @param   string               $site_url          The URL of the site to check.
+ * @param   OutputInterface|null $output            The output instance, for announcing the poll.
+ * @param   integer              $max_attempts      The maximum number of probes, 5 seconds apart.
+ * @param   boolean              $expect_kept_data  Whether the clone was asked to keep its users, orders and subscriptions.
+ * @param   string|null          $expect_keep_until The YYYY-MM-DD date they were asked to be kept until, if any.
+ * @param   string|null          $problem           Receives why the report does not confirm the clone, if it does not.
  *
  * @return  boolean|null  Null if the site could not be reached or did not answer with a readable report.
  */
-function is_safety_net_confirmed_via_http( string $site_url, ?OutputInterface $output = null, int $max_attempts = 12, bool $expect_kept_data = false, ?string &$problem = null ): ?bool {
+function is_safety_net_confirmed_via_http( string $site_url, ?OutputInterface $output = null, int $max_attempts = 12, bool $expect_kept_data = false, ?string $expect_keep_until = null, ?string &$problem = null ): ?bool {
 	$problem = null;
 
 	// Announced because the poll is otherwise silent for up to a few minutes at the very end of a run, which
@@ -465,7 +468,7 @@ function is_safety_net_confirmed_via_http( string $site_url, ?OutputInterface $o
 		return null;
 	}
 
-	$problem = get_safety_net_report_problem( $report, $expect_kept_data );
+	$problem = get_safety_net_report_problem( $report, $expect_kept_data, $expect_keep_until );
 
 	return null === $problem;
 }

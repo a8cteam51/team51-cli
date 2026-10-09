@@ -378,6 +378,7 @@ final class Pressable_Site_Clone extends Command {
 			$site_clone->url,
 			$output,
 			expect_kept_data: $expect_kept_data,
+			expect_keep_until: $this->keep_until,
 			problem: $safety_net_problem
 		);
 
