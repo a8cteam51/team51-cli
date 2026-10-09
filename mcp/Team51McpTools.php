@@ -4,6 +4,7 @@ namespace WPCOMSpecialProjects\CLI\Mcp;
 
 use PhpMcp\Server\Attributes\McpTool;
 use PhpMcp\Schema\ToolAnnotations;
+use Symfony\Component\Process\Exception\ProcessTimedOutException;
 
 /**
  * MCP Tool definitions for the Team51 CLI.
@@ -72,21 +73,33 @@ final class Team51McpTools {
 	 * @return array
 	 */
 	private static function run_cli_command( string $command_name, array $args = array(), ?float $timeout = 60 ): array {
-		$process = run_system_command(
-			array_merge(
-				array(
-					PHP_BINARY,
-					TEAM51_CLI_FILE,
-					$command_name,
-					'--no-interaction',
-					'--no-ansi',
+		try {
+			$process = run_system_command(
+				array_merge(
+					array(
+						PHP_BINARY,
+						TEAM51_CLI_FILE,
+						$command_name,
+						'--no-interaction',
+						'--no-ansi',
+					),
+					$args
 				),
-				$args
-			),
-			TEAM51_CLI_ROOT_DIR,
-			false,
-			$timeout
-		);
+				TEAM51_CLI_ROOT_DIR,
+				false,
+				$timeout
+			);
+		} catch ( ProcessTimedOutException $exception ) {
+			// The command is stopped part way, so what it did so far is all the caller can be told about.
+			return array(
+				'ok'           => false,
+				'exit_code'    => null,
+				'timed_out'    => true,
+				'error'        => "The command was stopped after $timeout seconds and may have done only part of its work.",
+				'output'       => trim( $exception->getProcess()->getOutput() ),
+				'error_output' => trim( $exception->getProcess()->getErrorOutput() ),
+			);
+		}
 
 		return array(
 			'ok'           => 0 === $process->getExitCode(),
@@ -119,6 +132,21 @@ final class Team51McpTools {
 		}
 
 		return array_merge( $options, array( '--' ), $arguments );
+	}
+
+	/**
+	 * Adds a warning to a clone command's result when it was stopped before it finished.
+	 *
+	 * @param array $result The result of run_cli_command().
+	 *
+	 * @return array
+	 */
+	private static function with_clone_timeout_warning( array $result ): array {
+		if ( ! empty( $result['timed_out'] ) ) {
+			$result['warning'] = 'The copy may already exist without Safety Net installed or confirmed. Treat it as holding unscrubbed production data until it has been checked.';
+		}
+
+		return $result;
 	}
 
 	/**
@@ -1918,7 +1946,7 @@ final class Team51McpTools {
 	 * @param string      $site_id_or_url The site to copy.
 	 * @param bool        $keep_data      Keep the real users, orders and subscriptions on the copy. Only when the user explicitly asked for it.
 	 * @param string|null $keep_until     With keep_data: a YYYY-MM-DD date after which Safety Net deletes the kept data.
-	 * @param string|null $branch         The repository branch to deploy; without it the copy is not connected to the repository.
+	 * @param string|null $branch         The repository branch to deploy; without it the copy is not connected to the repository. A site with several GitHub deployments deploys the first one.
 	 *
 	 * @return array
 	 */
@@ -1942,7 +1970,7 @@ final class Team51McpTools {
 			return array( 'error' => 'Invalid site identifier.' );
 		}
 
-		return self::run_cli_command( 'wpcom:clone-site', self::get_clone_arguments( array( $site_id_or_url ), $keep_data, $keep_until, $branch ), self::CLONE_TIMEOUT );
+		return self::with_clone_timeout_warning( self::run_cli_command( 'wpcom:clone-site', self::get_clone_arguments( array( $site_id_or_url ), $keep_data, $keep_until, $branch ), self::CLONE_TIMEOUT ) );
 	}
 
 	#[McpTool(
@@ -2288,7 +2316,7 @@ final class Team51McpTools {
 		}
 
 		$options = null === $datacenter ? array() : array( "--datacenter=$datacenter" );
-		return self::run_cli_command( 'pressable:clone-site', array_merge( $options, self::get_clone_arguments( array( $site_id_or_url, $label ), $keep_data, $keep_until, $branch ) ), self::CLONE_TIMEOUT );
+		return self::with_clone_timeout_warning( self::run_cli_command( 'pressable:clone-site', array_merge( $options, self::get_clone_arguments( array( $site_id_or_url, $label ), $keep_data, $keep_until, $branch ) ), self::CLONE_TIMEOUT ) );
 	}
 
 	#[McpTool( name: 'pressable_rotate_wp_user_password' )]
