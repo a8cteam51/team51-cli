@@ -8,6 +8,9 @@ bot-protection-ledger.jsonl
 # Ledger written by jetpack:plugin-force-update (append-only audit log / resume skip-list)
 plugin-force-update-ledger.jsonl
 
+# Ledger written by the one-off atlantis:mark-managed-fleet sweep
+atlantis-mark-managed-ledger.jsonl
+
 # Created by https://www.toptal.com/developers/gitignore/api/macos,linux,windows,node,yarn,composer,phpstorm+all,visualstudiocode,sublimetext
 # Edit at https://www.toptal.com/developers/gitignore?templates=macos,linux,windows,node,yarn,composer,phpstorm+all,visualstudiocode,sublimetext
 
