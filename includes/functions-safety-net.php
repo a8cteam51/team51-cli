@@ -170,6 +170,217 @@ function write_safety_net_loader( SSH2 $ssh_connection ): bool {
 }
 
 /**
+ * Returns the value of a constant in a site's wp-config.php, as the JSON WP-CLI prints for it.
+ *
+ * Read as JSON because the plain format prints an empty line for `false`, which cannot be told apart from an
+ * empty string - and `false` is the one value Safety Net acts on. `wp config has` answers only through its exit
+ * code, which the runners do not pass on, so an undefined constant is recognised by the `Error:` WP-CLI prints
+ * for it instead. Remote output can carry PHP notices and WP-CLI messages on either side of the value, so the
+ * lines are read from the end, stepping over those, and the first other line is the value if it is JSON.
+ *
+ * @param   callable $run_wp_cli Runs one WP-CLI command on the site and returns its output.
+ * @param   string   $name       The name of the constant.
+ *
+ * @return  string|false|null  Null if WP-CLI says the constant is not defined, false if the reply could not be read.
+ */
+function get_wp_config_constant_json( callable $run_wp_cli, string $name ): string|false|null {
+	$reply = (string) $run_wp_cli( "config get $name --type=constant --format=json" );
+	if ( is_wp_cli_error_output( $reply ) ) {
+		// Any other error, such as an older WP-CLI rejecting --format, says nothing about whether it is defined.
+		return preg_match( "/^\s*Error: The constant '.+' is not defined/m", $reply ) ? null : false;
+	}
+
+	$lines = array_reverse( array_filter( array_map( 'trim', preg_split( '/\R/', $reply ) ), 'strlen' ) );
+	foreach ( $lines as $line ) {
+		foreach ( array( 'Warning:', 'Success:', 'Deprecated:', 'Notice:', 'PHP ' ) as $prefix ) {
+			if ( str_starts_with( $line, $prefix ) ) {
+				continue 2;
+			}
+		}
+
+		return json_validate( $line ) ? $line : false;
+	}
+
+	return false;
+}
+
+/**
+ * Writes a constant to a site's wp-config.php and reads it back.
+ *
+ * Booleans are written with `--raw`: without it WP-CLI writes the string 'false', which Safety Net ignores. A
+ * new constant is inserted above the `That's all, stop editing!` comment, ahead of the wp-settings.php require.
+ * A wp-config.php without that anchor fails with an `Error:` and is deliberately not retried with
+ * `--anchor=EOF`: at the end of the file the constant would only be defined once WordPress has loaded.
+ *
+ * @param   callable       $run_wp_cli Runs one WP-CLI command on the site and returns its output.
+ * @param   string         $name       The name of the constant.
+ * @param   boolean|string $value      The value to write.
+ *
+ * @return  string|null  Why the constant is not in place, or null if it reads back as written.
+ */
+function set_wp_config_constant( callable $run_wp_cli, string $name, bool|string $value ): ?string {
+	$command = is_bool( $value )
+		? "config set $name " . ( $value ? 'true' : 'false' ) . ' --raw --type=constant'
+		: "config set $name $value --type=constant";
+
+	$reply = (string) $run_wp_cli( $command );
+	if ( is_wp_cli_error_output( $reply ) ) {
+		// WP-CLI explains a failed wp-config.php transformation, such as a missing anchor, on a `Reason:` line.
+		preg_match( '/^\s*Error:\s*(.*?)\.?\s*$/m', $reply, $error );
+		preg_match( '/^\s*Reason:\s*(.*?)\.?\s*$/m', $reply, $reason );
+		$details = implode( ': ', array_filter( array( $error[1] ?? 'WP-CLI reported an error', $reason[1] ?? '' ), 'strlen' ) );
+		return "writing $name failed ($details)";
+	}
+
+	$expected  = json_encode( $value );
+	$read_back = get_wp_config_constant_json( $run_wp_cli, $name );
+
+	return match ( true ) {
+		$expected === $read_back => null,
+		null === $read_back => "$name is not defined after writing it",
+		false === $read_back => "$name could not be read back after writing it",
+		default => "$name reads back as $read_back instead of $expected",
+	};
+}
+
+/**
+ * Writes or removes SAFETY_NET_DELETE_DATA and SAFETY_NET_KEEP_UNTIL in a new clone's wp-config.php, before anything loads WordPress there.
+ *
+ * Safety Net decides once, on its first run on the clone, whether the users, orders and subscriptions are kept,
+ * and that run fires on whatever loads WordPress first. WP-CLI's `config` commands do not load it, so they can
+ * settle the constants beforehand. A request that cannot be put in place fails closed: the constants are
+ * removed again and Safety Net scrubs the clone as usual, rather than the run being aborted with production
+ * data already copied and nothing left to scrub it.
+ *
+ * @param   callable        $run_wp_cli Runs one WP-CLI command on the clone and returns its output.
+ * @param   boolean         $keep_data  Whether to keep the clone's users, orders and subscriptions.
+ * @param   string|null     $keep_until The YYYY-MM-DD date until which to keep them, if any.
+ * @param   OutputInterface $output     The output instance.
+ *
+ * @return  boolean  Whether the requested keep settings are in place; false when none were requested.
+ */
+function configure_safety_net_keep_data( callable $run_wp_cli, bool $keep_data, ?string $keep_until, OutputInterface $output ): bool {
+	// An expiry date only qualifies a request to keep the data; on its own it means nothing to Safety Net.
+	$keep_until = $keep_data ? $keep_until : null;
+
+	// The copy carries the source site's wp-config.php over, so a keep constant defined there would decide the
+	// clone's fate without anyone having asked for it on this run. A leftover expiry date is removed even when
+	// the data is kept, or a request to keep it with no expiry would quietly inherit the source's date.
+	$problem  = null;
+	$unwanted = array_keys(
+		array_filter(
+			array(
+				'SAFETY_NET_DELETE_DATA' => ! $keep_data,
+				'SAFETY_NET_KEEP_UNTIL'  => null === $keep_until,
+			)
+		)
+	);
+	foreach ( $unwanted as $name ) {
+		// An unreadable reply does not prove the constant absent, so it is deleted anyway and reported if unconfirmed.
+		$value = get_wp_config_constant_json( $run_wp_cli, $name );
+		if ( null === $value ) {
+			continue;
+		}
+
+		$reply = (string) $run_wp_cli( "config delete $name --type=constant" );
+		$gone  = null === get_wp_config_constant_json( $run_wp_cli, $name );
+		$shown = \Symfony\Component\Console\Formatter\OutputFormatter::escape( false === $value ? 'unreadable value' : $value );
+		if ( $gone && is_wp_cli_success_output( $reply ) ) {
+			$output->writeln( "<comment>Removed $name ($shown) inherited from the source site's wp-config.php.</comment>" );
+		} elseif ( $gone && false === $value ) {
+			continue;
+		} elseif ( $keep_data ) {
+			$problem ??= false === $value
+				? "$name in the clone's wp-config.php could not be read"
+				: "$name ($value) inherited from the source site's wp-config.php could not be removed";
+		} elseif ( false === $value ) {
+			$output->writeln( "<error>Could not read $name in the clone's wp-config.php or confirm it is absent; the clone may keep the source site's customer data.</error>" );
+		} else {
+			$output->writeln( "<error>Could not remove $name ($shown) inherited from the source site's wp-config.php; the clone may keep the source site's customer data.</error>" );
+		}
+	}
+
+	if ( ! $keep_data ) {
+		return false;
+	}
+
+	$problem ??= set_wp_config_constant( $run_wp_cli, 'SAFETY_NET_DELETE_DATA', false );
+	if ( null !== $keep_until ) {
+		$problem ??= set_wp_config_constant( $run_wp_cli, 'SAFETY_NET_KEEP_UNTIL', $keep_until );
+	}
+
+	if ( null === $problem ) {
+		$written = 'SAFETY_NET_DELETE_DATA=false' . ( null === $keep_until ? '' : " and SAFETY_NET_KEEP_UNTIL=$keep_until" );
+		$output->writeln( "<fg=green;options=bold>Wrote $written to the clone's wp-config.php.</>" );
+		return true;
+	}
+
+	// SAFETY_NET_DELETE_DATA goes even when only the date failed: on its own it keeps the data with no expiry at
+	// all, which is more than was asked for. Best effort - whatever stays behind, the final verdict reports.
+	$run_wp_cli( 'config delete SAFETY_NET_DELETE_DATA --type=constant' );
+	$run_wp_cli( 'config delete SAFETY_NET_KEEP_UNTIL --type=constant' );
+	$cleared = null === get_wp_config_constant_json( $run_wp_cli, 'SAFETY_NET_DELETE_DATA' );
+
+	$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+	$output->writeln( '<error>⚠  The request to keep customer data was NOT applied: ' . \Symfony\Component\Console\Formatter\OutputFormatter::escape( $problem ) . '.</error>' );
+	$output->writeln(
+		$cleared
+			? "<error>    Safety Net will delete the clone's users, orders and subscriptions as usual.</error>"
+			: '<error>    Removing SAFETY_NET_DELETE_DATA again could not be confirmed; the Safety Net check at the end of the run reports what the clone keeps.</error>'
+	);
+	$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+
+	return false;
+}
+
+/**
+ * Returns why a Safety Net status report does not confirm the clone is safe to hand off, or null when it does.
+ *
+ * A clone asked to keep its data is held to more than the absence of a deletion: the report has to say that
+ * the keep step ran and that the constants still ask for it. Safety Net before 1.10.0 ignores the constants and
+ * omits those keys, so a missing key is named as an outdated plugin rather than read as a falsy flag.
+ *
+ * @param   array       $report            The decoded status report.
+ * @param   boolean     $expect_kept_data  Whether the clone was asked to keep its users, orders and subscriptions.
+ * @param   string|null $expect_keep_until The YYYY-MM-DD date they were asked to be kept until, if any.
+ *
+ * @return  string|null
+ */
+function get_safety_net_report_problem( array $report, bool $expect_kept_data, ?string $expect_keep_until = null ): ?string {
+	// Mirrors the plugin's own semantics rather than a narrower allowlist: Safety Net treats every environment
+	// except `production` as non-production - including `sandbox`/`dev`/`develop`, which it reads from the
+	// server environment and which core's allowlist would not pass - and it bails on production before the
+	// status route is even registered, so the route answering already implies non-production. An empty or
+	// missing value still fails closed.
+	$environment = (string) ( $report['environment'] ?? '' );
+
+	if ( empty( $report['active'] ) || '' === $environment || 'production' === $environment || empty( $report['options_scrubbed'] ) ) {
+		return 'Safety Net has not run on the clone.';
+	}
+
+	// Once the data is deleted the clone holds none of it, whatever the constants say by now.
+	if ( ! $expect_kept_data ) {
+		return match ( true ) {
+			! empty( $report['data_deleted'] ) => null,
+			! empty( $report['data_deletion_disabled'] ) || ! empty( $report['data_kept'] ) => "The clone keeps the source site's customer data, which was not asked for: SAFETY_NET_DELETE_DATA is false in its wp-config.php.",
+			default => "Safety Net has not deleted the clone's customer data yet.",
+		};
+	}
+
+	$reports_keep_step = array_key_exists( 'data_kept', $report )
+		&& array_key_exists( 'data_deletion_disabled', $report )
+		&& array_key_exists( 'keep_until', $report );
+
+	return match ( true ) {
+		! $reports_keep_step => "The clone's Safety Net is older than 1.10.0, so it ignored SAFETY_NET_DELETE_DATA and deleted the customer data.",
+		! empty( $report['data_deleted'] ) => 'Safety Net deleted the customer data before the keep request was applied, because something loaded the clone first. Clone again if you need the data.',
+		true !== $report['data_kept'] || true !== $report['data_deletion_disabled'] => "Safety Net has not kept the clone's customer data as asked.",
+		$expect_keep_until !== $report['keep_until'] => 'Safety Net keeps the customer data ' . ( null === $report['keep_until'] ? 'with no expiry date' : 'until ' . \Symfony\Component\Console\Formatter\OutputFormatter::escape( (string) $report['keep_until'] ) ) . ', not ' . ( null === $expect_keep_until ? 'with no expiry date' : "until $expect_keep_until" ) . ' as asked.',
+		default => null,
+	};
+}
+
+/**
  * Returns whether a site reports that Safety Net has actually run and scrubbed it.
  *
  * This is the authoritative check: unlike the file listing, it confirms that Safety Net booted and did its
@@ -179,13 +390,18 @@ function write_safety_net_loader( SSH2 $ssh_connection ): bool {
  * hostname may not resolve yet - so callers can say they could not verify instead of asserting the site holds
  * unscrubbed data. A site that does answer fails closed on anything unexpected.
  *
- * @param   string               $site_url     The URL of the site to check.
- * @param   OutputInterface|null $output       The output instance, for announcing the poll.
- * @param   integer              $max_attempts The maximum number of probes, 5 seconds apart.
+ * @param   string               $site_url          The URL of the site to check.
+ * @param   OutputInterface|null $output            The output instance, for announcing the poll.
+ * @param   integer              $max_attempts      The maximum number of probes, 5 seconds apart.
+ * @param   boolean              $expect_kept_data  Whether the clone was asked to keep its users, orders and subscriptions.
+ * @param   string|null          $expect_keep_until The YYYY-MM-DD date they were asked to be kept until, if any.
+ * @param   string|null          $problem           Receives why the report does not confirm the clone, if it does not.
  *
  * @return  boolean|null  Null if the site could not be reached or did not answer with a readable report.
  */
-function is_safety_net_confirmed_via_http( string $site_url, ?OutputInterface $output = null, int $max_attempts = 12 ): ?bool {
+function is_safety_net_confirmed_via_http( string $site_url, ?OutputInterface $output = null, int $max_attempts = 12, bool $expect_kept_data = false, ?string $expect_keep_until = null, ?string &$problem = null ): ?bool {
+	$problem = null;
+
 	// Announced because the poll is otherwise silent for up to a few minutes at the very end of a run, which
 	// reads as a hang.
 	$output?->writeln( "<comment>Checking the Safety Net status endpoint on $site_url (up to $max_attempts probes, 5 seconds apart).</comment>" );
@@ -252,18 +468,9 @@ function is_safety_net_confirmed_via_http( string $site_url, ?OutputInterface $o
 		return null;
 	}
 
-	// Mirrors the plugin's own semantics rather than a narrower allowlist: Safety Net treats every environment
-	// except `production` as non-production - including `sandbox`/`dev`/`develop`, which it reads from the
-	// server environment and which core's allowlist would not pass - and it bails on production before the
-	// status route is even registered, so the route answering already implies non-production. An empty or
-	// missing value still fails closed.
-	$environment = (string) ( $report['environment'] ?? '' );
+	$problem = get_safety_net_report_problem( $report, $expect_kept_data, $expect_keep_until );
 
-	return ! empty( $report['active'] )
-		&& '' !== $environment
-		&& 'production' !== $environment
-		&& ! empty( $report['options_scrubbed'] )
-		&& ! empty( $report['data_deleted'] );
+	return null === $problem;
 }
 
 /**
