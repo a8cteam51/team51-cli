@@ -898,6 +898,9 @@ function get_atlantis_autoupdate_settings_url(): ?string {
  * and both are written here over a connection the caller already holds, so that marking a site
  * costs it no connection of its own.
  *
+ * Never throws: a connection that drops mid-command is reported as a `failed` result, with the
+ * settings address removed from the note like everywhere else.
+ *
  * Both are plain `wp option update` calls on purpose. They work before Atlantis is installed, which
  * is what lets a new site be marked first and never run a request as an unmanaged one, and they
  * work on a release of Atlantis that predates the options, which ignores them until it is updated.
@@ -922,53 +925,63 @@ function mark_site_as_atlantis_managed( ?\phpseclib3\Net\SSH2 $ssh, ?string $set
 		);
 	}
 
-	$options = array(
-		'a8csp_atlantis_managed_site'            => '1',
-		'a8csp_atlantis_autoupdate_settings_url' => $settings_url,
-	);
+	// phpseclib throws when a connection drops mid-command. A caller that has just created a site
+	// has a rotation, an install and a deployment still to run, so a dropped connection is reported
+	// as a failure to mark the site rather than allowed to abort everything after it.
+	try {
+		$options = array(
+			'a8csp_atlantis_managed_site'            => '1',
+			'a8csp_atlantis_autoupdate_settings_url' => $settings_url,
+		);
 
-	// Plugins and themes are skipped because nothing here needs them, and a site whose own code is
-	// broken is still one whose options can be read and written.
-	$wp      = 'wp --skip-plugins --skip-themes';
-	$pending = array();
-	foreach ( $options as $name => $value ) {
-		$current = $ssh->exec( "$wp option get $name 2>/dev/null" );
-		if ( 0 !== $ssh->getExitStatus() || trim( (string) $current ) !== $value ) {
-			$pending[ $name ] = $value;
+		// Plugins and themes are skipped because nothing here needs them, and a site whose own code is
+		// broken is still one whose options can be read and written.
+		$wp      = 'wp --skip-plugins --skip-themes';
+		$pending = array();
+		foreach ( $options as $name => $value ) {
+			$current = $ssh->exec( "$wp option get $name 2>/dev/null" );
+			if ( 0 !== $ssh->getExitStatus() || trim( (string) $current ) !== $value ) {
+				$pending[ $name ] = $value;
+			}
 		}
-	}
 
-	if ( empty( $pending ) ) {
-		return array(
-			'status' => 'unchanged',
-			'note'   => 'Already marked as managed, with the current settings address.',
-		);
-	}
-
-	// The settings address is deliberately left out of every note: notes end up in ledgers and logs.
-	$names = implode( ', ', array_keys( $pending ) );
-	if ( $dry_run ) {
-		return array(
-			'status' => 'would-set',
-			'note'   => "Would set: $names.",
-		);
-	}
-
-	foreach ( $pending as $name => $value ) {
-		$reply = $ssh->exec( "$wp option update $name " . escapeshellarg( $value ) . ' 2>&1' );
-		if ( 0 !== $ssh->getExitStatus() ) {
-			$detail = trim( str_replace( $settings_url, '[settings address]', (string) $reply ) );
+		if ( empty( $pending ) ) {
 			return array(
-				'status' => 'failed',
-				'note'   => "Could not set $name" . ( '' !== $detail ? ": $detail" : '.' ),
+				'status' => 'unchanged',
+				'note'   => 'Already marked as managed, with the current settings address.',
 			);
 		}
-	}
 
-	return array(
-		'status' => 'success',
-		'note'   => "Set: $names.",
-	);
+		// The settings address is deliberately left out of every note: notes end up in ledgers and logs.
+		$names = implode( ', ', array_keys( $pending ) );
+		if ( $dry_run ) {
+			return array(
+				'status' => 'would-set',
+				'note'   => "Would set: $names.",
+			);
+		}
+
+		foreach ( $pending as $name => $value ) {
+			$reply = $ssh->exec( "$wp option update $name " . escapeshellarg( $value ) . ' 2>&1' );
+			if ( 0 !== $ssh->getExitStatus() ) {
+				$detail = trim( str_replace( $settings_url, '[settings address]', (string) $reply ) );
+				return array(
+					'status' => 'failed',
+					'note'   => "Could not set $name" . ( '' !== $detail ? ": $detail" : '.' ),
+				);
+			}
+		}
+
+		return array(
+			'status' => 'success',
+			'note'   => "Set: $names.",
+		);
+	} catch ( Throwable $throwable ) {
+		return array(
+			'status' => 'failed',
+			'note'   => 'Error: ' . str_replace( $settings_url, '[settings address]', $throwable->getMessage() ),
+		);
+	}
 }
 
 // endregion
