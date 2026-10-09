@@ -190,7 +190,7 @@ final class WPCOM_Site_Create extends Command {
 			$output->writeln( "<error>⚠  Site $this->name (ID $transfer->blog_id) was created, but it was not marked as a managed site for Atlantis.</error>" );
 			$output->writeln( "<error>    {$atlantis_managed['note']}</error>" );
 			$output->writeln( '<error>    Until it is, Atlantis treats it as a site outside the fleet: no central autoupdate settings,</error>' );
-			$output->writeln( '<error>    no update emails to the team, and no tracking. Run `team51 atlantis:mark-managed $transfer->blog_id`.</error>' );
+			$output->writeln( "<error>    no update emails to the team, and no tracking. Run `team51 atlantis:mark-managed {$transfer->blog_id}`.</error>" );
 			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 		}
 

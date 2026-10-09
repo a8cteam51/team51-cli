@@ -199,7 +199,7 @@ final class Pressable_Site_Create extends Command {
 			$output->writeln( "<error>⚠  Site $this->name (ID $site->id) was created, but it was not marked as a managed site for Atlantis.</error>" );
 			$output->writeln( "<error>    {$atlantis_managed['note']}</error>" );
 			$output->writeln( '<error>    Until it is, Atlantis treats it as a site outside the fleet: no central autoupdate settings,</error>' );
-			$output->writeln( '<error>    no update emails to the team, and no tracking. Run `team51 atlantis:mark-managed $site->id --host=pressable`.</error>' );
+			$output->writeln( "<error>    no update emails to the team, and no tracking. Run `team51 atlantis:mark-managed {$site->id} --host=pressable`.</error>" );
 			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 		}
 
