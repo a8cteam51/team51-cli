@@ -26,22 +26,28 @@ use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
  * predate them, which is what makes it safe to write them now and release afterwards.
  *
  * Behavior:
- * - Site universe is the Jetpack-connected fleet, narrowed to the sites whose Atlantis status
- *   endpoint answers. Sites that do not answer are listed and left alone: either they do not run
- *   Atlantis, or they cannot be reached and need a look by hand.
+ * - Site universe is the Jetpack-connected fleet, optionally narrowed by `--sites` the way
+ *   `jetpack:plugin-force-update` narrows it, then to the sites whose Atlantis status endpoint
+ *   answers. Sites that do not answer are left alone, and checked against their plugin list so that
+ *   the ones that do have Atlantis (inactive, older than the status endpoint, or unreachable) are
+ *   named rather than lost among the sites that simply do not run it.
  * - Each site is reached over SSH via the helper matching its platform, resolved the way
  *   `jetpack:plugin-force-update` resolves it. A site neither platform claims is reported as a
  *   failure rather than guessed at.
  * - Each site costs one SSH connection, and opening one rotates that site's SFTP/SSH password, on
  *   WordPress.com as well as on Pressable. A dry run opens the connection too.
  * - Every processed site is appended to a JSONL ledger that doubles as the skip-list on the next
- *   run, so an interrupted sweep resumes where it stopped. The settings address is never written to
- *   it, nor printed.
+ *   run, so an interrupted sweep resumes where it stopped. A site that failed is left out of later
+ *   runs as well, so that `--limit` keeps moving through the fleet instead of spending itself on
+ *   the same failures; `--retry-failed` goes back for those. The settings address is never written
+ *   to the ledger, nor printed.
  *
  * Examples:
  *   team51 atlantis:mark-managed-fleet --dry-run
- *   team51 atlantis:mark-managed-fleet --limit=5
- *   team51 atlantis:mark-managed-fleet
+ *   team51 atlantis:mark-managed-fleet --sites=staging --limit=5
+ *   team51 atlantis:mark-managed-fleet --sites=example.com,123456
+ *   team51 atlantis:mark-managed-fleet --sites=production
+ *   team51 atlantis:mark-managed-fleet --retry-failed
  */
 #[AsCommand( name: 'atlantis:mark-managed-fleet' )]
 final class Atlantis_Mark_Managed_Fleet extends Command {
@@ -72,6 +78,13 @@ final class Atlantis_Mark_Managed_Fleet extends Command {
 	private const DONE_STATUSES = array( 'success', 'unchanged' );
 
 	/**
+	 * The folder Atlantis is installed in, as it appears in a site's plugin list.
+	 *
+	 * @var string
+	 */
+	private const ATLANTIS_FOLDER = 'a8csp-atlantis';
+
+	/**
 	 * Per-site SSH command timeout, in seconds.
 	 *
 	 * @var int
@@ -100,6 +113,20 @@ final class Atlantis_Mark_Managed_Fleet extends Command {
 	private ?int $limit = null;
 
 	/**
+	 * The raw `--sites` value, or null for the whole fleet.
+	 *
+	 * @var string|null
+	 */
+	private ?string $sites_spec = null;
+
+	/**
+	 * Whether to process only the sites the ledger records as failed.
+	 *
+	 * @var bool
+	 */
+	private bool $retry_failed = false;
+
+	/**
 	 * Absolute path to the JSONL ledger.
 	 *
 	 * @var string
@@ -124,7 +151,9 @@ final class Atlantis_Mark_Managed_Fleet extends Command {
 		$this->setDescription( 'ONE-OFF: marks every fleet site running Atlantis as managed and gives it the autoupdate settings address.' )
 			->setHelp( 'Sets `a8csp_atlantis_managed_site` and `a8csp_atlantis_autoupdate_settings_url` on every Jetpack-connected site whose Atlantis status endpoint answers. Run it before releasing the Atlantis version that reads them. Idempotent and resumable: a site that already holds both values is left alone, and sites settled in the ledger are skipped.' );
 
-		$this->addOption( 'limit', null, InputOption::VALUE_REQUIRED, 'Process at most this many sites this run (applied after the ledger skip-list). Use it to canary.' )
+		$this->addOption( 'sites', null, InputOption::VALUE_REQUIRED, 'Which sites to act on: `production`, `staging` (both by whether the site URL contains "staging"), a comma-separated list of URLs/IDs, or a path to a CSV file (first column). Defaults to the whole Jetpack fleet.' )
+			->addOption( 'limit', null, InputOption::VALUE_REQUIRED, 'Process at most this many sites this run (applied after the ledger skip-list). Use it to canary.' )
+			->addOption( 'retry-failed', null, InputOption::VALUE_NONE, 'Process only the sites that failed on an earlier run. Without it those are left out, unless `--sites` names them.' )
 			->addOption( 'log', null, InputOption::VALUE_REQUIRED, 'Path to the JSONL ledger (append-only audit log + resume skip-list). Defaults to ' . self::DEFAULT_LEDGER . ' in the CLI directory.' )
 			->addOption( 'yes', null, InputOption::VALUE_NONE, 'Skip the confirmation prompt.' )
 			->addOption( 'dry-run', null, InputOption::VALUE_NONE, 'Report what would change without writing anything (no option writes, no ledger entries). Still opens a connection to each pending site, which rotates its SFTP/SSH password.' );
@@ -136,8 +165,12 @@ final class Atlantis_Mark_Managed_Fleet extends Command {
 	 * @throws \InvalidArgumentException If --limit is not a positive integer, or the ledger cannot be written.
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->dry_run = (bool) $input->getOption( 'dry-run' );
-		$this->yes     = (bool) $input->getOption( 'yes' );
+		$this->dry_run      = (bool) $input->getOption( 'dry-run' );
+		$this->yes          = (bool) $input->getOption( 'yes' );
+		$this->retry_failed = (bool) $input->getOption( 'retry-failed' );
+
+		$sites_spec       = $input->getOption( 'sites' );
+		$this->sites_spec = ( \is_string( $sites_spec ) && '' !== \trim( $sites_spec ) ) ? \trim( $sites_spec ) : null;
 
 		$limit = $input->getOption( 'limit' );
 		if ( null !== $limit ) {
@@ -179,36 +212,59 @@ final class Atlantis_Mark_Managed_Fleet extends Command {
 		}
 		$this->settings_url = $settings_url;
 
-		$sites = get_wpcom_jetpack_sites();
-		if ( empty( $sites ) ) {
+		$fleet = get_wpcom_jetpack_sites();
+		if ( empty( $fleet ) ) {
 			$output->writeln( '<error>Could not fetch the Jetpack-connected sites.</error>' );
 			return Command::FAILURE;
 		}
 
+		[ $sites, $unmatched, $scope, $named ] = $this->scope_sites( $fleet );
+		if ( ! empty( $unmatched ) ) {
+			$output->writeln( '<comment>Unmatched --sites entries (not in the connected fleet): ' . \implode( ', ', $unmatched ) . '</comment>' );
+		}
+		if ( empty( $sites ) ) {
+			$output->writeln( "<error>No connected site matches --sites=$this->sites_spec. Nothing was changed.</error>" );
+			return Command::FAILURE;
+		}
+
 		$errors   = array();
-		$statuses = get_wpcom_sites_atlantis_status_batch( \array_column( $sites, 'userblog_id' ), $errors );
+		$statuses = get_wpcom_sites_atlantis_status_batch( \array_values( \array_column( $sites, 'userblog_id' ) ), $errors );
 		if ( \is_null( $statuses ) ) {
 			$output->writeln( '<error>Could not fetch the Atlantis status of the fleet.</error>' );
 			return Command::FAILURE;
 		}
 
-		// Only a site whose Atlantis answered is a target. The rest are named, so that a site whose
-		// connection happened to be down during the sweep is not mistaken for one that was handled.
+		// Only a site whose Atlantis answered is a target. The rest are accounted for at the end, so
+		// that a site whose connection happened to be down during the sweep is not mistaken for one
+		// that was handled.
 		$targets    = \array_filter( $sites, static fn( \stdClass $site ) => isset( $statuses[ $site->userblog_id ] ) );
 		$unanswered = \array_filter( $sites, static fn( \stdClass $site ) => ! isset( $statuses[ $site->userblog_id ] ) );
 
 		// Read on a dry run too: reading the ledger writes nothing, and a preview that ignored it
 		// would reconnect to every site already settled, rotating each one's password again.
-		$done    = $this->completed_ids();
-		$pending = \array_filter( $targets, static fn( \stdClass $site ) => ! isset( $done[ (string) $site->userblog_id ] ) );
-		$skipped = \count( $targets ) - \count( $pending );
+		$ledger  = $this->ledger_statuses();
+		$settled = \array_filter( $targets, static fn( \stdClass $site ) => \in_array( $ledger[ (string) $site->userblog_id ] ?? null, self::DONE_STATUSES, true ) );
+		$failed  = \array_filter( $targets, static fn( \stdClass $site ) => 'failed' === ( $ledger[ (string) $site->userblog_id ] ?? null ) );
+
+		// A site that failed before stays out of an ordinary run, or a small --limit would be spent
+		// on the same failures every time. Naming a site is asking for it, failed or not.
+		$pending = match ( true ) {
+			$this->retry_failed => $failed,
+			$named              => \array_diff_key( $targets, $settled ),
+			default             => \array_diff_key( $targets, $settled, $failed ),
+		};
 		if ( null !== $this->limit ) {
 			$pending = \array_slice( $pending, 0, $this->limit, true );
 		}
 
-		$output->writeln( \sprintf( '<comment>%d connected site(s): %d running Atlantis, %d not answering its status endpoint.</comment>', \count( $sites ), \count( $targets ), \count( $unanswered ) ) );
-		if ( $skipped > 0 ) {
-			$output->writeln( "<comment>$skipped already settled in the ledger and skipped.</comment>" );
+		$output->writeln( \sprintf( '<comment>%d connected site(s)%s: %d running Atlantis, %d not answering its status endpoint.</comment>', \count( $fleet ), null === $scope ? '' : ', ' . \count( $sites ) . " in scope ($scope)", \count( $targets ), \count( $unanswered ) ) );
+		if ( ! empty( $settled ) ) {
+			$output->writeln( '<comment>' . \count( $settled ) . ' already settled in the ledger and skipped.</comment>' );
+		}
+		if ( $this->retry_failed ) {
+			$output->writeln( '<comment>Going back for the ' . \count( $failed ) . ' site(s) that failed on an earlier run.</comment>' );
+		} elseif ( ! empty( $failed ) && ! $named ) {
+			$output->writeln( '<comment>' . \count( $failed ) . ' failed on an earlier run and left out. Go back for them with --retry-failed.</comment>' );
 		}
 
 		if ( empty( $pending ) ) {
@@ -360,11 +416,46 @@ final class Atlantis_Mark_Managed_Fleet extends Command {
 	// region HELPERS
 
 	/**
-	 * Returns the IDs of the sites the ledger records as settled, latest row per site winning.
+	 * Narrows the fleet to what `--sites` asks for, the way `jetpack:plugin-force-update` does.
 	 *
-	 * @return  array<string, true>
+	 * `staging` and `production` go by whether the site URL contains "staging", which is also true
+	 * of every `*.wpcomstaging.com` and `*.mystagingwebsite.com` address: a production site that
+	 * has no domain of its own yet counts as staging.
+	 *
+	 * @param   \stdClass[] $fleet The connected Jetpack sites.
+	 *
+	 * @return  array A four-element list: the sites in scope, the `--sites` entries that matched no
+	 *                site, a label for the scope (null for the whole fleet), and whether the sites
+	 *                were named one by one.
 	 */
-	private function completed_ids(): array {
+	private function scope_sites( array $fleet ): array {
+		$keyword = \strtolower( (string) $this->sites_spec );
+
+		if ( null === $this->sites_spec || 'all' === $keyword ) {
+			return array( $fleet, array(), null, false );
+		}
+
+		if ( 'staging' === $keyword || 'production' === $keyword ) {
+			$want_staging = ( 'staging' === $keyword );
+			$sites        = \array_filter(
+				$fleet,
+				static fn( \stdClass $site ) => ( false !== \stripos( (string) ( $site->siteurl ?? '' ), 'staging' ) ) === $want_staging
+			);
+
+			return array( $sites, array(), $keyword, false );
+		}
+
+		[ $sites, $unmatched ] = resolve_wpcom_sites_from_identifiers( parse_wpcom_site_identifiers( $this->sites_spec ), $fleet );
+
+		return array( $sites, $unmatched, \is_file( $this->sites_spec ) ? 'sites from CSV' : 'requested list', true );
+	}
+
+	/**
+	 * Returns the latest status the ledger records for each site, keyed by site ID.
+	 *
+	 * @return  array<string, string>
+	 */
+	private function ledger_statuses(): array {
 		if ( ! \is_file( $this->ledger_path ) ) {
 			return array();
 		}
@@ -377,7 +468,7 @@ final class Atlantis_Mark_Managed_Fleet extends Command {
 			}
 		}
 
-		return \array_fill_keys( \array_keys( \array_filter( $latest, static fn( string $status ) => \in_array( $status, self::DONE_STATUSES, true ) ) ), true );
+		return $latest;
 	}
 
 	/**
@@ -416,7 +507,10 @@ final class Atlantis_Mark_Managed_Fleet extends Command {
 	}
 
 	/**
-	 * Lists the connected sites whose Atlantis status endpoint did not answer.
+	 * Accounts for the sites whose Atlantis status endpoint did not answer.
+	 *
+	 * Most of them simply do not run Atlantis. Their plugin lists tell those apart from the ones
+	 * that have it and still did not answer, which are the ones worth naming.
 	 *
 	 * @param   \stdClass[]     $unanswered The sites that did not answer.
 	 * @param   OutputInterface $output     The output object.
@@ -428,11 +522,50 @@ final class Atlantis_Mark_Managed_Fleet extends Command {
 			return;
 		}
 
+		$label = static fn( \stdClass $site ): string => (string) ( $site->siteurl ?? $site->userblog_id );
+
 		$output->writeln( '' );
-		$output->writeln( '<comment>Left alone because their Atlantis status endpoint did not answer (no Atlantis, or the site could not be reached).</comment>' );
-		$output->writeln( '<comment>Any of these that does run Atlantis still needs `team51 atlantis:mark-managed <site>`:</comment>' );
+
+		$errors  = array();
+		$plugins = get_wpcom_site_plugins_batch( \array_values( \array_column( $unanswered, 'userblog_id' ) ), $errors );
+		if ( \is_null( $plugins ) ) {
+			$output->writeln( '<comment>Left alone because their Atlantis status endpoint did not answer. Their plugin lists could not be fetched, so this includes every site without Atlantis.</comment>' );
+			$output->writeln( '<comment>Any of these that does run Atlantis still needs `team51 atlantis:mark-managed <site>`:</comment>' );
+			foreach ( $unanswered as $site ) {
+				$output->writeln( '  ' . $label( $site ) );
+			}
+			return;
+		}
+
+		$installed = array();
+		$unknown   = array();
 		foreach ( $unanswered as $site ) {
-			$output->writeln( '  ' . ( $site->siteurl ?? $site->userblog_id ) );
+			if ( ! isset( $plugins[ $site->userblog_id ] ) ) {
+				$unknown[] = $label( $site );
+				continue;
+			}
+			foreach ( $plugins[ $site->userblog_id ] as $plugin_file => $plugin_data ) {
+				if ( self::ATLANTIS_FOLDER === \dirname( (string) $plugin_file ) ) {
+					$installed[] = $label( $site ) . ' (Atlantis ' . ( $plugin_data->Version ?? 'version unknown' ) . ')'; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+					break;
+				}
+			}
+		}
+
+		$without = \count( $unanswered ) - \count( $installed ) - \count( $unknown );
+		$output->writeln( \sprintf( '<comment>%d site(s) left alone because their Atlantis status endpoint did not answer: %d without Atlantis, %d with it, %d whose plugin list could not be read.</comment>', \count( $unanswered ), $without, \count( $installed ), \count( $unknown ) ) );
+
+		if ( ! empty( $installed ) ) {
+			$output->writeln( '<comment>Atlantis is installed on these but did not answer (inactive, older than 1.2.0, or unreachable). Each still needs `team51 atlantis:mark-managed <site>`:</comment>' );
+			foreach ( $installed as $line ) {
+				$output->writeln( "  $line" );
+			}
+		}
+		if ( ! empty( $unknown ) ) {
+			$output->writeln( '<comment>Could not be checked either way. Look at these by hand:</comment>' );
+			foreach ( $unknown as $line ) {
+				$output->writeln( "  $line" );
+			}
 		}
 	}
 
