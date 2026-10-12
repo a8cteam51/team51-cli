@@ -139,6 +139,10 @@ final class WPCOM_Site_Create extends Command {
 		// is bounded now, so the outcome has to be carried to the end: the setup steps that need SSH cannot
 		// succeed without it, and the command must not report success as though they had.
 		$ssh_connection = wait_on_wpcom_site_ssh( $transfer->blog_id, $output );
+
+		// Marked before Atlantis is installed, over the connection the wait just proved, so the plugin
+		// never runs a request on this site as an unmanaged one.
+		$atlantis_managed = mark_site_as_atlantis_managed( $ssh_connection, get_atlantis_autoupdate_settings_url() );
 		$ssh_connection?->disconnect();
 
 		// The site is ready but the API doesn't support setting the name during creation so we have to update it.
@@ -181,6 +185,15 @@ final class WPCOM_Site_Create extends Command {
 			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 		}
 
+		if ( 'failed' === $atlantis_managed['status'] ) {
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			$output->writeln( "<error>⚠  Site $this->name (ID $transfer->blog_id) was created, but it was not marked as a managed site for Atlantis.</error>" );
+			$output->writeln( "<error>    {$atlantis_managed['note']}</error>" );
+			$output->writeln( '<error>    Until it is, Atlantis treats it as a site outside the fleet: no central autoupdate settings,</error>' );
+			$output->writeln( "<error>    no update emails to the team, and no tracking. Run `team51 atlantis:mark-managed {$transfer->blog_id}`.</error>" );
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+		}
+
 		// Reported before the repository connect below, whose own failure returns early: a run where both
 		// failed must name both. The expired wait alone proves nothing about this step - it opened its own
 		// connection - so the wait's outcome is context, and the verdict itself lands at the end.
@@ -212,7 +225,7 @@ final class WPCOM_Site_Create extends Command {
 			}
 		}
 
-		if ( Command::SUCCESS !== $atlantis_status ) {
+		if ( Command::SUCCESS !== $atlantis_status || 'failed' === $atlantis_managed['status'] ) {
 			return Command::FAILURE;
 		}
 

@@ -19,6 +19,12 @@ use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
  * By default, reports every site and every module. Use `--site` to inspect a
  * single site, or `--module` to narrow the report to one module column.
  * Sites without Atlantis return `not installed`.
+ *
+ * Atlantis is public, so it only behaves as the team's tool on a site marked
+ * as managed and told where the fleet's autoupdate settings are. The `Managed`
+ * column and an Autoupdates cell reading `on (no settings address)` are how a
+ * site missing either shows up; both count as issues, and
+ * `atlantis:mark-managed` is what fixes them.
  */
 #[AsCommand( name: 'wpcom:atlantis-status' )]
 final class WPCOM_Atlantis_Status extends Command {
@@ -160,7 +166,7 @@ final class WPCOM_Atlantis_Status extends Command {
 			->addOption( 'with-messages-only', null, InputOption::VALUE_NONE, 'Only show sites that have at least one stored Atlantis custom message.' )
 			->addOption( 'export', null, InputOption::VALUE_REQUIRED, 'If provided, the report will be saved to this file in addition to the terminal.' )
 			->addOption( 'export-format', null, InputOption::VALUE_REQUIRED, 'The format to export the report in. Accepted values are `json` and `csv`.', 'csv' )
-			->addOption( 'export-exclude', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Exclude columns from the export. Possible values depend on the active --module flag; defaults to `Site ID`, `Site URL`, `Atlantis Version`, plus one column per Atlantis module.' );
+			->addOption( 'export-exclude', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Exclude columns from the export. Possible values depend on the active --module flag; defaults to `Site ID`, `Site URL`, `Atlantis Version`, `Managed`, plus one column per Atlantis module.' );
 	}
 
 	/**
@@ -181,7 +187,7 @@ final class WPCOM_Atlantis_Status extends Command {
 		}
 
 		$this->export_columns = \array_merge(
-			array( 'Site ID', 'Site URL', 'Atlantis Version', 'Custom Msgs' ),
+			array( 'Site ID', 'Site URL', 'Atlantis Version', 'Managed', 'Custom Msgs' ),
 			\array_map( fn( string $key ) => $this->column_label( $key ), $this->module_keys )
 		);
 
@@ -255,6 +261,7 @@ final class WPCOM_Atlantis_Status extends Command {
 				'Site ID'          => $site->userblog_id,
 				'Site URL'         => $site->siteurl,
 				'Atlantis Version' => 'not installed',
+				'Managed'          => '—',
 				'Custom Msgs'      => '—',
 			);
 			foreach ( $this->module_keys as $module_key ) {
@@ -269,6 +276,15 @@ final class WPCOM_Atlantis_Status extends Command {
 				$has_issue = false;
 
 				$row['Atlantis Version'] = $status->plugin->version ?? 'unknown';
+
+				// Every site in this report is one of ours, so one Atlantis treats as a stranger's is
+				// an issue: it reads no central autoupdate settings and sends the team no update
+				// emails. A release older than the flag reports nothing and still behaves as managed.
+				$managed = $status->plugin->managed ?? null;
+				if ( \is_bool( $managed ) ) {
+					$row['Managed'] = $managed ? 'yes' : 'no';
+					$has_issue      = ! $managed;
+				}
 
 				$count_raw = $status->modules->messages->count ?? null;
 				if ( \is_int( $count_raw ) || ( \is_string( $count_raw ) && \ctype_digit( $count_raw ) ) ) {
@@ -293,6 +309,13 @@ final class WPCOM_Atlantis_Status extends Command {
 					if ( true === $enabled ) {
 						$row[ $this->column_label( $module_key ) ] = 'on';
 						++$module_enabled_counts[ $module_key ];
+
+						// Running, but never told where the fleet's settings are, so it follows none
+						// of them. `atlantis:mark-managed` is what gives a site the address.
+						if ( false === ( $status->modules->$module_key->settings_url_configured ?? null ) ) {
+							$row[ $this->column_label( $module_key ) ] = 'on (no settings address)';
+							$has_issue                                 = true;
+						}
 					} elseif ( false === $enabled ) {
 						$row[ $this->column_label( $module_key ) ] = 'off';
 						$has_issue                                 = true;
