@@ -99,6 +99,13 @@ final class Pressable_Site_Clone extends Command {
 	 */
 	private ?string $keep_until = null;
 
+	/**
+	 * Whether to clone without looking for or connecting the site's DeployHQ project and GitHub repository.
+	 *
+	 * @var bool|null
+	 */
+	private ?bool $skip_repository = null;
+
 	// endregion
 
 	// region INHERITED METHODS
@@ -113,7 +120,8 @@ final class Pressable_Site_Clone extends Command {
 		$this->addArgument( 'site', InputArgument::REQUIRED, 'The site to clone.' )
 			->addArgument( 'label', InputArgument::OPTIONAL, 'The suffix to append to the site name. Defaults to `development`.' )
 			->addOption( 'datacenter', null, InputOption::VALUE_REQUIRED, 'The datacenter to clone the site in. Defaults to the datacenter of the given site.' )
-			->addOption( 'branch', null, InputOption::VALUE_REQUIRED, 'The branch to deploy to the site from. Defaults to `develop`.' );
+			->addOption( 'branch', null, InputOption::VALUE_REQUIRED, 'The branch to deploy to the site from. Defaults to `develop`.' )
+			->addOption( 'skip-repository', null, InputOption::VALUE_NONE, "Clone without the site's DeployHQ project and GitHub repository, and without asking about them." );
 
 		$this->addOption( 'skip-safety-net', null, InputOption::VALUE_NONE, 'Skip the installation of SafetyNet as a mu-plugin.' )
 			->addOption( 'keep-data', null, InputOption::VALUE_NONE, "Keep the source site's users, orders and subscriptions on the clone (sets SAFETY_NET_DELETE_DATA to false). Safety Net still scrubs credentials, deactivates risky plugins, blocks emails and blocks logins of copied customer accounts." )
@@ -144,8 +152,18 @@ final class Pressable_Site_Clone extends Command {
 			$this->site_root_name = $site_root_name;
 		}
 
-		$deployhq_config = get_pressable_site_deployhq_config( $this->site->id );
-		if ( \is_null( $deployhq_config ) ) {
+		$this->skip_repository = get_bool_input( $input, 'skip-repository' );
+		$input->setOption( 'skip-repository', $this->skip_repository );
+		if ( $this->skip_repository && ! \is_null( $input->getOption( 'branch' ) ) ) {
+			throw new \InvalidArgumentException( '--branch needs the repository, which --skip-repository leaves out.' );
+		}
+
+		// Without a terminal to answer them, the questions below about a missing project or repository would
+		// abort the clone, so a caller that does not need the repository skips them altogether.
+		$deployhq_config = $this->skip_repository ? null : get_pressable_site_deployhq_config( $this->site->id );
+		if ( $this->skip_repository ) {
+			$output->writeln( '<comment>Cloning without the DeployHQ project and GitHub repository.</comment>' );
+		} elseif ( \is_null( $deployhq_config ) ) {
 			$output->writeln( '<error>Unable to find a DeployHQ project for the site.</error>' );
 
 			$question = new ConfirmationQuestion( '<question>Do you want to continue anyway? [y/N]</question> ', false );

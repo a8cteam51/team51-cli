@@ -64,6 +64,13 @@ final class WPCOM_Site_Clone extends Command {
 	 */
 	private ?string $keep_until = null;
 
+	/**
+	 * Whether to create the staging site without looking for or connecting the site's GitHub deployment.
+	 *
+	 * @var bool|null
+	 */
+	private ?bool $skip_repository = null;
+
 	// endregion
 
 	// region INHERITED METHODS
@@ -76,7 +83,8 @@ final class WPCOM_Site_Clone extends Command {
 			->setHelp( 'Use this command to create a staging staging site for an existing WordPress.com site.' );
 
 		$this->addArgument( 'site', InputArgument::REQUIRED, 'The site for which to create the staging site.' )
-			->addOption( 'branch', null, InputOption::VALUE_REQUIRED, 'The branch to deploy to the site from. Defaults to `develop`. Created off the repository default branch if it does not exist.' );
+			->addOption( 'branch', null, InputOption::VALUE_REQUIRED, 'The branch to deploy to the site from. Defaults to `develop`. Created off the repository default branch if it does not exist.' )
+			->addOption( 'skip-repository', null, InputOption::VALUE_NONE, "Create the staging site without the site's GitHub deployment, and without asking about it." );
 
 		$this->addOption( 'skip-safety-net', null, InputOption::VALUE_NONE, 'Skip the installation of SafetyNet as a mu-plugin.' )
 			->addOption( 'keep-data', null, InputOption::VALUE_NONE, "Keep the source site's users, orders and subscriptions on the staging site (sets SAFETY_NET_DELETE_DATA to false). Safety Net still scrubs credentials, deactivates risky plugins, blocks emails and blocks logins of copied customer accounts." )
@@ -92,9 +100,19 @@ final class WPCOM_Site_Clone extends Command {
 		$this->site = get_wpcom_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
 		$input->setArgument( 'site', $this->site );
 
-		$wpcom_gh_repositories = get_wpcom_site_code_deployments( $this->site->ID );
+		$this->skip_repository = get_bool_input( $input, 'skip-repository' );
+		$input->setOption( 'skip-repository', $this->skip_repository );
+		if ( $this->skip_repository && ! \is_null( $input->getOption( 'branch' ) ) ) {
+			throw new \InvalidArgumentException( '--branch needs the repository, which --skip-repository leaves out.' );
+		}
 
-		if ( empty( $wpcom_gh_repositories ) ) {
+		// Without a terminal to answer it, the question below about a missing deployment would abort the run, so
+		// a caller that does not need the repository skips it altogether.
+		$wpcom_gh_repositories = $this->skip_repository ? array() : get_wpcom_site_code_deployments( $this->site->ID );
+
+		if ( $this->skip_repository ) {
+			$output->writeln( '<comment>Creating the staging site without its GitHub deployment.</comment>' );
+		} elseif ( empty( $wpcom_gh_repositories ) ) {
 			$output->writeln( '<error>Unable to find a WPCOM GitHub Deployments for the site.</error>' );
 
 			$question = new ConfirmationQuestion( '<question>Do you want to continue anyway? [y/N]</question> ', false );

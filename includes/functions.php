@@ -350,16 +350,17 @@ function run_app_command( string $command_name, array $command_input, bool $inte
 /**
  * Runs a system command and returns the output.
  *
- * @param   array   $command           The command to run.
- * @param   string  $working_directory The working directory to run the command in.
- * @param   boolean $exit_on_error     Whether to exit if the command returns an error or not.
+ * @param   array      $command           The command to run.
+ * @param   string     $working_directory The working directory to run the command in.
+ * @param   boolean    $exit_on_error     Whether to exit if the command returns an error or not.
+ * @param   float|null $timeout           Seconds before the command is stopped, or null for no limit.
  *
  * @link    https://symfony.com/doc/current/components/process.html
  *
  * @return  Process
  */
-function run_system_command( array $command, string $working_directory = '.', bool $exit_on_error = true ): Process {
-	$process = new Process( $command, $working_directory );
+function run_system_command( array $command, string $working_directory = '.', bool $exit_on_error = true, ?float $timeout = 60 ): Process {
+	$process = new Process( $command, $working_directory, null, null, $timeout );
 
 	try {
 		$process->mustRun();
