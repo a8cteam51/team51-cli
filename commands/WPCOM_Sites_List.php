@@ -195,12 +195,12 @@ final class WPCOM_Sites_List extends Command {
 				'Total sites'     => count( $final_site_list ),
 			);
 			foreach ( $summary_output as $key => $value ) {
-				$output->writeln( "<info>$key: $value<info>" );
+				$output->writeln( "<info>$key: $value</info>" );
 			}
 		} else {
 			$audited_site_list = $this->filter_audit_sites( $site_list );
 			if ( empty( $audited_site_list ) ) {
-				$output->writeln( "<error>Failed to find any sites using the search parameter $this->audit_type.<error>" );
+				$output->writeln( "<error>Failed to find any sites using the search parameter $this->audit_type.</error>" );
 				return Command::SUCCESS;
 			}
 
@@ -242,12 +242,12 @@ final class WPCOM_Sites_List extends Command {
 				'AUDIT TYPE/FILTER'      => $this->audit_type,
 			);
 			foreach ( $filters_output as $key => $value ) {
-				$output->writeln( "<info>{$key}<info>" );
+				$output->writeln( "<info>{$key}</info>" );
 			}
 			$output->writeln( "\n" );
 
 			foreach ( $summary_output as $key => $value ) {
-				$output->writeln( "<info>$key: {$value}<info>" );
+				$output->writeln( "<info>$key: {$value}</info>" );
 			}
 
 			$summary_output  = array_merge( $filters_output, $summary_output );
