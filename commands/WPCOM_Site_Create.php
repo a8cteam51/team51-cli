@@ -116,7 +116,7 @@ final class WPCOM_Site_Create extends Command {
 			return Command::FAILURE;
 		}
 
-		if ( isset( $agency_site->code ) ) {
+		if ( \in_array( $agency_site->code ?? '', array( 'site_name_refused', 'site_already_exists' ), true ) ) {
 			$output->writeln( "<error>Failed to create the site. {$agency_site->message}</error>" );
 			return Command::FAILURE;
 		}
