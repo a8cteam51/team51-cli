@@ -112,7 +112,7 @@ final class Poseidon_PR_Review extends Command {
 		$this->addArgument( 'pr', InputArgument::OPTIONAL, 'Pull request URL (https://HOST/OWNER/REPO/pull/N, including GitHub Enterprise hosts) or OWNER/REPO#N for github.com. Prompted for if omitted.' );
 
 		$this->addOption( 'no-clone', null, InputOption::VALUE_NONE, 'Skip cloning the repository; the agent reviews the diff only. Faster, but loses AGENTS.md/.agents grounding and all surrounding-code context.' );
-		$this->addOption( 'model', null, InputOption::VALUE_REQUIRED, 'The Claude model to use.', 'claude-opus-4-8' );
+		$this->addOption( 'model', null, InputOption::VALUE_REQUIRED, 'The Claude model to use.', 'claude-opus-5-5' );
 		$this->addOption( 'max-turns', null, InputOption::VALUE_REQUIRED, 'The maximum number of agent turns.', '45' );
 	}
 
