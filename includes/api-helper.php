@@ -139,8 +139,10 @@ final class API_Helper {
 		if ( ! str_starts_with( (string) $result['headers']['http_code'], '2' ) ) {
 			console_writeln( "❌ API error ({$result['headers']['http_code']} $endpoint): " . $result['body'] );
 
+			// A refused site name comes back with the reason, for the caller to show. OpsOasis called every
+			// refusal `site_already_exists` until it could tell why.
 			$error = json_decode( (string) $result['body'] );
-			return \is_object( $error ) && 'site_already_exists' === ( $error->code ?? '' ) ? $error : null;
+			return \is_object( $error ) && \in_array( $error->code ?? '', array( 'site_name_refused', 'site_already_exists' ), true ) ? $error : null;
 		}
 
 		$result['body'] = ( '' === $result['body'] ) ? null : decode_json_content( $result['body'] );

@@ -1955,6 +1955,10 @@ final class Team51McpTools {
 		}
 
 		$site = create_wpcom_site( $name );
+		if ( isset( $site->code ) ) {
+			return array( 'error' => "Failed to create WPCOM site. {$site->message}" );
+		}
+
 		return $site ? (array) $site : array( 'error' => 'Failed to create WPCOM site.' );
 	}
 
