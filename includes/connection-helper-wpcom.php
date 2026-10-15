@@ -29,7 +29,7 @@ final class WPCOM_Connection_Helper extends Abstract_Connection_Helper {
 		if ( empty( $cache[ $site_identifier ] ) ) {
 			$ssh_username = get_wpcom_site_ssh_username( $site_identifier );
 			if ( \is_null( $ssh_username ) ) {
-				console_writeln( '❌ Could not find the WordPress.com site SSH username.' );
+				console_writeln( '❌ Could not get the site SSH username from WordPress.com. A 403 above usually means concierge is an administrator but not the site owner: WordPress.com only lets the owner manage SSH users through the API.' );
 				return null;
 			}
 
