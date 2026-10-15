@@ -184,10 +184,23 @@ final class WPCOM_Sites_List extends Command {
 
 			$table_header = array_keys( $final_site_list[0] );
 			output_table( $output, $final_site_list, $table_header, 'WPCOMSP Sites', );
+
+			$summary_output = array(
+				'REPORT SUMMARY'  => '',
+				'Atomic sites'    => $this->count_sites( $final_site_list, 'Atomic', 'Host' ),
+				'Pressable sites' => $this->count_sites( $final_site_list, 'Pressable', 'Host' ),
+				'VIP sites'       => $this->count_sites( $final_site_list, 'VIP', 'Host' ),
+				'Simple sites'    => $this->count_sites( $final_site_list, 'Simple', 'Host' ),
+				'Other hosts'     => $this->count_sites( $final_site_list, 'Other', 'Host' ),
+				'Total sites'     => count( $final_site_list ),
+			);
+			foreach ( $summary_output as $key => $value ) {
+				$output->writeln( "<info>$key: $value</info>" );
+			}
 		} else {
 			$audited_site_list = $this->filter_audit_sites( $site_list );
 			if ( empty( $audited_site_list ) ) {
-				$output->writeln( "<error>Failed to find any sites using the search parameter $this->audit_type.<error>" );
+				$output->writeln( "<error>Failed to find any sites using the search parameter $this->audit_type.</error>" );
 				return Command::SUCCESS;
 			}
 
@@ -229,29 +242,16 @@ final class WPCOM_Sites_List extends Command {
 				'AUDIT TYPE/FILTER'      => $this->audit_type,
 			);
 			foreach ( $filters_output as $key => $value ) {
-				$output->writeln( "<info>{$key}<info>" );
+				$output->writeln( "<info>{$key}</info>" );
 			}
 			$output->writeln( "\n" );
 
 			foreach ( $summary_output as $key => $value ) {
-				$output->writeln( "<info>$key: {$value}<info>" );
+				$output->writeln( "<info>$key: {$value}</info>" );
 			}
 
 			$summary_output  = array_merge( $filters_output, $summary_output );
 			$final_site_list = $audited_site_list;
-		}
-
-		$summary_output = array(
-			'REPORT SUMMARY'  => '',
-			'Atomic sites'    => $this->count_sites( $final_site_list, 'Atomic', 'Host' ),
-			'Pressable sites' => $this->count_sites( $final_site_list, 'Pressable', 'Host' ),
-			'VIP sites'       => $this->count_sites( $final_site_list, 'VIP', 'Host' ),
-			'Simple sites'    => $this->count_sites( $final_site_list, 'Simple', 'Host' ),
-			'Other hosts'     => $this->count_sites( $final_site_list, 'Other', 'Host' ),
-			'Total sites'     => count( $final_site_list ),
-		);
-		foreach ( $summary_output as $key => $value ) {
-			$output->writeln( "<info>$key: $value<info>" );
 		}
 
 		if ( ! \is_null( $this->stream ) ) {
