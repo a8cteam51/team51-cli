@@ -152,4 +152,4 @@ See `connection-helper-pressable.php` and `connection-helper-wpcom.php` for refe
 ## Example Commands
 
 - **SSH**: `includes/functions-safety-net.php` (SafetyNet install + loader via heredoc, used by both clone commands), `Pressable_Site_WP_CLI_Command_Run`, `Pressable_Site_Shell_Open`, `WPCOM_Site_WP_CLI_Command_Run`
-- **SFTP**: `Pressable_Site_Icon_Upload`, `Pressable_Site_Plugins_Download`, `GitHub_Pattern_To_Repo_Export`
+- **SFTP**: `Pressable_Site_Icon_Upload`, `Pressable_Site_Plugins_Download`
