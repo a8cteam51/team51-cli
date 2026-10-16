@@ -46,6 +46,13 @@ trait ExportTrait {
 	 */
 	private $export_stream = null;
 
+	/**
+	 * Whether the file to export to existed before this run opened it.
+	 *
+	 * @var bool
+	 */
+	private bool $export_file_existed = false;
+
 	// endregion
 
 	// region METHODS
@@ -80,17 +87,21 @@ trait ExportTrait {
 	 *
 	 * The file is opened before the command fetches anything, so a path that cannot be written to fails straight away.
 	 *
-	 * @param   InputInterface  $input            The console input.
-	 * @param   OutputInterface $output           The console output.
-	 * @param   string          $default_filename The file name suggested in the Downloads folder, before the timestamp and extension.
-	 * @param   string[]        $columns          The columns the exported file will contain.
+	 * @param   InputInterface  $input                 The console input.
+	 * @param   OutputInterface $output                The console output.
+	 * @param   string          $default_filename      The file name suggested in the Downloads folder, before the timestamp and extension.
+	 * @param   string[]        $columns               The columns the exported file will contain.
+	 * @param   string|null     $automatic_destination Where to save the output when `--export` is not given, for commands whose output
+	 *                                                 is always saved. The user is then not prompted for a file or for columns to exclude.
 	 *
 	 * @throws  \InvalidArgumentException If a column to exclude is not one of the given columns.
 	 * @return  void
 	 */
-	protected function initialize_export( InputInterface $input, OutputInterface $output, string $default_filename, array $columns ): void {
-		$this->export_format      = get_enum_input( $input, 'export-format', array( 'csv', 'json' ) );
-		$this->export_destination = maybe_get_string_input( $input, 'export', fn() => $this->prompt_export_destination_input( $input, $output, $default_filename ) );
+	protected function initialize_export( InputInterface $input, OutputInterface $output, string $default_filename, array $columns, ?string $automatic_destination = null ): void {
+		$this->export_format = get_enum_input( $input, 'export-format', array( 'csv', 'json' ) );
+
+		$requested_destination    = maybe_get_string_input( $input, 'export', \is_null( $automatic_destination ) ? fn() => $this->prompt_export_destination_input( $input, $output, $default_filename ) : null );
+		$this->export_destination = $requested_destination ?? $automatic_destination;
 		if ( empty( $this->export_destination ) ) {
 			return;
 		}
@@ -99,7 +110,7 @@ trait ExportTrait {
 		$normalize     = static fn( string $column ): string => \strtoupper( \preg_replace( '/\s+/', '', $column ) );
 		$known_columns = \array_combine( \array_map( $normalize, $columns ), $columns );
 
-		$excluded_columns = $input->getOption( 'export-exclude' ) ?: $this->prompt_export_excluded_columns_input( $input, $output, $columns );
+		$excluded_columns = $input->getOption( 'export-exclude' ) ?: ( \is_null( $requested_destination ) ? array() : $this->prompt_export_excluded_columns_input( $input, $output, $columns ) );
 		foreach ( $excluded_columns as $column ) {
 			if ( ! isset( $known_columns[ $normalize( $column ) ] ) ) {
 				throw new \InvalidArgumentException( "Invalid value for input `export-exclude`: $column" );
@@ -113,7 +124,10 @@ trait ExportTrait {
 		if ( empty( \pathinfo( $this->export_destination, PATHINFO_EXTENSION ) ) ) {
 			$this->export_destination .= ".$this->export_format";
 		}
-		$this->export_stream = get_file_handle( $this->export_destination, $this->export_format );
+
+		// Opened without truncating, so a run that fails before writing leaves an existing file as it was.
+		$this->export_file_existed = \file_exists( $this->export_destination );
+		$this->export_stream       = get_file_handle( $this->export_destination, $this->export_format, 'cb' );
 	}
 
 	/**
@@ -137,6 +151,7 @@ trait ExportTrait {
 			$rows
 		);
 
+		\ftruncate( $this->export_stream, 0 );
 		match ( $this->export_format ) {
 			'csv' => $this->write_export_csv( \array_keys( $included_columns ), $rows, $summary ),
 			'json' => $this->write_export_json( $rows, $summary ),
@@ -145,6 +160,21 @@ trait ExportTrait {
 		$this->export_stream = null;
 
 		$output->writeln( "<info>Output saved to $this->export_destination</info>" );
+	}
+
+	/**
+	 * Closes the export file when the command ended without writing it, through an early return, an exception, or
+	 * `exit()`. A file this run created is removed rather than left empty.
+	 */
+	public function __destruct() {
+		if ( ! \is_resource( $this->export_stream ) ) {
+			return;
+		}
+
+		\fclose( $this->export_stream );
+		if ( ! $this->export_file_existed ) {
+			\unlink( $this->export_destination );
+		}
 	}
 
 	/**

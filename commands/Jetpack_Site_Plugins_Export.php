@@ -10,6 +10,7 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\Question;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
+use WPCOMSpecialProjects\CLI\Helper\ExportTrait;
 
 /**
  * Exports a list of plugins installed on Jetpack sites.
@@ -17,8 +18,16 @@ use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 #[AsCommand( name: 'jetpack:export-site-plugins' )]
 final class Jetpack_Site_Plugins_Export extends Command {
 	use AutocompleteTrait;
+	use ExportTrait;
 
 	// region FIELDS AND CONSTANTS
+
+	/**
+	 * Columns of the exported file.
+	 *
+	 * @var string[]
+	 */
+	private const COLUMNS = array( 'Site ID', 'Site URL', 'Plugin Name', 'Plugin Slug', 'Plugin Version', 'Plugin Status' );
 
 	/**
 	 * WPCOM sites to list plugins for.
@@ -34,20 +43,6 @@ final class Jetpack_Site_Plugins_Export extends Command {
 	 */
 	private ?array $plugins = null;
 
-	/**
-	 * The destination to save the output to.
-	 *
-	 * @var string|null
-	 */
-	private ?string $destination = null;
-
-	/**
-	 * The stream to write the output to.
-	 *
-	 * @var resource|null
-	 */
-	private $stream = null;
-
 	// endregion
 
 	// region INHERITED METHODS
@@ -61,17 +56,17 @@ final class Jetpack_Site_Plugins_Export extends Command {
 
 		$this->addArgument( 'site', InputArgument::OPTIONAL, 'Domain or WPCOM ID of the site to list the plugins for.' );
 
-		$this->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Determines whether the `site` argument is optional or not. Accepted values are `all` or a comma-separated list of site IDs or domains.' )
-			->addOption( 'destination', 'd', InputOption::VALUE_REQUIRED, 'The destination file to export the plugins to.' );
+		$this->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Determines whether the `site` argument is optional or not. Accepted values are `all` or a comma-separated list of site IDs or domains.' );
+
+		$this->configure_export_options( self::COLUMNS );
 	}
 
 	/**
 	 * {@inheritDoc}
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		// Open the destination file for writing.
-		$this->destination = get_string_input( $input, 'destination', fn() => $this->prompt_destination_input( $input, $output ) );
-		$this->stream      = get_file_handle( $this->destination, 'csv' );
+		// Exporting is the point of this command, so the file is saved to Downloads unless --export says otherwise.
+		$this->initialize_export( $input, $output, 'plugins-on-wpcomsp-sites', self::COLUMNS, get_user_folder_path( 'Downloads/plugins-on-wpcomsp-sites-' . \gmdate( 'Y-m-d-H-i-s' ) ) );
 
 		$multiple = $input->getOption( 'multiple' );
 		if ( null === $multiple ) {
@@ -103,30 +98,24 @@ final class Jetpack_Site_Plugins_Export extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
-		$output->writeln( '<fg=magenta;options=bold>Exporting plugins installed on ' . count( $this->plugins ) . " Jetpack site(s) to $this->destination.</>" );
+		$output->writeln( '<fg=magenta;options=bold>Exporting plugins installed on ' . count( $this->plugins ) . " Jetpack site(s) to $this->export_destination.</>" );
 
-		\fputcsv( $this->stream, array( 'Site ID', 'Site URL', 'Plugin Name', 'Plugin Slug', 'Plugin Version', 'Plugin Status' ), ',', '"', '' );
+		$rows = array();
 		foreach ( $this->plugins as $site_id => $plugins ) {
 			foreach ( $plugins as $plugin => $plugin_data ) {
-				\fputcsv(
-					$this->stream,
-					array(
-						$this->sites[ $site_id ]->userblog_id,
-						$this->sites[ $site_id ]->siteurl,
-						// phpcs:disable WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
-						$plugin_data->Name,
-						\dirname( $plugin ),
-						$plugin_data->Version,
-						$plugin_data->active ? 'Active' : 'Inactive',
-						// phpcs:enable WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
-					),
-					',',
-					'"',
-					''
+				$rows[] = array(
+					$this->sites[ $site_id ]->userblog_id,
+					$this->sites[ $site_id ]->siteurl,
+					// phpcs:disable WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+					$plugin_data->Name,
+					\dirname( $plugin ),
+					$plugin_data->Version,
+					$plugin_data->active ? 'Active' : 'Inactive',
+					// phpcs:enable WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 				);
 			}
 		}
-		\fclose( $this->stream );
+		$this->maybe_export( $output, self::COLUMNS, $rows );
 
 		$output->writeln( '<fg=green;options=bold>Plugins list exported successfully.</>' );
 		return Command::SUCCESS;
@@ -135,20 +124,6 @@ final class Jetpack_Site_Plugins_Export extends Command {
 	// endregion
 
 	// region HELPERS
-
-	/**
-	 * Prompts the user for the destination to save the output to.
-	 *
-	 * @param   InputInterface  $input  The input object.
-	 * @param   OutputInterface $output The output object.
-	 *
-	 * @return  string|null
-	 */
-	private function prompt_destination_input( InputInterface $input, OutputInterface $output ): ?string {
-		$default  = get_user_folder_path( 'Downloads/plugins-on-wpcomsp-sites-' . \gmdate( 'Y-m-d-H-i-s' ) . '.csv' );
-		$question = new Question( "<question>Please enter the path to the file you want to save the output to [$default]:</question> ", $default );
-		return $this->getHelper( 'question' )->ask( $input, $output, $question );
-	}
 
 	/**
 	 * Prompts the user for a site.
