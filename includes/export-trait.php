@@ -46,6 +46,13 @@ trait ExportTrait {
 	 */
 	private $export_stream = null;
 
+	/**
+	 * Whether the file to export to existed before this run opened it.
+	 *
+	 * @var bool
+	 */
+	private bool $export_file_existed = false;
+
 	// endregion
 
 	// region METHODS
@@ -117,7 +124,10 @@ trait ExportTrait {
 		if ( empty( \pathinfo( $this->export_destination, PATHINFO_EXTENSION ) ) ) {
 			$this->export_destination .= ".$this->export_format";
 		}
-		$this->export_stream = get_file_handle( $this->export_destination, $this->export_format );
+
+		// Opened without truncating, so a run that fails before writing leaves an existing file as it was.
+		$this->export_file_existed = \file_exists( $this->export_destination );
+		$this->export_stream       = get_file_handle( $this->export_destination, $this->export_format, 'cb' );
 	}
 
 	/**
@@ -141,6 +151,7 @@ trait ExportTrait {
 			$rows
 		);
 
+		\ftruncate( $this->export_stream, 0 );
 		match ( $this->export_format ) {
 			'csv' => $this->write_export_csv( \array_keys( $included_columns ), $rows, $summary ),
 			'json' => $this->write_export_json( $rows, $summary ),
@@ -149,6 +160,21 @@ trait ExportTrait {
 		$this->export_stream = null;
 
 		$output->writeln( "<info>Output saved to $this->export_destination</info>" );
+	}
+
+	/**
+	 * Closes the export file when the command ended without writing it, through an early return, an exception, or
+	 * `exit()`. A file this run created is removed rather than left empty.
+	 */
+	public function __destruct() {
+		if ( ! \is_resource( $this->export_stream ) ) {
+			return;
+		}
+
+		\fclose( $this->export_stream );
+		if ( ! $this->export_file_existed ) {
+			\unlink( $this->export_destination );
+		}
 	}
 
 	/**
