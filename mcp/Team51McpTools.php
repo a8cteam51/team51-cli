@@ -2468,20 +2468,6 @@ final class Team51McpTools {
 		return (array) $repository;
 	}
 
-	#[McpTool( name: 'github_export_pattern_to_repo' )]
-	public function github_export_pattern_to_repo( string $site_id_or_url, string $pattern_name, string $category_slug, bool $preserve_images = false ): array {
-		$identity_error = self::ensure_identity();
-		if ( $identity_error ) {
-			return $identity_error;
-		}
-
-		$args = array( $site_id_or_url, $pattern_name, $category_slug );
-		if ( $preserve_images ) {
-			$args[] = '--preserve-images';
-		}
-		return self::run_cli_command( 'github:export-pattern-to-repo', $args );
-	}
-
 	#[McpTool( name: 'github_add_checklist' )]
 	public function github_add_checklist( string $checklist, string $repository, string $host = 'pressable', bool $skip_issue = false, string $conditional_tags_json = '{}' ): array {
 		$identity_error = self::ensure_identity();

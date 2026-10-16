@@ -52,7 +52,7 @@ team51-cli/
 │   └── enum-site-type.php
 ├── mcp/
 │   └── Team51McpTools.php       # MCP tool definitions (McpTool attribute)
-└── scaffold/            # Files to deploy (load-safety-net.php, pattern-extract.php)
+└── scaffold/            # Files to deploy (load-safety-net.php)
 ```
 
 ---
