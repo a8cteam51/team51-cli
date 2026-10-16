@@ -144,8 +144,7 @@ final class WPCOM_Atlantis_Status extends Command {
 			->addOption( 'issues-only', null, InputOption::VALUE_NEGATABLE, 'Only show sites where Atlantis is not installed or at least one module is not on. Mandatory modules such as Bot Protection are never counted as issues (their `inherit`/`off` states are deliberate). Use --no-issues-only to suppress the prompt and show all sites. When neither is set you will be prompted (unless --no-interaction).' )
 			->addOption( 'with-messages-only', null, InputOption::VALUE_NONE, 'Only show sites that have at least one stored Atlantis custom message.' );
 
-		// With --module, the report only has that module's column.
-		$this->configure_export_options( $this->columns_for_modules( self::KNOWN_MODULE_KEYS ) );
+		$this->configure_export_options( $this->columns_for_modules( self::KNOWN_MODULE_KEYS ), 'With `--module`, only that module\'s column is in the report.' );
 	}
 
 	/**

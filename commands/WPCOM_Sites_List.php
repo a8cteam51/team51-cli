@@ -105,7 +105,7 @@ final class WPCOM_Sites_List extends Command {
 
 		$this->addOption( 'audit', null, InputOption::VALUE_OPTIONAL, "Produces a full list of sites, with reasons why they were or were not filtered. Audit values include `full`, for including all sites, `no-staging` to exclude staging sites, as well as\na general column/text based exclusive filter, eg. `is_private` will include only private sites." );
 
-		$this->configure_export_options( self::COLUMNS );
+		$this->configure_export_options( self::COLUMNS, 'With `--audit`, also: ' . $this->format_export_columns( \array_diff( self::AUDIT_COLUMNS, self::COLUMNS ) ) . '.' );
 	}
 
 	/**

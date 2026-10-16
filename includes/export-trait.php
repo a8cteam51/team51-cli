@@ -54,13 +54,25 @@ trait ExportTrait {
 	 * Adds the `--export`, `--export-format`, and `--export-exclude` options to the command.
 	 *
 	 * @param   string[] $columns The columns the exported file can contain, listed in the help for `--export-exclude`.
+	 * @param   string   $note    Appended to the help for `--export-exclude`, for commands whose columns depend on other options.
 	 *
 	 * @return  void
 	 */
-	protected function configure_export_options( array $columns ): void {
+	protected function configure_export_options( array $columns, string $note = '' ): void {
 		$this->addOption( 'export', null, InputOption::VALUE_REQUIRED, 'If provided, the output will be saved inside the specified file in addition to the terminal.' )
 			->addOption( 'export-format', null, InputOption::VALUE_REQUIRED, 'The format to export the output in. Accepted values are `csv` and `json`.', 'csv' )
-			->addOption( 'export-exclude', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Exclude columns from the exported file. Possible values: ' . \implode( ', ', \array_map( static fn( string $column ) => "`$column`", $columns ) ) . '.' );
+			->addOption( 'export-exclude', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, \rtrim( 'Exclude columns from the exported file. Possible values: ' . $this->format_export_columns( $columns ) . ". $note" ) );
+	}
+
+	/**
+	 * Formats a list of columns for help text.
+	 *
+	 * @param   string[] $columns The columns to list.
+	 *
+	 * @return  string
+	 */
+	protected function format_export_columns( array $columns ): string {
+		return \implode( ', ', \array_map( static fn( string $column ) => "`$column`", $columns ) );
 	}
 
 	/**
