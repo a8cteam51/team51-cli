@@ -11,6 +11,7 @@ use Symfony\Component\Console\Question\Question;
 use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
+use WPCOMSpecialProjects\CLI\Helper\ExportTrait;
 
 /**
  * Outputs a summary of all sites managed by the WordPress.com Special Projects team.
@@ -18,8 +19,23 @@ use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 #[AsCommand( name: 'wpcom:list-sites' )]
 final class WPCOM_Sites_List extends Command {
 	use AutocompleteTrait;
+	use ExportTrait;
 
 	// region FIELDS AND CONSTANTS
+
+	/**
+	 * Columns of the list of public sites.
+	 *
+	 * @var string[]
+	 */
+	private const COLUMNS = array( 'Site Name', 'Domain', 'Site ID', 'Host' );
+
+	/**
+	 * Columns of the list of sites in audit mode.
+	 *
+	 * @var string[]
+	 */
+	private const AUDIT_COLUMNS = array( 'Site ID', 'Site Name', 'Domain', 'Host', 'ignore', 'free_pass', 'is_private', 'is_coming_soon', 'is_multisite', 'is_domain_only', 'Result' );
 
 	/**
 	 * Types of audits.
@@ -44,18 +60,6 @@ final class WPCOM_Sites_List extends Command {
 	private ?string $audit_type = null;
 
 	/**
-	 * Columns included in the export and thus that can be excluded via options.
-	 */
-	private array $export_columns = array( 'Site Name', 'Domain', 'Site ID', 'Host' );
-
-	/**
-	 * List of columns to exclude from the export.
-	 *
-	 * @var array|null
-	 */
-	private ?array $export_excluded_columns = null;
-
-	/**
 	 * List of url terms to trigger site exclusion.
 	 *
 	 * @var array
@@ -73,27 +77,6 @@ final class WPCOM_Sites_List extends Command {
 		'tonyconrad.wordpress.com',
 		'killscreen.com/previously',
 	);
-
-	/**
-	 * The format to export the sites in.
-	 *
-	 * @var string|null
-	 */
-	private ?string $format = null;
-
-	/**
-	 * The destination to save the output to in addition to the terminal.
-	 *
-	 * @var string|null
-	 */
-	private ?string $destination = null;
-
-	/**
-	 * The stream to write the output to.
-	 *
-	 * @var resource|null
-	 */
-	private $stream = null;
 
 	/**
 	 * The list of connected sites.
@@ -122,9 +105,7 @@ final class WPCOM_Sites_List extends Command {
 
 		$this->addOption( 'audit', null, InputOption::VALUE_OPTIONAL, "Produces a full list of sites, with reasons why they were or were not filtered. Audit values include `full`, for including all sites, `no-staging` to exclude staging sites, as well as\na general column/text based exclusive filter, eg. `is_private` will include only private sites." );
 
-		$this->addOption( 'export', null, InputOption::VALUE_REQUIRED, 'If provided, the output will be saved inside the specified file in addition to the terminal.' )
-			->addOption( 'export-format', null, InputOption::VALUE_REQUIRED, 'The format to export the sites in. Accepted values are `json`, and `csv`.', 'csv' )
-			->addOption( 'export-exclude', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Exclude columns from the export option. Possible values: `Site Name`, `Domain`, `Site ID`, and `Host`.' );
+		$this->configure_export_options( self::COLUMNS );
 	}
 
 	/**
@@ -134,15 +115,7 @@ final class WPCOM_Sites_List extends Command {
 		$this->audit_type = maybe_get_string_input( $input, 'audit', fn() => $this->prompt_audit_input( $input, $output ) );
 		$input->setOption( 'audit', $this->audit_type );
 
-		// Open the destination file if provided.
-		$this->format      = get_enum_input( $input, 'export-format', array( 'json', 'csv' ) );
-		$this->destination = maybe_get_string_input( $input, 'export', fn() => $this->prompt_destination_input( $input, $output ) );
-		if ( ! empty( $this->destination ) ) {
-			$this->export_excluded_columns = $input->getOption( 'export-exclude' ) ?: $this->prompt_export_excluded_columns_input( $input, $output );
-			$input->setOption( 'export-exclude', $this->export_excluded_columns );
-
-			$this->stream = get_file_handle( $this->destination, $this->format );
-		}
+		$this->initialize_export( $input, $output, 'wpcom-sites', empty( $this->audit_type ) ? self::COLUMNS : self::AUDIT_COLUMNS );
 
 		// Fetch the sites.
 		$this->sites = get_wpcom_sites(
@@ -254,13 +227,7 @@ final class WPCOM_Sites_List extends Command {
 			$final_site_list = $audited_site_list;
 		}
 
-		if ( ! \is_null( $this->stream ) ) {
-			match ( $this->format ) {
-				'csv' => $this->create_csv( $table_header, $final_site_list, $summary_output ),
-				'json' => $this->create_json( $table_header, $final_site_list, $summary_output )
-			};
-			$output->writeln( "<info>Output saved to $this->destination</info>" );
-		}
+		$this->maybe_export( $output, $table_header, $final_site_list, $summary_output );
 
 		$output->writeln( '<fg=green;options=bold>Sites listed successfully.</>' );
 		return Command::SUCCESS;
@@ -289,45 +256,6 @@ final class WPCOM_Sites_List extends Command {
 			}
 
 			return $response;
-		}
-
-		return null;
-	}
-
-	/**
-	 * Prompts the user for the destination to save the output to.
-	 *
-	 * @param   InputInterface  $input  The input object.
-	 * @param   OutputInterface $output The output object.
-	 *
-	 * @return  string|null
-	 */
-	private function prompt_destination_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new ConfirmationQuestion( '<question>Would you like to save the output to a file? [y/N]</question> ', false );
-		if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
-			$default  = get_user_folder_path( 'Downloads/wpcom-sites_' . gmdate( 'Y-m-d-H-i-s' ) . ".$this->format" );
-			$question = new Question( "<question>Please enter the path to the file you want to save the output to [$default]:</question> ", $default );
-			return $this->getHelper( 'question' )->ask( $input, $output, $question );
-		}
-
-		return null;
-	}
-
-	/**
-	 * Prompts the user to maybe exclude columns from the exported files.
-	 *
-	 * @param   InputInterface  $input  The input object.
-	 * @param   OutputInterface $output The output object.
-	 *
-	 * @return  array|null
-	 */
-	private function prompt_export_excluded_columns_input( InputInterface $input, OutputInterface $output ): ?array {
-		$question = new ConfirmationQuestion( '<question>Would you like to exclude any columns from exported site list? [y/N]</question> ', false );
-		if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
-			$question = new ChoiceQuestion( '<question>Please select the columns you want to exclude from the exported file [' . $this->export_columns[0] . ']:</question> ', $this->export_columns );
-			$question->setMultiselect( true );
-
-			return $this->getHelper( 'question' )->ask( $input, $output, $question );
 		}
 
 		return null;
@@ -547,85 +475,6 @@ final class WPCOM_Sites_List extends Command {
 	protected function count_sites( array $site_list, string $term, string $column ): int {
 		$sites = array_filter( $site_list, static fn ( array $site ) => $term === $site[ $column ] );
 		return count( $sites );
-	}
-
-	/**
-	 * Creates a CSV file from the final list of sites.
-	 *
-	 * @param   array $headers The header for the CSV file.
-	 * @param   array $rows    The final list of sites.
-	 * @param   array $summary The summary of the report.
-	 *
-	 * @return  void
-	 */
-	protected function create_csv( array $headers, array $rows, array $summary ): void {
-		$csv_header_compare = array_map(
-			static fn ( $column ) => strtoupper( preg_replace( '/\s+/', '', $column ) ),
-			$headers
-		);
-
-		if ( ! empty( $this->export_excluded_columns ) ) {
-			$this->export_excluded_columns = array_map(
-				static fn ( $column ) => strtoupper( preg_replace( '/\s+/', '', $column ) ),
-				$this->export_excluded_columns
-			);
-
-			foreach ( $this->export_excluded_columns as $column ) {
-				$column_index = array_search( $column, $csv_header_compare, true );
-				$column_name  = $headers[ $column_index ];
-				unset( $headers[ $column_index ] );
-				foreach ( $rows as &$site ) {
-					unset( $site[ $column_name ] );
-				}
-				unset( $site );
-			}
-		}
-
-		\fputcsv( $this->stream, $headers, ',', '"', '' );
-		foreach ( $rows as $fields ) {
-			\fputcsv( $this->stream, $fields, ',', '"', '' );
-		}
-		foreach ( $summary as $key => $item ) {
-			\fputcsv( $this->stream, array( $key, $item ), ',', '"', '' );
-		}
-		\fclose( $this->stream );
-	}
-
-	/**
-	 * Creates a JSON file from the final list of sites.
-	 *
-	 * @param array $headers The header for the CSV file.
-	 * @param array $rows    The final list of sites.
-	 * @param array $summary The summary of the report.
-	 *
-	 * @return  void
-	 */
-	protected function create_json( array $headers, array $rows, array $summary ): void {
-		$json_header_compare = array_map(
-			static fn ( $column ) => strtoupper( preg_replace( '/\s+/', '', $column ) ),
-			$headers
-		);
-
-		if ( ! empty( $this->export_excluded_columns ) ) {
-			$this->export_excluded_columns = array_map(
-				static fn ( $column ) => strtoupper( preg_replace( '/\s+/', '', $column ) ),
-				$this->export_excluded_columns
-			);
-
-			foreach ( $this->export_excluded_columns as $column ) {
-				$column_index = array_search( $column, $json_header_compare, true );
-				$column_name  = $headers[ $column_index ];
-				unset( $headers[ $column_index ] );
-				foreach ( $rows as &$site ) {
-					unset( $site[ $column_name ] );
-				}
-				unset( $site );
-			}
-		}
-
-		$rows[] = $summary;
-		\fwrite( $this->stream, encode_json_content( $rows, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) );
-		\fclose( $this->stream );
 	}
 
 	// endregion

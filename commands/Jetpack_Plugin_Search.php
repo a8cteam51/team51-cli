@@ -10,8 +10,8 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\Question;
-use Symfony\Component\Console\Question\ConfirmationQuestion;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
+use WPCOMSpecialProjects\CLI\Helper\ExportTrait;
 
 /**
  * Lists the connected Jetpack sites with a given plugin.
@@ -19,8 +19,16 @@ use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 #[AsCommand( name: 'jetpack:plugin-search' )]
 final class Jetpack_Plugin_Search extends Command {
 	use AutocompleteTrait;
+	use ExportTrait;
 
 	// region FIELDS AND CONSTANTS
+
+	/**
+	 * Columns of the search results.
+	 *
+	 * @var string[]
+	 */
+	private const COLUMNS = array( 'Site ID', 'Site URL', 'Plugin Name', 'Plugin Slug', 'Plugin Version', 'Plugin Status' );
 
 	/**
 	 * The plugin to search for.
@@ -71,39 +79,6 @@ final class Jetpack_Plugin_Search extends Command {
 	 */
 	private ?array $plugins = null;
 
-	/**
-	 * Columns included in the export and thus that can be excluded via options.
-	 */
-	private array $export_columns = array( 'Site ID', 'Site URL', 'Plugin Name', 'Plugin Slug', 'Plugin Version', 'Plugin Status' );
-
-	/**
-	 * List of columns to exclude from the export.
-	 *
-	 * @var array|null
-	 */
-	private ?array $export_excluded_columns = null;
-
-	/**
-	 * The format to export the sites in.
-	 *
-	 * @var string|null
-	 */
-	private ?string $format = null;
-
-	/**
-	 * The destination to save the output to in addition to the terminal.
-	 *
-	 * @var string|null
-	 */
-	private ?string $destination = null;
-
-	/**
-	 * The stream to write the output to.
-	 *
-	 * @var resource|null
-	 */
-	private $stream = null;
-
 	// endregion
 
 	// region INHERITED METHODS
@@ -123,9 +98,7 @@ final class Jetpack_Plugin_Search extends Command {
 
 		$this->addOption( 'status', null, InputOption::VALUE_REQUIRED, 'Only list plugins with this status. Accepted values are `active` and `inactive`. Lists both if omitted.' );
 
-		$this->addOption( 'export', null, InputOption::VALUE_REQUIRED, 'If provided, the output will be saved inside the specified file in addition to the terminal.' )
-			->addOption( 'export-format', null, InputOption::VALUE_REQUIRED, 'The format to export the sites in. Accepted values are `json`, and `csv`.', 'csv' )
-			->addOption( 'export-exclude', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Exclude columns from the export option. Possible values: `Site ID`, `Site URL`, `Plugin Name`, `Plugin Slug`, `Plugin Version`, and `Plugin Status`.' );
+		$this->configure_export_options( self::COLUMNS );
 	}
 
 	/**
@@ -148,15 +121,7 @@ final class Jetpack_Plugin_Search extends Command {
 		}
 		$this->status = get_enum_input( $input, 'status', array( 'active', 'inactive' ) );
 
-		// Open the destination file if provided.
-		$this->format      = get_enum_input( $input, 'export-format', array( 'json', 'csv' ) );
-		$this->destination = maybe_get_string_input( $input, 'export', fn() => $this->prompt_destination_input( $input, $output ) );
-		if ( ! empty( $this->destination ) ) {
-			$this->export_excluded_columns = $input->getOption( 'export-exclude' ) ?: $this->prompt_export_excluded_columns_input( $input, $output );
-			$input->setOption( 'export-exclude', $this->export_excluded_columns );
-
-			$this->stream = get_file_handle( $this->destination, $this->format );
-		}
+		$this->initialize_export( $input, $output, 'jetpack-plugin-search', self::COLUMNS );
 
 		$this->sites = get_wpcom_jetpack_sites();
 		$output->writeln( '<comment>Successfully fetched ' . \count( $this->sites ) . ' Jetpack site(s).</comment>' );
@@ -208,11 +173,10 @@ final class Jetpack_Plugin_Search extends Command {
 			}
 		}
 
-		$table_header = array( 'Site ID', 'Site URL', 'Plugin Name', 'Plugin Slug', 'Plugin Version', 'Plugin Status' );
 		output_table(
 			$output,
 			$rows,
-			$table_header,
+			self::COLUMNS,
 			'Sites found with plugins matching the given term'
 		);
 
@@ -230,13 +194,7 @@ final class Jetpack_Plugin_Search extends Command {
 			$output->writeln( "<info>$key: $value</info>" );
 		}
 
-		if ( ! \is_null( $this->stream ) ) {
-			match ( $this->format ) {
-				'csv' => $this->create_csv( $table_header, $rows, $summary_output ),
-				'json' => $this->create_json( $table_header, $rows, $summary_output )
-			};
-			$output->writeln( "<info>Output saved to $this->destination</info>" );
-		}
+		$this->maybe_export( $output, self::COLUMNS, $rows, $summary_output );
 
 		return Command::SUCCESS;
 	}
@@ -271,45 +229,6 @@ final class Jetpack_Plugin_Search extends Command {
 
 		$question = new ChoiceQuestion( '<question>Select the version comparison operator to use [=]:</question> ', $choices, '=' );
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
-	}
-
-	/**
-	 * Prompts the user for the destination to save the output to.
-	 *
-	 * @param   InputInterface  $input  The input object.
-	 * @param   OutputInterface $output The output object.
-	 *
-	 * @return  string|null
-	 */
-	private function prompt_destination_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new ConfirmationQuestion( '<question>Would you like to save the output to a file? [y/N]</question> ', false );
-		if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
-			$default  = get_user_folder_path( 'Downloads/jetpack-plugin-search_' . gmdate( 'Y-m-d-H-i-s' ) . ".$this->format" );
-			$question = new Question( "<question>Please enter the path to the file you want to save the output to [$default]:</question> ", $default );
-			return $this->getHelper( 'question' )->ask( $input, $output, $question );
-		}
-
-		return null;
-	}
-
-	/**
-	 * Prompts the user to maybe exclude columns from the exported files.
-	 *
-	 * @param   InputInterface  $input  The input object.
-	 * @param   OutputInterface $output The output object.
-	 *
-	 * @return  array|null
-	 */
-	private function prompt_export_excluded_columns_input( InputInterface $input, OutputInterface $output ): ?array {
-		$question = new ConfirmationQuestion( '<question>Would you like to exclude any columns from exported plugin search results? [y/N]</question> ', false );
-		if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
-			$question = new ChoiceQuestion( '<question>Please select the columns you want to exclude from the exported file [' . $this->export_columns[0] . ']:</question> ', $this->export_columns );
-			$question->setMultiselect( true );
-
-			return $this->getHelper( 'question' )->ask( $input, $output, $question );
-		}
-
-		return null;
 	}
 
 	/**
@@ -364,92 +283,6 @@ final class Jetpack_Plugin_Search extends Command {
 	private function is_status_match( \stdClass $plugin_data ): bool {
 		return \is_null( $this->status )
 			|| ( 'active' === $this->status ) === (bool) $plugin_data->active;
-	}
-
-	/**
-	 * Creates a CSV file from the final list of sites.
-	 *
-	 * @param   array $headers The header for the CSV file.
-	 * @param   array $rows    The final list of sites.
-	 * @param   array $summary The summary of the report.
-	 *
-	 * @return  void
-	 */
-	protected function create_csv( array $headers, array $rows, array $summary ): void {
-		$filtered_data = $this->filter_export_columns( $headers, $rows );
-
-		\fputcsv( $this->stream, $filtered_data['headers'], ',', '"', '' );
-		foreach ( $filtered_data['rows'] as $fields ) {
-			\fputcsv( $this->stream, $fields, ',', '"', '' );
-		}
-		foreach ( $summary as $key => $item ) {
-			\fputcsv( $this->stream, array( $key, $item ), ',', '"', '' );
-		}
-		\fclose( $this->stream );
-	}
-
-	/**
-	 * Creates a JSON file from the final list of sites.
-	 *
-	 * @param array $headers The header for the CSV file.
-	 * @param array $rows    The final list of sites.
-	 * @param array $summary The summary of the report.
-	 *
-	 * @return  void
-	 */
-	protected function create_json( array $headers, array $rows, array $summary ): void {
-		$filtered_data = $this->filter_export_columns( $headers, $rows );
-
-		$filtered_data['rows'][] = $summary;
-		\fwrite( $this->stream, encode_json_content( $filtered_data['rows'], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) );
-		\fclose( $this->stream );
-	}
-
-	/**
-	 * Filters out excluded columns from headers and rows.
-	 *
-	 * @param array $headers The headers to filter.
-	 * @param array $rows    The rows to filter.
-	 *
-	 * @return array Array containing filtered headers and rows.
-	 */
-	private function filter_export_columns( array $headers, array $rows ): array {
-		if ( empty( $this->export_excluded_columns ) ) {
-			return array(
-				'headers' => $headers,
-				'rows'    => $rows,
-			);
-		}
-
-		$header_compare = array_map(
-			static fn ( $column ) => strtoupper( preg_replace( '/\s+/', '', $column ) ),
-			$headers
-		);
-
-		$excluded_columns = array_map(
-			static fn ( $column ) => strtoupper( preg_replace( '/\s+/', '', $column ) ),
-			$this->export_excluded_columns
-		);
-
-		foreach ( $excluded_columns as $column ) {
-			$column_index = array_search( $column, $header_compare, true );
-			if ( false !== $column_index ) {
-				unset( $headers[ $column_index ] );
-				foreach ( $rows as &$site ) {
-					unset( $site[ $column_index ] );
-				}
-				unset( $site );
-			}
-		}
-
-		// Reindex arrays after column removal for consistency
-		$headers = array_values( $headers );
-		$rows    = array_map( 'array_values', $rows );
-
-		return array(
-			'headers' => $headers,
-			'rows'    => $rows,
-		);
 	}
 
 	// endregion

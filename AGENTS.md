@@ -49,6 +49,7 @@ team51-cli/
 │   ├── functions-*.php           # Service-specific (1password, deployhq, github, jetpack, pressable, wporg, wpcom)
 │   ├── parallel-process.php
 │   ├── autocomplete-trait.php
+│   ├── export-trait.php         # --export / --export-format / --export-exclude for commands that output a table
 │   └── enum-site-type.php
 ├── mcp/
 │   └── Team51McpTools.php       # MCP tool definitions (McpTool attribute)
@@ -142,7 +143,7 @@ team51 --shell
 2. Class extends `Symfony\Component\Console\Command\Command`.
 3. Add `#[AsCommand(name: 'service:action')]` attribute.
 4. Implement `configure()`, `initialize()` (if needed), `interact()` (optional), `execute()`.
-5. Use `AutocompleteTrait` for tab completion.
+5. Use `AutocompleteTrait` for tab completion. If the command outputs a table that users may want to save, use `ExportTrait` rather than writing CSV/JSON by hand.
 6. Use helpers: `get_string_input()`, `get_enum_input()`, `get_bool_input()`, `get_pressable_site_input()`, etc. from `includes/functions.php` and service-specific includes.
 
 See `.agents/subagents/add-cli-command.md` for a detailed runbook.
