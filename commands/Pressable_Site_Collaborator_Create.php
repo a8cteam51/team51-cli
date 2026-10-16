@@ -55,7 +55,8 @@ final class Pressable_Site_Collaborator_Create extends Command {
 	/**
 	 * {@inheritDoc}
 	 *
-	 * @throws \InvalidArgumentException If `--multiple=all` is given, or none of the listed sites exist.
+	 * @throws \InvalidArgumentException If `--multiple=all` is given, a site argument is given with a list of sites, or
+	 *                                   the list names no site or one that does not exist.
 	 * @throws \RuntimeException If the sites related to the given site cannot be fetched.
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
@@ -72,9 +73,14 @@ final class Pressable_Site_Collaborator_Create extends Command {
 		}
 
 		if ( $is_site_list ) {
+			// Refused rather than ignored: whether the site argument was meant to join the list cannot be told.
+			if ( ! empty( $input->getArgument( 'site' ) ) ) {
+				throw new \InvalidArgumentException( 'With a list of sites in `--multiple`, leave out the site argument (got `' . $input->getArgument( 'site' ) . '`).' );
+			}
+
 			$this->sites = $this->get_sites_from_multiple_input( $multiple );
 			if ( empty( $this->sites ) ) {
-				throw new \InvalidArgumentException( 'None of the given sites could be found.' );
+				throw new \InvalidArgumentException( 'No sites were given in `--multiple`.' );
 			}
 		} else {
 			$site = get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
@@ -177,15 +183,35 @@ final class Pressable_Site_Collaborator_Create extends Command {
 	}
 
 	/**
-	 * Get sites from the multiple input option.
+	 * Get sites from the multiple input option, each once.
+	 *
+	 * A site that cannot be found fails the command before anything is changed, rather than being left out of a run
+	 * that would otherwise report success.
 	 *
 	 * @param   string $multiple The multiple input option.
 	 *
+	 * @throws  \InvalidArgumentException If any of the listed sites cannot be found.
 	 * @return  \stdClass[]
 	 */
 	private function get_sites_from_multiple_input( string $multiple ): array {
-		$site_identifiers = array_map( 'trim', explode( ',', $multiple ) );
-		return array_values( array_filter( array_map( static fn( $identifier ) => get_pressable_site( $identifier ), $site_identifiers ) ) );
+		$sites   = array();
+		$missing = array();
+		foreach ( array_filter( array_map( 'trim', explode( ',', $multiple ) ) ) as $identifier ) {
+			$site = get_pressable_site( $identifier );
+			if ( \is_null( $site ) ) {
+				$missing[] = $identifier;
+				continue;
+			}
+
+			// Keyed by ID, so a site listed twice, or by both its ID and its domain, is processed once.
+			$sites[ $site->id ] = $site;
+		}
+
+		if ( ! empty( $missing ) ) {
+			throw new \InvalidArgumentException( 'Could not find the Pressable site(s): ' . implode( ', ', $missing ) . '.' );
+		}
+
+		return array_values( $sites );
 	}
 
 	// endregion
