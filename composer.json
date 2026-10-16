@@ -35,6 +35,7 @@
       "includes/api-helper.php",
       "includes/autocomplete-trait.php",
       "includes/export-trait.php",
+      "includes/terminal-question-helper.php",
       "includes/abstract-connection-helper.php",
       "includes/connection-helper-pressable.php",
       "includes/connection-helper-wpcom.php",

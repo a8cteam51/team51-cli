@@ -50,6 +50,7 @@ team51-cli/
 │   ├── parallel-process.php
 │   ├── autocomplete-trait.php
 │   ├── export-trait.php         # --export / --export-format / --export-exclude for commands that output a table
+│   ├── terminal-question-helper.php # Question helper that discards keys typed before a question (registered in team51-cli.php)
 │   └── enum-site-type.php
 ├── mcp/
 │   └── Team51McpTools.php       # MCP tool definitions (McpTool attribute)
