@@ -32,6 +32,9 @@ $team51_cli_input      = new ArgvInput();
 $team51_cli_output     = new ConsoleOutput();
 $team51_cli_dispatcher = new EventDispatcher();
 
+// Keys typed while a command is busy must not answer its next question.
+$team51_cli_app->getHelperSet()->set( new \WPCOMSpecialProjects\CLI\Helper\TerminalQuestionHelper() );
+
 // Handle errors gracefully.
 $team51_cli_app->setDispatcher( $team51_cli_dispatcher );
 $team51_cli_dispatcher->addListener(
