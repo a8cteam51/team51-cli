@@ -9,6 +9,7 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ChoiceQuestion;
+use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 use WPCOMSpecialProjects\CLI\Helper\ExportTrait;
@@ -108,9 +109,16 @@ final class Jetpack_Plugin_Search extends Command {
 		$this->plugin = get_string_input( $input, 'plugin', fn() => $this->prompt_plugin_input( $input, $output ) );
 		$input->setArgument( 'plugin', $this->plugin );
 
-		// Set the search parameters.
-		$this->partial = get_bool_input( $input, 'partial' );
-		$this->version = maybe_get_string_input( $input, 'version-search' );
+		// Set the search parameters. Passing any filter means the filters were chosen on the command line;
+		// otherwise the user is offered them, so a plain search costs one keypress.
+		$prompt_filters = ! $input->getOption( 'partial' ) && empty( $input->getOption( 'version-search' ) ) && empty( $input->getOption( 'status' ) )
+			&& $this->prompt_filters_input( $input, $output );
+
+		$this->partial = get_bool_input( $input, 'partial', $prompt_filters ? fn() => $this->prompt_partial_input( $input, $output ) : null );
+		$input->setOption( 'partial', $this->partial );
+
+		$this->version = maybe_get_string_input( $input, 'version-search', $prompt_filters ? fn() => $this->prompt_version_input( $input, $output ) : null );
+		$input->setOption( 'version-search', $this->version );
 		if ( ! empty( $this->version ) ) {
 			$this->version_operator = get_enum_input(
 				$input,
@@ -119,7 +127,9 @@ final class Jetpack_Plugin_Search extends Command {
 				fn() => $this->prompt_version_operator_input( $input, $output )
 			);
 		}
-		$this->status = get_enum_input( $input, 'status', array( 'active', 'inactive' ) );
+
+		$this->status = get_enum_input( $input, 'status', array( 'active', 'inactive' ), $prompt_filters ? fn() => $this->prompt_status_input( $input, $output ) : null );
+		$input->setOption( 'status', $this->status );
 
 		$this->initialize_export( $input, $output, 'jetpack-plugin-search', self::COLUMNS );
 
@@ -229,6 +239,60 @@ final class Jetpack_Plugin_Search extends Command {
 
 		$question = new ChoiceQuestion( '<question>Select the version comparison operator to use [=]:</question> ', $choices, '=' );
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+	}
+
+	/**
+	 * Prompts the user to maybe filter the results by match type, version, or status.
+	 *
+	 * @param   InputInterface  $input  The input interface.
+	 * @param   OutputInterface $output The output interface.
+	 *
+	 * @return  boolean
+	 */
+	private function prompt_filters_input( InputInterface $input, OutputInterface $output ): bool {
+		$question = new ConfirmationQuestion( '<question>Would you like to filter the results (partial match, version, or status)? [y/N]</question> ', false );
+		return (bool) $this->getHelper( 'question' )->ask( $input, $output, $question );
+	}
+
+	/**
+	 * Prompts the user for whether to match the plugin term partially.
+	 *
+	 * @param   InputInterface  $input  The input interface.
+	 * @param   OutputInterface $output The output interface.
+	 *
+	 * @return  boolean
+	 */
+	private function prompt_partial_input( InputInterface $input, OutputInterface $output ): bool {
+		$question = new ConfirmationQuestion( '<question>Match the plugin term against partial names too? [y/N]</question> ', false );
+		return (bool) $this->getHelper( 'question' )->ask( $input, $output, $question );
+	}
+
+	/**
+	 * Prompts the user for the plugin version to search for.
+	 *
+	 * @param   InputInterface  $input  The input interface.
+	 * @param   OutputInterface $output The output interface.
+	 *
+	 * @return  string|null
+	 */
+	private function prompt_version_input( InputInterface $input, OutputInterface $output ): ?string {
+		$question = new Question( '<question>Enter the version to compare against, or leave blank for any version:</question> ' );
+		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+	}
+
+	/**
+	 * Prompts the user for the plugin status to list.
+	 *
+	 * @param   InputInterface  $input  The input interface.
+	 * @param   OutputInterface $output The output interface.
+	 *
+	 * @return  string|null
+	 */
+	private function prompt_status_input( InputInterface $input, OutputInterface $output ): ?string {
+		$question = new ChoiceQuestion( '<question>Which plugins should be listed [any]:</question> ', array( 'any', 'active', 'inactive' ), 'any' );
+		$status   = $this->getHelper( 'question' )->ask( $input, $output, $question );
+
+		return 'any' === $status ? null : $status;
 	}
 
 	/**
