@@ -9,8 +9,8 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\Question;
 use Symfony\Component\Console\Question\ChoiceQuestion;
-use Symfony\Component\Console\Question\ConfirmationQuestion;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
+use WPCOMSpecialProjects\CLI\Helper\ExportTrait;
 
 /**
  * Outputs a list of sites managed by the WordPress.com Special Projects team.
@@ -18,8 +18,16 @@ use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 #[AsCommand( name: 'wpcom:list-sites-stats-summary' )]
 final class WPCOM_Sites_Stats_Summary_List extends Command {
 	use AutocompleteTrait;
+	use ExportTrait;
 
 	// region FIELDS AND CONSTANTS
+
+	/**
+	 * Columns of the report.
+	 *
+	 * @var string[]
+	 */
+	private const COLUMNS = array( 'Blog ID', 'Site URL', 'Total Views', 'Total Visitors', 'Total Comments', 'Total Followers' );
 
 	/**
 	 * The number of periods to include in the results.
@@ -48,20 +56,6 @@ final class WPCOM_Sites_Stats_Summary_List extends Command {
 	 * @var string|null
 	 */
 	private ?string $period = null;
-
-	/**
-	 * The destination to save the output to in addition to the terminal.
-	 *
-	 * @var string|null
-	 */
-	private ?string $destination = null;
-
-	/**
-	 * The stream to write the output to.
-	 *
-	 * @var resource|null
-	 */
-	private $stream = null;
 
 	/**
 	 * The deny list of sites to exclude from the report.
@@ -109,7 +103,7 @@ final class WPCOM_Sites_Stats_Summary_List extends Command {
 			->addOption( 'date', null, InputOption::VALUE_REQUIRED, 'The date that determines the most recent period for which results are returned. Format is Y-m-d.' )
 			->addOption( 'period', null, InputOption::VALUE_REQUIRED, 'The output will return results over the past [num] days/weeks/months/years, the last one being the one including [date].' );
 
-		$this->addOption( 'export', null, InputOption::VALUE_REQUIRED, 'If provided, the output will be saved inside the specified file in CSV format in addition to the terminal.' );
+		$this->configure_export_options( self::COLUMNS );
 	}
 
 	/**
@@ -125,11 +119,7 @@ final class WPCOM_Sites_Stats_Summary_List extends Command {
 		$this->period = get_enum_input( $input, 'period', $this->period_choices, fn() => $this->prompt_period_input( $input, $output ), $this->period_choices[0] );
 		$input->setOption( 'period', $this->period );
 
-		// Open the destination file if provided.
-		$this->destination = maybe_get_string_input( $input, 'export', fn() => $this->prompt_destination_input( $input, $output ) );
-		if ( ! empty( $this->destination ) ) {
-			$this->stream = get_file_handle( $this->destination, 'csv' );
-		}
+		$this->initialize_export( $input, $output, 'wpcom-summary-stats', self::COLUMNS );
 
 		// Fetch the sites and filter out non-production sites.
 		$this->sites = get_wpcom_jetpack_sites();
@@ -205,7 +195,7 @@ final class WPCOM_Sites_Stats_Summary_List extends Command {
 		output_table(
 			$output,
 			$sites_stats_rows,
-			array( 'Blog ID', 'Site URL', 'Total Views', 'Total Visitors', 'Total Comments', 'Total Followers' ),
+			self::COLUMNS,
 			'WPCOMSP Sites Summary Stats',
 		);
 		$output->writeln( "<info>Total views across WPCOMSP sites during the last $this->num $this->period(s) period ending $this->date: $sum_total_views</info>" );
@@ -213,16 +203,7 @@ final class WPCOM_Sites_Stats_Summary_List extends Command {
 		$output->writeln( "<info>Total comments across WPCOMSP sites during the last $this->num $this->period(s) period ending $this->date: $sum_total_comments</info>" );
 		$output->writeln( "<info>Total followers across WPCOMSP sites during the last $this->num $this->period(s) period ending $this->date: $sum_total_followers</info>" );
 
-		// Output to file if destination is set.
-		if ( ! \is_null( $this->stream ) ) {
-			\fputcsv( $this->stream, array( 'Blog ID', 'Site URL', 'Total Views', 'Total Visitors', 'Total Comments', 'Total Followers' ), ',', '"', '' );
-			foreach ( $sites_stats_rows as $row ) {
-				\fputcsv( $this->stream, $row, ',', '"', '' );
-			}
-			\fclose( $this->stream );
-
-			$output->writeln( "<info>Output saved to $this->destination</info>" );
-		}
+		$this->maybe_export( $output, self::COLUMNS, $sites_stats_rows );
 
 		$output->writeln( '<fg=green;options=bold>Sites summary stats listed successfully.</>' );
 		return Command::SUCCESS;
@@ -270,25 +251,6 @@ final class WPCOM_Sites_Stats_Summary_List extends Command {
 		$question = new Question( '<question>Enter the end date for the report [' . gmdate( 'Y-m-d' ) . ']:</question> ', gmdate( 'Y-m-d' ) );
 		$question = $question->setValidator( fn( $value ) => validate_date_format( $value, 'Y-m-d' ) );
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
-	}
-
-	/**
-	 * Prompts the user for the destination to save the output to.
-	 *
-	 * @param   InputInterface  $input  The input object.
-	 * @param   OutputInterface $output The output object.
-	 *
-	 * @return  string|null
-	 */
-	private function prompt_destination_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new ConfirmationQuestion( '<question>Would you like to save the output to a file? [y/N]</question> ', false );
-		if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
-			$default  = get_user_folder_path( 'Downloads/wpcom-summary-stats_' . gmdate( 'Y-m-d-H-i-s' ) . '.csv' );
-			$question = new Question( "<question>Please enter the path to the file you want to save the output to [$default]:</question> ", $default );
-			return $this->getHelper( 'question' )->ask( $input, $output, $question );
-		}
-
-		return null;
 	}
 
 	// endregion

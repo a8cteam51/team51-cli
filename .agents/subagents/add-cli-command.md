@@ -49,6 +49,7 @@ Create `commands/{Service}_{Action}.php` with:
 - Namespace: `WPCOMSpecialProjects\CLI\Command`
 - Class extends `Symfony\Component\Console\Command\Command`
 - Use `AutocompleteTrait` from `WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait`
+- If the command outputs a table, use `ExportTrait` from `WPCOMSpecialProjects\CLI\Helper\ExportTrait` for `--export`: call `configure_export_options()` in `configure()`, `initialize_export()` in `initialize()`, and `maybe_export()` in `execute()`
 - `#[AsCommand(name: 'service:action')]` attribute
 - Implement: `configure()`, `initialize()` (if needed), `interact()` (optional), `execute()`
 - Use `// region` and `// endregion` for grouping

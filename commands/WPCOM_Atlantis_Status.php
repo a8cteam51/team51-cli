@@ -8,9 +8,8 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
-use Symfony\Component\Console\Question\Question;
-use Symfony\Component\Console\Question\ChoiceQuestion;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
+use WPCOMSpecialProjects\CLI\Helper\ExportTrait;
 
 /**
  * Reports the status of the Atlantis plugin and its modules across
@@ -29,8 +28,16 @@ use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 #[AsCommand( name: 'wpcom:atlantis-status' )]
 final class WPCOM_Atlantis_Status extends Command {
 	use AutocompleteTrait;
+	use ExportTrait;
 
 	// region FIELDS AND CONSTANTS
+
+	/**
+	 * Columns that precede the module columns in the report.
+	 *
+	 * @var string[]
+	 */
+	private const SITE_COLUMNS = array( 'Site ID', 'Site URL', 'Atlantis Version', 'Managed', 'Custom Msgs' );
 
 	/**
 	 * The list of connected sites.
@@ -98,41 +105,13 @@ final class WPCOM_Atlantis_Status extends Command {
 	private ?\stdClass $single_site = null;
 
 	/**
-	 * Columns included in the export and thus that can be excluded via options.
+	 * Columns of the report.
 	 *
 	 * Populated in initialize() once the module set is known.
 	 *
-	 * @var array
+	 * @var string[]
 	 */
-	private array $export_columns = array();
-
-	/**
-	 * List of columns to exclude from the export.
-	 *
-	 * @var array|null
-	 */
-	private ?array $export_excluded_columns = null;
-
-	/**
-	 * The format to export the report in.
-	 *
-	 * @var string|null
-	 */
-	private ?string $format = null;
-
-	/**
-	 * The destination file path for the export.
-	 *
-	 * @var string|null
-	 */
-	private ?string $destination = null;
-
-	/**
-	 * The stream to write the export to.
-	 *
-	 * @var resource|null
-	 */
-	private $stream = null;
+	private array $columns = array();
 
 	/**
 	 * When true, only sites with Atlantis missing or any module not "on" are rendered.
@@ -163,10 +142,9 @@ final class WPCOM_Atlantis_Status extends Command {
 			->addOption( 'module', null, InputOption::VALUE_REQUIRED, 'Restrict the report to a single module column. Accepted values: ' . \implode( ', ', self::KNOWN_MODULE_KEYS ) . '.' )
 			->addOption( 'prod', null, InputOption::VALUE_NEGATABLE, 'Exclude any site whose URL contains the substring "staging" (case-insensitive). Use --no-prod to suppress the prompt and include staging sites. When neither is set you will be prompted (unless --no-interaction).' )
 			->addOption( 'issues-only', null, InputOption::VALUE_NEGATABLE, 'Only show sites where Atlantis is not installed or at least one module is not on. Mandatory modules such as Bot Protection are never counted as issues (their `inherit`/`off` states are deliberate). Use --no-issues-only to suppress the prompt and show all sites. When neither is set you will be prompted (unless --no-interaction).' )
-			->addOption( 'with-messages-only', null, InputOption::VALUE_NONE, 'Only show sites that have at least one stored Atlantis custom message.' )
-			->addOption( 'export', null, InputOption::VALUE_REQUIRED, 'If provided, the report will be saved to this file in addition to the terminal.' )
-			->addOption( 'export-format', null, InputOption::VALUE_REQUIRED, 'The format to export the report in. Accepted values are `json` and `csv`.', 'csv' )
-			->addOption( 'export-exclude', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Exclude columns from the export. Possible values depend on the active --module flag; defaults to `Site ID`, `Site URL`, `Atlantis Version`, `Managed`, plus one column per Atlantis module.' );
+			->addOption( 'with-messages-only', null, InputOption::VALUE_NONE, 'Only show sites that have at least one stored Atlantis custom message.' );
+
+		$this->configure_export_options( $this->columns_for_modules( self::KNOWN_MODULE_KEYS ), 'With `--module`, only that module\'s column is in the report.' );
 	}
 
 	/**
@@ -186,19 +164,8 @@ final class WPCOM_Atlantis_Status extends Command {
 			$this->module_keys = array( $module_option );
 		}
 
-		$this->export_columns = \array_merge(
-			array( 'Site ID', 'Site URL', 'Atlantis Version', 'Managed', 'Custom Msgs' ),
-			\array_map( fn( string $key ) => $this->column_label( $key ), $this->module_keys )
-		);
-
-		$this->format      = get_enum_input( $input, 'export-format', array( 'json', 'csv' ) );
-		$this->destination = maybe_get_string_input( $input, 'export', fn() => $this->prompt_destination_input( $input, $output ) );
-		if ( ! empty( $this->destination ) ) {
-			$this->export_excluded_columns = $input->getOption( 'export-exclude' ) ?: $this->prompt_export_excluded_columns_input( $input, $output );
-			$input->setOption( 'export-exclude', $this->export_excluded_columns );
-
-			$this->stream = get_file_handle( $this->destination, $this->format );
-		}
+		$this->columns = $this->columns_for_modules( $this->module_keys );
+		$this->initialize_export( $input, $output, 'wpcom-atlantis-status', $this->columns );
 
 		$this->with_messages_only = (bool) $input->getOption( 'with-messages-only' );
 
@@ -348,11 +315,10 @@ final class WPCOM_Atlantis_Status extends Command {
 			$table_title = 'Atlantis sites with issues';
 		}
 
-		$table_header = array_keys( $rows[0] ?? \array_fill_keys( $this->export_columns, '' ) );
 		output_table(
 			$output,
 			array_map( 'array_values', $rows ),
-			$table_header,
+			$this->columns,
 			$table_title
 		);
 
@@ -378,14 +344,7 @@ final class WPCOM_Atlantis_Status extends Command {
 			$output->writeln( "<info>$key: $value</info>" );
 		}
 
-		if ( ! \is_null( $this->stream ) ) {
-			$rows_for_export = array_map( 'array_values', $rows );
-			match ( $this->format ) {
-				'csv' => $this->create_csv( $table_header, $rows_for_export, $summary_output ),
-				'json' => $this->create_json( $table_header, $rows_for_export, $summary_output ),
-			};
-			$output->writeln( "<info>Output saved to $this->destination</info>" );
-		}
+		$this->maybe_export( $output, $this->columns, $rows, $summary_output );
 
 		return Command::SUCCESS;
 	}
@@ -403,6 +362,17 @@ final class WPCOM_Atlantis_Status extends Command {
 	 */
 	private function column_label( string $module_key ): string {
 		return self::MODULE_LABELS[ $module_key ] ?? \ucfirst( $module_key );
+	}
+
+	/**
+	 * Returns the report columns for the given modules.
+	 *
+	 * @param   string[] $module_keys The module keys included in the report.
+	 *
+	 * @return  string[]
+	 */
+	private function columns_for_modules( array $module_keys ): array {
+		return \array_merge( self::SITE_COLUMNS, \array_map( fn( string $key ) => $this->column_label( $key ), $module_keys ) );
 	}
 
 	/**
@@ -547,130 +517,6 @@ final class WPCOM_Atlantis_Status extends Command {
 
 		$this->statuses = get_wpcom_sites_atlantis_status_batch( array( $site_id ), $this->errors );
 		maybe_output_wpcom_failed_sites_table( $output, $this->errors ?? array(), $this->sites, 'Sites that could NOT be queried for Atlantis status' );
-	}
-
-	/**
-	 * Prompts the user for the destination to save the output to.
-	 *
-	 * @param   InputInterface  $input  The input object.
-	 * @param   OutputInterface $output The output object.
-	 *
-	 * @return  string|null
-	 */
-	private function prompt_destination_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new ConfirmationQuestion( '<question>Would you like to save the output to a file? [y/N]</question> ', false );
-		if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
-			$default  = get_user_folder_path( 'Downloads/wpcom-atlantis-status_' . gmdate( 'Y-m-d-H-i-s' ) . ".$this->format" );
-			$question = new Question( "<question>Please enter the path to the file you want to save the output to [$default]:</question> ", $default );
-			return $this->getHelper( 'question' )->ask( $input, $output, $question );
-		}
-
-		return null;
-	}
-
-	/**
-	 * Prompts the user to maybe exclude columns from the exported file.
-	 *
-	 * @param   InputInterface  $input  The input object.
-	 * @param   OutputInterface $output The output object.
-	 *
-	 * @return  array|null
-	 */
-	private function prompt_export_excluded_columns_input( InputInterface $input, OutputInterface $output ): ?array {
-		$question = new ConfirmationQuestion( '<question>Would you like to exclude any columns from the exported report? [y/N]</question> ', false );
-		if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
-			$question = new ChoiceQuestion( '<question>Please select the columns you want to exclude from the exported file [' . $this->export_columns[0] . ']:</question> ', $this->export_columns );
-			$question->setMultiselect( true );
-
-			return $this->getHelper( 'question' )->ask( $input, $output, $question );
-		}
-
-		return null;
-	}
-
-	/**
-	 * Creates a CSV file from the final report.
-	 *
-	 * @param   array $headers Header row.
-	 * @param   array $rows    Data rows.
-	 * @param   array $summary Summary lines.
-	 *
-	 * @return  void
-	 */
-	private function create_csv( array $headers, array $rows, array $summary ): void {
-		$filtered_data = $this->filter_export_columns( $headers, $rows );
-
-		\fputcsv( $this->stream, $filtered_data['headers'], ',', '"', '' );
-		foreach ( $filtered_data['rows'] as $fields ) {
-			\fputcsv( $this->stream, $fields, ',', '"', '' );
-		}
-		foreach ( $summary as $key => $item ) {
-			\fputcsv( $this->stream, array( $key, $item ), ',', '"', '' );
-		}
-		\fclose( $this->stream );
-	}
-
-	/**
-	 * Creates a JSON file from the final report.
-	 *
-	 * @param   array $headers Header row.
-	 * @param   array $rows    Data rows.
-	 * @param   array $summary Summary lines.
-	 *
-	 * @return  void
-	 */
-	private function create_json( array $headers, array $rows, array $summary ): void {
-		$filtered_data = $this->filter_export_columns( $headers, $rows );
-
-		$filtered_data['rows'][] = $summary;
-		\fwrite( $this->stream, encode_json_content( $filtered_data['rows'], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) );
-		\fclose( $this->stream );
-	}
-
-	/**
-	 * Filters out excluded columns from headers and rows.
-	 *
-	 * @param   array $headers Headers.
-	 * @param   array $rows    Rows.
-	 *
-	 * @return  array
-	 */
-	private function filter_export_columns( array $headers, array $rows ): array {
-		if ( empty( $this->export_excluded_columns ) ) {
-			return array(
-				'headers' => $headers,
-				'rows'    => $rows,
-			);
-		}
-
-		$header_compare = array_map(
-			static fn ( $column ) => strtoupper( preg_replace( '/\s+/', '', $column ) ),
-			$headers
-		);
-
-		$excluded_columns = array_map(
-			static fn ( $column ) => strtoupper( preg_replace( '/\s+/', '', $column ) ),
-			$this->export_excluded_columns
-		);
-
-		foreach ( $excluded_columns as $column ) {
-			$column_index = array_search( $column, $header_compare, true );
-			if ( false !== $column_index ) {
-				unset( $headers[ $column_index ] );
-				foreach ( $rows as &$row ) {
-					unset( $row[ $column_index ] );
-				}
-				unset( $row );
-			}
-		}
-
-		$headers = array_values( $headers );
-		$rows    = array_map( 'array_values', $rows );
-
-		return array(
-			'headers' => $headers,
-			'rows'    => $rows,
-		);
 	}
 
 	// endregion

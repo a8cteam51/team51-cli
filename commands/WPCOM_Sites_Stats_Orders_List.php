@@ -9,8 +9,8 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\Question;
 use Symfony\Component\Console\Question\ChoiceQuestion;
-use Symfony\Component\Console\Question\ConfirmationQuestion;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
+use WPCOMSpecialProjects\CLI\Helper\ExportTrait;
 
 /**
  * Outputs a summary of WC orders for sites managed by the WordPress.com Special Projects team.
@@ -18,8 +18,16 @@ use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 #[AsCommand( name: 'wpcom:list-sites-stats-orders' )]
 final class WPCOM_Sites_Stats_Orders_List extends Command {
 	use AutocompleteTrait;
+	use ExportTrait;
 
 	// region FIELDS AND CONSTANTS
+
+	/**
+	 * Columns of the report.
+	 *
+	 * @var string[]
+	 */
+	private const COLUMNS = array( 'Blog ID', 'Site URL', 'Total Gross Sales', 'Total Net Sales', 'Total Orders', 'Total Products' );
 
 	/**
 	 * The unit options for the report.
@@ -58,20 +66,6 @@ final class WPCOM_Sites_Stats_Orders_List extends Command {
 	 * @var string|null
 	 */
 	private ?string $date = null;
-
-	/**
-	 * The destination to save the output to in addition to the terminal.
-	 *
-	 * @var string|null
-	 */
-	private ?string $destination = null;
-
-	/**
-	 * The stream to write the output to.
-	 *
-	 * @var resource|null
-	 */
-	private $stream = null;
 
 	/**
 	 * The deny list of sites to exclude from the report.
@@ -118,7 +112,7 @@ final class WPCOM_Sites_Stats_Orders_List extends Command {
 		$this->addOption( 'unit', null, InputOption::VALUE_REQUIRED, 'Options: day, week, month, year.' )
 			->addOption( 'date', null, InputOption::VALUE_REQUIRED, "Options:\nFor --unit=day: YYYY-MM-DD\nFor --unit=week: YYYY-W##\nFor --unit=month: YYYY-MM\nFor --unit=year: YYYY." );
 
-		$this->addOption( 'export', null, InputOption::VALUE_REQUIRED, 'If provided, the output will be saved inside the specified file in CSV format in addition to the terminal.' );
+		$this->configure_export_options( self::COLUMNS );
 	}
 
 	/**
@@ -131,11 +125,7 @@ final class WPCOM_Sites_Stats_Orders_List extends Command {
 		$this->date = get_date_input( $input, $this->date_format_choices[ $this->unit ], fn() => $this->prompt_date_input( $input, $output ) );
 		$input->setOption( 'date', $this->date );
 
-		// Open the destination file if provided.
-		$this->destination = maybe_get_string_input( $input, 'export', fn() => $this->prompt_destination_input( $input, $output ) );
-		if ( ! empty( $this->destination ) ) {
-			$this->stream = get_file_handle( $this->destination, 'csv' );
-		}
+		$this->initialize_export( $input, $output, 'wpcom-wc-orders-stats', self::COLUMNS );
 
 		// Fetch the sites and filter out non-production sites.
 		$this->sites = get_wpcom_jetpack_sites();
@@ -223,21 +213,12 @@ final class WPCOM_Sites_Stats_Orders_List extends Command {
 		output_table(
 			$output,
 			$sites_stats_rows,
-			array( 'Blog ID', 'Site URL', 'Total Gross Sales', 'Total Net Sales', 'Total Orders', 'Total Products' ),
+			self::COLUMNS,
 			'WPCOMSP Sites WooCommerce Orders Stats'
 		);
 		$output->writeln( "<info>Total gross sales across WPCOMSP sites during $this->unit $this->date: $$sum_total_gross_sales</info>" );
 
-		// Output to file if destination is set.
-		if ( ! \is_null( $this->stream ) ) {
-			\fputcsv( $this->stream, array( 'Blog ID', 'Site URL', 'Total Gross Sales', 'Total Net Sales', 'Total Orders', 'Total Products' ), ',', '"', '' );
-			foreach ( $sites_stats_rows as $row ) {
-				\fputcsv( $this->stream, $row, ',', '"', '' );
-			}
-			\fclose( $this->stream );
-
-			$output->writeln( "<info>Output saved to $this->destination</info>" );
-		}
+		$this->maybe_export( $output, self::COLUMNS, $sites_stats_rows );
 
 		$output->writeln( '<fg=green;options=bold>Sites WooCommerce orders stats listed successfully.</>' );
 		return Command::SUCCESS;
@@ -273,25 +254,6 @@ final class WPCOM_Sites_Stats_Orders_List extends Command {
 		$question = new Question( '<question>Enter the end date for the report [' . $default . ']:</question> ', $default );
 		$question = $question->setValidator( fn( $value ) => validate_date_format( $value, $this->date_format_choices[ $this->unit ] ) );
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
-	}
-
-	/**
-	 * Prompts the user for the destination to save the output to.
-	 *
-	 * @param   InputInterface  $input  The input object.
-	 * @param   OutputInterface $output The output object.
-	 *
-	 * @return  string|null
-	 */
-	private function prompt_destination_input( InputInterface $input, OutputInterface $output ): ?string {
-		$question = new ConfirmationQuestion( '<question>Would you like to save the output to a file? [y/N]</question> ', false );
-		if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
-			$default  = get_user_folder_path( 'Downloads/wpcom-wc-orders-stats_' . gmdate( 'Y-m-d-H-i-s' ) . '.csv' );
-			$question = new Question( "<question>Please enter the path to the file you want to save the output to [$default]:</question> ", $default );
-			return $this->getHelper( 'question' )->ask( $input, $output, $question );
-		}
-
-		return null;
 	}
 
 	// endregion
