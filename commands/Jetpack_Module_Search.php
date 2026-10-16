@@ -10,6 +10,7 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\Question;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
+use WPCOMSpecialProjects\CLI\Helper\ExportTrait;
 
 /**
  * Lists the connected Jetpack sites with a given module either enabled or disabled.
@@ -17,8 +18,16 @@ use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 #[AsCommand( name: 'jetpack:module-search' )]
 final class Jetpack_Module_Search extends Command {
 	use AutocompleteTrait;
+	use ExportTrait;
 
 	// region FIELDS AND CONSTANTS
+
+	/**
+	 * Columns of the search results.
+	 *
+	 * @var string[]
+	 */
+	private const COLUMNS = array( 'Site ID', 'Site URL', 'Status' );
 
 	/**
 	 * The module to search the status for.
@@ -54,6 +63,8 @@ final class Jetpack_Module_Search extends Command {
 
 		$this->addArgument( 'module', InputArgument::REQUIRED, 'The module to check the status of.' )
 			->addOption( 'status', null, InputOption::VALUE_REQUIRED, 'The status to check for. Must be one of \'on\' or \'off\'. By default, \'on\'.' );
+
+		$this->configure_export_options( self::COLUMNS );
 	}
 
 	/**
@@ -65,6 +76,8 @@ final class Jetpack_Module_Search extends Command {
 
 		$this->status = get_enum_input( $input, 'status', array( 'on', 'off' ), fn() => $this->prompt_status_input( $input, $output ), 'on' );
 		$input->setOption( 'status', $this->status );
+
+		$this->initialize_export( $input, $output, 'jetpack-module-search', self::COLUMNS );
 
 		$this->sites = get_wpcom_jetpack_sites();
 		$output->writeln( '<comment>Successfully fetched ' . \count( $this->sites ) . ' Jetpack site(s).</comment>' );
@@ -101,15 +114,19 @@ final class Jetpack_Module_Search extends Command {
 
 		// Output the results.
 		maybe_output_wpcom_failed_sites_table( $output, $failed_sites, $this->sites, 'Sites that could NOT be searched' );
+
+		$rows = array_map(
+			fn( \stdClass $site ) => array( $site->userblog_id, $site->domain, $this->status ),
+			$sites_found
+		);
 		output_table(
 			$output,
-			array_map(
-				fn( \stdClass $site ) => array( $site->userblog_id, $site->domain, $this->status ),
-				$sites_found
-			),
-			array( 'Site ID', 'Site URL', 'Status' ),
+			$rows,
+			self::COLUMNS,
 			"Sites with the Jetpack module '$this->module' turned $this->status"
 		);
+
+		$this->maybe_export( $output, self::COLUMNS, $rows );
 
 		return Command::SUCCESS;
 	}

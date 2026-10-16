@@ -9,6 +9,7 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\Question;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
+use WPCOMSpecialProjects\CLI\Helper\ExportTrait;
 
 /**
  * Command to triage Jetpack connection issues across multiple sites and generate a detailed report.
@@ -18,6 +19,14 @@ use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 #[AsCommand( name: 'jetpack:connection-triage' )]
 final class Jetpack_Site_Connection_Triage extends Command {
 	use AutocompleteTrait;
+	use ExportTrait;
+
+	/**
+	 * Columns of the report.
+	 *
+	 * @var string[]
+	 */
+	private const COLUMNS = array( 'Site ID', 'Site URL', 'Status', 'New Blog ID', 'Notes' );
 
 	/**
 	 * The list of connected sites.
@@ -64,7 +73,8 @@ The input CSV should have 2 columns:
 - Column 2: Site URL (full URL including protocol)
 
 <info>Generated Report:</info>
-The command generates a CSV report with the following columns:
+The command prints a report and saves it to `jp-connection-<timestamp>.csv` in the current directory, or to the file given
+with `--export`. It has the following columns:
 - Site ID: The WordPress.com blog ID
 - Site URL: The site's URL
 - Status: HTTP status code from connection check
@@ -78,20 +88,31 @@ EOT
 			InputArgument::OPTIONAL,
 			'A path to a CSV with 2 columns, blog ID and url. If not provided, will check all connected Jetpack sites.'
 		);
+
+		$this->configure_export_options( self::COLUMNS );
 	}
 
 	/**
 	 * Initializes the command by fetching the list of Jetpack sites if no CSV is provided.
 	 *
 	 * @since 1.0.0
-	 * @throws \RuntimeException When unable to fetch Jetpack sites.
+	 * @throws \InvalidArgumentException When the given CSV of sites does not exist.
 	 *
 	 * @param InputInterface  $input  Command input interface.
 	 * @param OutputInterface $output Command output interface.
 	 * @return void
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		if ( ! $input->getArgument( 'csv-path' ) ) {
+		// Checked before the report file is created, so a typo does not leave an empty report behind.
+		$csv_path = $input->getArgument( 'csv-path' );
+		if ( $csv_path && ! file_exists( $csv_path ) ) {
+			throw new \InvalidArgumentException( "CSV file not found at {$csv_path}." );
+		}
+
+		// The report is always saved, to the current directory unless --export says otherwise.
+		$this->initialize_export( $input, $output, 'jp-connection', self::COLUMNS, getcwd() . DIRECTORY_SEPARATOR . 'jp-connection-' . gmdate( 'Y-m-d-H-i-s' ) );
+
+		if ( ! $csv_path ) {
 			$this->sites = get_wpcom_jetpack_sites();
 			$output->writeln( '<comment>Successfully fetched ' . \count( $this->sites ) . ' Jetpack site(s).</comment>' );
 		}
@@ -105,7 +126,6 @@ EOT
 	 *
 	 * @since 1.0.0
 	 * @throws \RuntimeException When CSV file cannot be read or processed.
-	 * @throws \Exception When unable to create or write to output CSV file.
 	 *
 	 * @param InputInterface  $input  Command input interface.
 	 * @param OutputInterface $output Command output interface.
@@ -119,11 +139,6 @@ EOT
 		// Get the list of sites to check, either from CSV or from Jetpack
 		if ( $csv_path ) {
 			$output->writeln( "<fg=magenta;options=bold>Reading sites from {$csv_path}...</>" );
-
-			if ( ! file_exists( $csv_path ) ) {
-				$output->writeln( "<fg=red;options=bold>CSV file not found at {$csv_path}.</>" );
-				return Command::FAILURE;
-			}
 
 			// Read the CSV. Column 1: Site ID, Column 2: Site URL
 			$csv = file_get_contents( $csv_path );
@@ -236,19 +251,8 @@ EOT
 			);
 		}
 
-		// Write results to CSV
-		$output->writeln( '<info>Making the CSV...<info>' );
-		$timestamp = gmdate( 'Y-m-d-H-i-s' );
-		$filename  = 'jp-connection-' . $timestamp . '.csv';
-		$filepath  = getcwd() . DIRECTORY_SEPARATOR . $filename;
-		$fp        = fopen( $filepath, 'w' );
-		fputcsv( $fp, array( 'Site ID', 'Site URL', 'Status', 'New Blog ID', 'Notes' ), ',', '"', '\\' );
-		foreach ( $broken_site_data as $fields ) {
-			fputcsv( $fp, $fields, ',', '"', '\\' );
-		}
-		fclose( $fp );
-
-		$output->writeln( sprintf( '<info>Done, CSV saved to: %s</info>', $filepath ) );
+		output_table( $output, array_map( 'array_values', $broken_site_data ), self::COLUMNS, 'Jetpack connection triage' );
+		$this->maybe_export( $output, self::COLUMNS, $broken_site_data );
 
 		return Command::SUCCESS;
 	}

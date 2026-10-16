@@ -9,6 +9,7 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\Question;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
+use WPCOMSpecialProjects\CLI\Helper\ExportTrait;
 
 /**
  * Lists the WPCOM blog IDs that have a specific sticker.
@@ -16,8 +17,16 @@ use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 #[AsCommand( name: 'wpcom:list-sites-with-sticker' )]
 final class WPCOM_Sites_With_Sticker_List extends Command {
 	use AutocompleteTrait;
+	use ExportTrait;
 
 	// region FIELDS AND CONSTANTS
+
+	/**
+	 * Columns of the list of sites.
+	 *
+	 * @var string[]
+	 */
+	private const COLUMNS = array( 'Blog ID', 'Site URL' );
 
 	/**
 	 * Sticker to search sites with.
@@ -38,6 +47,8 @@ final class WPCOM_Sites_With_Sticker_List extends Command {
 			->setHelp( 'Use this command to show a list of WPCOM Sites with a specific sticker.' );
 
 		$this->addArgument( 'sticker', InputArgument::REQUIRED, 'Sticker to fetch the sites with.' );
+
+		$this->configure_export_options( self::COLUMNS );
 	}
 
 	/**
@@ -49,6 +60,8 @@ final class WPCOM_Sites_With_Sticker_List extends Command {
 			$this->sticker = 'team-51-' . $this->sticker;
 		}
 		$input->setArgument( 'sticker', $this->sticker );
+
+		$this->initialize_export( $input, $output, 'wpcom-sites-with-sticker', self::COLUMNS );
 	}
 
 	/**
@@ -64,6 +77,7 @@ final class WPCOM_Sites_With_Sticker_List extends Command {
 			return Command::FAILURE;
 		}
 
+		$rows = array();
 		if ( empty( $sites ) ) {
 			$output->writeln( '<fg=yellow;options=bold>There are no sites with the chosen sticker.</>' );
 		} else {
@@ -73,7 +87,6 @@ final class WPCOM_Sites_With_Sticker_List extends Command {
 				$output->writeln( '<comment>Some sites could not be fetched. Showing available data.</comment>' );
 			}
 
-			$rows = array();
 			foreach ( $sites as $site_id ) {
 				$url    = isset( $site_details[ $site_id ] ) ? $site_details[ $site_id ]->URL : 'URL not found, blog RC: https://mc.a8c.com/tools/reportcard/blog/?blog_id=' . $site_id;
 				$rows[] = array( $site_id, $url );
@@ -82,11 +95,13 @@ final class WPCOM_Sites_With_Sticker_List extends Command {
 			output_table(
 				$output,
 				$rows,
-				array( 'Blog ID', 'Site URL' ),
+				self::COLUMNS,
 			);
 
 			$output->writeln( sprintf( '<fg=magenta;options=bold>Found <fg=yellow>%d</> sites with <fg=yellow>%s</>.</>', count( $sites ), $this->sticker ) );
 		}
+
+		$this->maybe_export( $output, self::COLUMNS, $rows );
 
 		return Command::SUCCESS;
 	}
