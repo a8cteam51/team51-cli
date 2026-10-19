@@ -78,6 +78,20 @@ final class Poseidon_PR_Review extends Command {
 	private ?string $pr_title = null;
 
 	/**
+	 * Whether the pull request is a draft, resolved during the access pre-flight.
+	 *
+	 * @var boolean
+	 */
+	private bool $pr_is_draft = false;
+
+	/**
+	 * The pull request label names, resolved during the access pre-flight.
+	 *
+	 * @var string[]
+	 */
+	private array $pr_labels = array();
+
+	/**
 	 * Whether to skip cloning the repository and have the agent review from `gh pr diff` alone.
 	 *
 	 * @var boolean
@@ -147,8 +161,7 @@ final class Poseidon_PR_Review extends Command {
 			exit( Command::FAILURE );
 		}
 
-		$this->pr_title = $this->resolve_pr_title( $output );
-		if ( null === $this->pr_title ) {
+		if ( ! $this->resolve_pr_details( $output ) ) {
 			exit( Command::FAILURE );
 		}
 	}
@@ -158,6 +171,13 @@ final class Poseidon_PR_Review extends Command {
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		$output->writeln( "<fg=magenta;options=bold>Poseidon Review — {$this->owner}/{$this->repo}#{$this->pr_number}: {$this->pr_title}</>" );
+
+		if ( $this->pr_is_draft ) {
+			$output->writeln( '<comment>The PR is a draft. Reviewing it anyway.</comment>' );
+		}
+		if ( in_array( 'no-ai-review', $this->pr_labels, true ) ) {
+			$output->writeln( '<fg=yellow;options=bold>Warning: the PR has the `no-ai-review` label. The author opted out of AI review. Reviewing it anyway because you requested it.</>' );
+		}
 
 		$prompt = $this->fetch_review_prompt( $output );
 		if ( null === $prompt ) {
@@ -406,22 +426,32 @@ final class Poseidon_PR_Review extends Command {
 	}
 
 	/**
-	 * Resolves the PR title and confirms the authenticated user can access the PR.
+	 * Resolves the PR title, draft state, and labels, and confirms the authenticated user can access the PR.
 	 *
 	 * @param   OutputInterface $output The output object.
 	 *
-	 * @return  string|null
+	 * @return  boolean
 	 */
-	private function resolve_pr_title( OutputInterface $output ): ?string {
-		$process = $this->gh_process( array( 'gh', 'pr', 'view', $this->pr_number, '--repo', "{$this->owner}/{$this->repo}", '--json', 'title', '--jq', '.title' ) );
+	private function resolve_pr_details( OutputInterface $output ): bool {
+		$process = $this->gh_process( array( 'gh', 'pr', 'view', $this->pr_number, '--repo', "{$this->owner}/{$this->repo}", '--json', 'title,isDraft,labels' ) );
 		$process->run();
 		if ( ! $process->isSuccessful() ) {
 			$output->writeln( "<error>Could not access `{$this->owner}/{$this->repo}#{$this->pr_number}` on `{$this->host}`. Your `gh` user may lack access, or the PR does not exist.</error>" );
 			$this->maybe_print_stderr( $output, $process );
-			return null;
+			return false;
 		}
 
-		return trim( $process->getOutput() );
+		$details = decode_json_content( $process->getOutput(), true );
+		if ( ! is_array( $details ) ) {
+			$output->writeln( '<error>Could not parse the PR details returned by `gh pr view`.</error>' );
+			return false;
+		}
+
+		$this->pr_title    = trim( (string) ( $details['title'] ?? '' ) );
+		$this->pr_is_draft = (bool) ( $details['isDraft'] ?? false );
+		$this->pr_labels   = array_column( $details['labels'] ?? array(), 'name' );
+
+		return true;
 	}
 
 	/**
@@ -495,6 +525,10 @@ Your tools are limited for this run:
 - For the author, labels, draft state, and head commit, run `gh pr view {$this->pr_number} --repo {$this->owner}/{$this->repo} --json author,labels,isDraft,headRefOid`.
 - The file `/tmp/poseidon/review-threads.json` does not exist. Treat the PR as having no review threads.
 - If the prior review's commit is not in the local history, treat the entire diff as the delta.
+
+The user requested this review explicitly. Ignore the "Skip rules" section above, with one exception:
+- Review the PR even if it is a draft, has a skip label, or has a bot author.
+- If the diff only touches lockfiles, generated files, or vendor bumps, print `Poseidon Review v2 — skipped: only generated / lockfile changes.` and stop.
 
 Print the review to stdout as clean, terminal-readable text:
 - Do NOT emit any HTML — no `<!-- ... -->` markers, no `<details>`/`<summary>` tags.
