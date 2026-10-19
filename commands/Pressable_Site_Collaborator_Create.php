@@ -6,13 +6,14 @@ use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
 
 /**
- * Creates a new Pressable site collaborator.
+ * Creates a new Pressable site collaborator on one or more sites.
  */
 #[AsCommand( name: 'pressable:create-site-collaborator' )]
 final class Pressable_Site_Collaborator_Create extends Command {
@@ -21,11 +22,11 @@ final class Pressable_Site_Collaborator_Create extends Command {
 	// region FIELDS AND CONSTANTS
 
 	/**
-	 * Pressable site definition to create the collaborator on.
+	 * Pressable site definitions to create the collaborator on.
 	 *
-	 * @var \stdClass|null
+	 * @var \stdClass[]|null
 	 */
-	private ?\stdClass $site = null;
+	private ?array $sites = null;
 
 	/**
 	 * The email address of the collaborator to create.
@@ -42,19 +43,59 @@ final class Pressable_Site_Collaborator_Create extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function configure(): void {
-		$this->setDescription( 'Creates a new Pressable site collaborator.' )
-			->setHelp( 'Use this command to create a new Pressable site collaborator.' );
+		$this->setDescription( 'Creates a new Pressable site collaborator on one or more sites.' )
+			->setHelp( "Use this command to create a new Pressable site collaborator.\n\nTo add them to a site and its related sites (the sites cloned from the same root), pass `--multiple=related`. To add them to a list of sites, pass `--multiple=<site>,<site>` and leave out the site argument: `team51 pressable:create-site-collaborator --multiple=example.com,example.net someone@example.com`." );
 
-		$this->addArgument( 'site', InputArgument::REQUIRED, 'The domain or numeric Pressable ID of the site to create the collaborator on.' )
-			->addArgument( 'email', InputArgument::REQUIRED, 'The email address of the collaborator to create.' );
+		$this->addArgument( 'site', InputArgument::OPTIONAL, 'The domain or numeric Pressable ID of the site to create the collaborator on.' )
+			->addArgument( 'email', InputArgument::OPTIONAL, 'The email address of the collaborator to create.' );
+
+		$this->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Process multiple sites. Use `related` for the given site and its related sites, or a comma-separated list of site IDs or domains.' );
 	}
 
 	/**
 	 * {@inheritDoc}
+	 *
+	 * @throws \InvalidArgumentException If `--multiple=all` is given, a site argument is given with a list of sites, or
+	 *                                   the list names no site or one that does not exist.
+	 * @throws \RuntimeException If the sites related to the given site cannot be fetched.
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->site = get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
-		$input->setArgument( 'site', $this->site );
+		$multiple = $input->getOption( 'multiple' );
+		if ( 'all' === $multiple ) {
+			throw new \InvalidArgumentException( 'Adding a collaborator to every site is not supported. Use `related` or a comma-separated list of sites.' );
+		}
+
+		// A list of sites takes the place of the site argument, so the email lands in it instead.
+		$is_site_list = ! \is_null( $multiple ) && 'related' !== $multiple;
+		if ( $is_site_list && empty( $input->getArgument( 'email' ) ) && filter_var( $input->getArgument( 'site' ), FILTER_VALIDATE_EMAIL ) ) {
+			$input->setArgument( 'email', $input->getArgument( 'site' ) );
+			$input->setArgument( 'site', null );
+		}
+
+		if ( $is_site_list ) {
+			// Refused rather than ignored: whether the site argument was meant to join the list cannot be told.
+			if ( ! empty( $input->getArgument( 'site' ) ) ) {
+				throw new \InvalidArgumentException( 'With a list of sites in `--multiple`, leave out the site argument (got `' . $input->getArgument( 'site' ) . '`).' );
+			}
+
+			$this->sites = $this->get_sites_from_multiple_input( $multiple );
+			if ( empty( $this->sites ) ) {
+				throw new \InvalidArgumentException( 'No sites were given in `--multiple`.' );
+			}
+		} else {
+			$site = get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
+			$input->setArgument( 'site', $site );
+
+			$this->sites = array( $site );
+			if ( 'related' === $multiple ) {
+				$related_sites = get_pressable_related_sites( $site->id );
+				if ( \is_null( $related_sites ) ) {
+					throw new \RuntimeException( 'Could not fetch the sites related to ' . $site->url . '.' );
+				}
+
+				$this->sites = \array_merge( ...$related_sites );
+			}
+		}
 
 		$this->email = get_email_input( $input, fn() => $this->prompt_email_input( $input, $output ) );
 		$input->setArgument( 'email', $this->email );
@@ -64,7 +105,19 @@ final class Pressable_Site_Collaborator_Create extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function interact( InputInterface $input, OutputInterface $output ): void {
-		$question = new ConfirmationQuestion( "<question>Are you sure you want to add the collaborator $this->email to {$this->site->displayName} (ID {$this->site->id}, URL {$this->site->url})? [y/N]</question> ", false );
+		if ( 1 === \count( $this->sites ) ) {
+			$site     = \reset( $this->sites );
+			$question = new ConfirmationQuestion( "<question>Are you sure you want to add the collaborator $this->email to {$site->displayName} (ID {$site->id}, URL {$site->url})? [y/N]</question> ", false );
+		} else {
+			output_table(
+				$output,
+				\array_map( static fn( \stdClass $site ) => array( $site->id, $site->url ), $this->sites ),
+				array( 'Site ID', 'Site URL' ),
+				'Pressable sites to add the collaborator to'
+			);
+			$question = new ConfirmationQuestion( "<question>Are you sure you want to add the collaborator $this->email to all the sites above? [y/N]</question> ", false );
+		}
+
 		if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 			$output->writeln( '<comment>Command aborted by user.</comment>' );
 			exit( 2 );
@@ -75,16 +128,22 @@ final class Pressable_Site_Collaborator_Create extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
-		$output->writeln( "<fg=magenta;options=bold>Creating collaborator $this->email on {$this->site->displayName} (ID {$this->site->id}, URL {$this->site->url}).</>" );
+		$output->writeln( "<fg=magenta;options=bold>Creating collaborator $this->email on " . \count( $this->sites ) . ' Pressable site(s).</>' );
 
-		$collaborator = create_pressable_site_collaborator( $this->site->id, $this->email );
-		if ( \is_null( $collaborator ) ) {
-			$output->writeln( '<error>Failed to create collaborator.</error>' );
-			return Command::FAILURE;
+		// One site failing does not stop the others, but it does fail the command.
+		$failed = 0;
+		foreach ( $this->sites as $site ) {
+			$collaborator = create_pressable_site_collaborator( $site->id, $this->email );
+			if ( \is_null( $collaborator ) ) {
+				$output->writeln( "<error>Failed to create collaborator on {$site->displayName} (ID {$site->id}, URL {$site->url}).</error>" );
+				++$failed;
+				continue;
+			}
+
+			$output->writeln( "<fg=green;options=bold>Collaborator created on {$site->displayName} (ID {$site->id}, URL {$site->url}).</>" );
 		}
 
-		$output->writeln( '<fg=green;options=bold>Collaborator created successfully.</>' );
-		return Command::SUCCESS;
+		return 0 === $failed ? Command::SUCCESS : Command::FAILURE;
 	}
 
 	// endregion
@@ -121,6 +180,38 @@ final class Pressable_Site_Collaborator_Create extends Command {
 		$question->setValidator( fn( $value ) => filter_var( $value, FILTER_VALIDATE_EMAIL ) ? $value : throw new \RuntimeException( 'Invalid email address.' ) );
 
 		return $this->getHelper( 'question' )->ask( $input, $output, $question );
+	}
+
+	/**
+	 * Get sites from the multiple input option, each once.
+	 *
+	 * A site that cannot be found fails the command before anything is changed, rather than being left out of a run
+	 * that would otherwise report success.
+	 *
+	 * @param   string $multiple The multiple input option.
+	 *
+	 * @throws  \InvalidArgumentException If any of the listed sites cannot be found.
+	 * @return  \stdClass[]
+	 */
+	private function get_sites_from_multiple_input( string $multiple ): array {
+		$sites   = array();
+		$missing = array();
+		foreach ( array_filter( array_map( 'trim', explode( ',', $multiple ) ) ) as $identifier ) {
+			$site = get_pressable_site( $identifier );
+			if ( \is_null( $site ) ) {
+				$missing[] = $identifier;
+				continue;
+			}
+
+			// Keyed by ID, so a site listed twice, or by both its ID and its domain, is processed once.
+			$sites[ $site->id ] = $site;
+		}
+
+		if ( ! empty( $missing ) ) {
+			throw new \InvalidArgumentException( 'Could not find the Pressable site(s): ' . implode( ', ', $missing ) . '.' );
+		}
+
+		return array_values( $sites );
 	}
 
 	// endregion
