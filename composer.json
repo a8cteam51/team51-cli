@@ -39,6 +39,7 @@
       "includes/abstract-connection-helper.php",
       "includes/connection-helper-pressable.php",
       "includes/connection-helper-wpcom.php",
+      "includes/abstract-fleet-command.php",
       "includes/functions.php",
       "includes/functions-1password.php",
       "includes/functions-deployhq.php",

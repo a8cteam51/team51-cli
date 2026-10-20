@@ -1,0 +1,113 @@
+<?php
+/**
+ * WORKED EXAMPLE: a fleet change. Copy to `commands/<Name>.php` (dropping `.example`), then edit.
+ *
+ * The shape every write should have: read the current state, return `unchanged` when there is
+ * nothing to do, stop at `would-…` on a dry run, write, then read back to prove the write landed.
+ *
+ * @package WPCOMSpecialProjects\CLI\Command
+ */
+
+namespace WPCOMSpecialProjects\CLI\Command;
+
+use phpseclib3\Net\SSH2;
+use Symfony\Component\Console\Attribute\AsCommand;
+use WPCOMSpecialProjects\CLI\Helper\Abstract_Fleet_Command;
+
+/**
+ * ONE-OFF / INCIDENT. Deletes the stolen UpdraftCentral keys from sites where UpdraftPlus could not
+ * revoke them itself (the plugin was inactive, or a Premium build that does not update from
+ * WordPress.org).
+ *
+ * Examples:
+ *   team51 --dev updraft:remove-central-keys --sites=updraft-sites.csv --dry-run
+ *   team51 --dev updraft:remove-central-keys --sites=updraft-sites.csv --limit=1
+ *   team51 --dev updraft:remove-central-keys --sites=updraft-sites.csv --yes
+ *   team51 --dev updraft:remove-central-keys --sites=updraft-sites.csv --retry-failed
+ */
+#[AsCommand( name: 'updraft:remove-central-keys' )]
+final class Updraft_Central_Keys_Remove extends Abstract_Fleet_Command {
+	// region FIELDS AND CONSTANTS
+
+	/**
+	 * The option UpdraftCentral stores its site keys in.
+	 *
+	 * @var string
+	 */
+	private const KEYS_OPTION = 'updraft_central_localkeys';
+
+	// endregion
+
+	// region INHERITED METHODS
+
+	/**
+	 * {@inheritDoc}
+	 */
+	protected function configure(): void {
+		$this->setDescription( 'ONE-OFF: deletes the UpdraftCentral keys option from the given sites.' )
+			->setHelp( 'Deletes `' . self::KEYS_OPTION . '` over SSH and checks it is gone. Sites without it are left alone. Never prints the keys.' );
+
+		parent::configure();
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	protected function process_site( \stdClass $site, SSH2 $ssh, string $platform ): array {
+		$before = $this->count_keys( $ssh );
+		if ( null === $before ) {
+			return $this->failure( self::REASON_ERROR, 'WP-CLI did not run, so the option could not be checked. Delete it in phpMyAdmin.' );
+		}
+		if ( 0 === $before ) {
+			return array(
+				'status' => 'unchanged',
+				'note'   => 'no keys to delete',
+			);
+		}
+		if ( $this->dry_run ) {
+			return array(
+				'status' => 'would-delete',
+				'note'   => 'keys present, would delete them',
+			);
+		}
+
+		$this->wp( $ssh, 'option delete ' . \escapeshellarg( self::KEYS_OPTION ) );
+
+		// The delete's own output is not trusted: read the option back.
+		$after = $this->count_keys( $ssh );
+		if ( null === $after ) {
+			return $this->failure( self::REASON_ERROR, 'Ran the delete, but WP-CLI could not read the option back, so it is unknown whether the keys are gone. Check in phpMyAdmin.' );
+		}
+		if ( 0 !== $after ) {
+			return $this->failure( self::REASON_ERROR, 'Deleted, but the option is still there. Delete it in phpMyAdmin, then flush the object cache.' );
+		}
+
+		return array(
+			'status' => 'success',
+			'note'   => 'keys deleted',
+		);
+	}
+
+	// endregion
+
+	// region HELPERS
+
+	/**
+	 * Counts the keys options on the site, or null when WP-CLI could not answer.
+	 *
+	 * @param   SSH2 $ssh The connection.
+	 *
+	 * @return  int|null
+	 */
+	private function count_keys( SSH2 $ssh ): ?int {
+		$result = $this->wp( $ssh, 'option list --search=' . \escapeshellarg( self::KEYS_OPTION ) . ' --format=count' );
+
+		// The count is the last line; anything a plugin or PHP printed comes before it.
+		$lines = \explode( "\n", $result['output'] );
+		$count = \trim( (string) \end( $lines ) );
+
+		return 0 === $result['exit'] && \ctype_digit( $count ) ? (int) $count : null;
+	}
+
+	// endregion
+}

@@ -1,0 +1,200 @@
+<?php
+/**
+ * WORKED EXAMPLE: a read-only fleet audit. Copy to `commands/<Name>.php` (dropping `.example`), then edit.
+ *
+ * This is the audit from an UpdraftCentral incident, rebuilt on Abstract_Fleet_Command.
+ * It shows the pattern for anything that needs several facts per site: one SSH connection runs one
+ * shell script, each fact comes back on its own `TAG=value` line, and PHP turns the tags into a status.
+ *
+ * @package WPCOMSpecialProjects\CLI\Command
+ */
+
+namespace WPCOMSpecialProjects\CLI\Command;
+
+use phpseclib3\Net\SSH2;
+use Symfony\Component\Console\Attribute\AsCommand;
+use WPCOMSpecialProjects\CLI\Helper\Abstract_Fleet_Command;
+
+/**
+ * ONE-OFF / INCIDENT. Audits sites for exposure to stolen UpdraftCentral signing keys.
+ * Link the incident's internal post in the PR, not here: this repository is public.
+ *
+ * Read-only: never prints or records the keys or the log, only whether they exist and what they hold.
+ *
+ * Examples:
+ *   team51 --dev updraft:audit-central-keys --limit=2
+ *   team51 --dev updraft:audit-central-keys --sites=example.com,12345678 --yes
+ */
+#[AsCommand( name: 'updraft:audit-central-keys' )]
+final class Updraft_Central_Keys_Audit extends Abstract_Fleet_Command {
+	// region FIELDS AND CONSTANTS
+
+	/**
+	 * {@inheritDoc}
+	 */
+	protected const READ_ONLY = true;
+
+	/**
+	 * The sites the incident named, by WPCOM blog ID. Placeholders: this repository is public, and a
+	 * blog ID resolves to its URL through the public WordPress.com API, so real lists of affected
+	 * sites belong in the one-off on its branch, never in a template or a merged command.
+	 *
+	 * @var string[]
+	 */
+	protected const DEFAULT_SITES = array( '12345678', '23456789' );
+
+	/**
+	 * An audit looks at every site every time, so nothing is settled by an earlier run.
+	 *
+	 * @var string[]
+	 */
+	protected const SETTLED_STATUSES = array();
+
+	/**
+	 * {@inheritDoc}
+	 */
+	protected const FOLLOW_UP_STATUSES = array( 'compromised', 'suspicious', 'exposed', 'error' );
+
+	/**
+	 * {@inheritDoc}
+	 */
+	protected const REPORT_COLUMNS = array( 'keys_option', 'findings' );
+
+	/**
+	 * The greps over wp-content can take a while on big sites.
+	 *
+	 * @var int
+	 */
+	protected const SSH_TIMEOUT = 180;
+
+	/**
+	 * The option UpdraftCentral stores its site keys in.
+	 *
+	 * @var string
+	 */
+	private const KEYS_OPTION = 'updraft_central_localkeys';
+
+	/**
+	 * The option UpdraftCentral logs its last 50 incoming commands in.
+	 *
+	 * @var string
+	 */
+	private const CLIENT_LOG_OPTION = 'updraftcentral_client_log';
+
+	/**
+	 * Strings found in the backdoor plugins, matched literally.
+	 *
+	 * @var string[]
+	 */
+	private const BACKDOOR_SIGNATURES = array(
+		'Small maintenance toolkit: keeps option storage tidy',
+		'Improves page rendering efficiency for content sites with minimal overhead.',
+	);
+
+	/**
+	 * The wp-content path. Both platforms use it over SSH.
+	 *
+	 * @var string
+	 */
+	private const CONTENT_DIR = '/srv/htdocs/wp-content';
+
+	// endregion
+
+	// region INHERITED METHODS
+
+	/**
+	 * {@inheritDoc}
+	 */
+	protected function configure(): void {
+		$this->setDescription( 'ONE-OFF: audits sites for UpdraftCentral keys and the indicators of the UpdraftCentral compromise (read-only).' )
+			->setHelp( 'Checks each site over SSH for the `' . self::KEYS_OPTION . '` option, backdoor plugin signatures, plugin uploads in the UpdraftCentral log and backdoor users. Never modifies anything and never prints the keys.' );
+
+		parent::configure();
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	protected function process_site( \stdClass $site, SSH2 $ssh, string $platform ): array {
+		$tags = $this->parse_tagged( $this->exec( $ssh, $this->build_script() )['output'] );
+
+		$findings = array();
+		foreach ( $tags['HIT'] ?? array() as $file ) {
+			$findings[] = "compromised: backdoor signature in $file";
+		}
+		foreach ( $tags['BADUSER'] ?? array() as $user ) {
+			$findings[] = "compromised: user with an @example.org email ($user)";
+		}
+		$uploads = (int) ( $tags['LOG'][0] ?? 0 );
+		if ( $uploads > 0 ) {
+			$findings[] = "compromised: the UpdraftCentral log holds $uploads plugin upload command(s)";
+		}
+
+		$keys = $tags['KEYS'][0] ?? null;
+
+		return array(
+			'status'  => match ( true ) {
+				! empty( $findings ) => 'compromised',
+				null === $keys       => 'error',
+				'0' !== $keys        => 'exposed',
+				default              => 'clean',
+			},
+			'note'    => match ( true ) {
+				null === $keys => 'WP-CLI did not run, so only the file checks ran (' . ( $tags['WPERR'][0] ?? 'no output' ) . ')',
+				'0' !== $keys  => 'UpdraftCentral keys option PRESENT',
+				default        => 'no UpdraftCentral keys',
+			} . '; ' . ( empty( $findings ) ? 'no indicators of compromise' : \count( $findings ) . ' indicator(s) found' ),
+			'columns' => array(
+				'keys_option' => null === $keys ? '' : ( '0' !== $keys ? 'present' : 'absent' ),
+				'findings'    => \implode( ' | ', $findings ),
+			),
+		);
+	}
+
+	// endregion
+
+	// region HELPERS
+
+	/**
+	 * Builds the script run on each site. Each line it prints is one fact, tagged by prefix:
+	 *
+	 *   KEYS=<n>        how many keys options exist (or WPERR=<why> when WP-CLI fails)
+	 *   LOG=<n|none>    how many `upload_plugin` commands the UpdraftCentral log holds
+	 *   BADUSER=<csv>   ID,login,email of a user with an @example.org email
+	 *   HIT=<file>      a file containing a backdoor signature
+	 *
+	 * The keys and the log are only counted on the site, so neither travels back over the connection.
+	 * WP-CLI's exit code and last line are both checked, because a notice on stdout or a failed boot
+	 * would otherwise read as a count.
+	 *
+	 * @return  string
+	 */
+	private function build_script(): string {
+		$script = <<<'SH'
+W="wp --skip-plugins --skip-themes"
+out=$($W option list --search={KEYS} --format=count 2>&1); rc=$?; n=$(printf '%s\n' "$out" | tail -n 1)
+case "$rc:$n" in 0:|0:*[!0-9]*) ok=0 ;; 0:*) ok=1 ;; *) ok=0 ;; esac
+if [ "$ok" = 1 ]; then
+	echo "KEYS=$n"
+	log=$($W option get {LOG} --format=json 2>/dev/null)
+	if [ -n "$log" ]; then echo "LOG=$(printf '%s' "$log" | grep -o 'upload_plugin' | wc -l | tr -d ' ')"; else echo "LOG=none"; fi
+	$W user list --fields=ID,user_login,user_email --format=csv 2>/dev/null | tail -n +2 | grep -i '@example\.org' | sed 's/^/BADUSER=/'
+else
+	echo "WPERR=exit $rc: $(printf '%s' "$out" | tail -n 3 | tr '\n' ' ')"
+fi
+grep -rlF {SIGNATURES} -- {CONTENT}/plugins {CONTENT}/mu-plugins 2>/dev/null | sed 's/^/HIT=/'
+SH;
+
+		return \strtr(
+			$script,
+			array(
+				'{KEYS}'       => \escapeshellarg( self::KEYS_OPTION ),
+				'{LOG}'        => \escapeshellarg( self::CLIENT_LOG_OPTION ),
+				'{CONTENT}'    => \escapeshellarg( self::CONTENT_DIR ),
+				'{SIGNATURES}' => \implode( ' ', \array_map( static fn( string $s ) => '-e ' . \escapeshellarg( $s ), self::BACKDOOR_SIGNATURES ) ),
+			)
+		);
+	}
+
+	// endregion
+}
