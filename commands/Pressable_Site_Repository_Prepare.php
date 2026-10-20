@@ -215,7 +215,7 @@ final class Pressable_Site_Repository_Prepare extends Command {
 			return Command::FAILURE;
 		}
 
-		$current = $this->git( array( 'show', 'HEAD:.deployignore' ), false ) ?? '';
+		$current = \str_replace( array( "\r\n", "\r" ), "\n", $this->git( array( 'show', 'HEAD:.deployignore' ), false ) ?? '' );
 		$parts   = split_pressable_deployignore( $current );
 		if ( $parts['malformed'] ) {
 			$output->writeln( '<error>The branch\'s .deployignore has an unterminated or repeated Pressable allowlist block. Fix it by hand first.</error>' );
@@ -855,6 +855,10 @@ final class Pressable_Site_Repository_Prepare extends Command {
 		}
 		$target = $this->push ? $this->branch : 'update/pressable-deployignore' . ( \in_array( $this->branch, array( 'trunk', 'main' ), true ) ? '' : "-$this->branch" );
 		if ( ! $this->push ) {
+			if ( '' !== \trim( (string) $this->git( array( 'ls-remote', '--heads', 'origin', $target ), false ) ) ) {
+				$output->writeln( "<error>The branch `$target` already exists on GitHub, most likely from an earlier pull request. Merge or close it, delete the branch, then run this again.</error>" );
+				return Command::FAILURE;
+			}
 			$this->git( array( 'checkout', '--quiet', '-b', $target ) );
 		}
 
