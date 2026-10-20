@@ -241,9 +241,10 @@ final class Pressable_Site_Repository_Prepare extends Command {
 			return Command::FAILURE;
 		}
 
-		$root_entries             = $this->decide_root_entries( $input, $output, $tree, $kept_rules, $previous );
-		[ $children, $protected ] = $this->decide_children( $input, $output, $tree, $kept_rules, $previous );
-		$tombstones               = $this->decide_tombstones( $input, $output, $tree, $server, $previous );
+		[ $root_entries, $declined ] = $this->decide_root_entries( $input, $output, $tree, $kept_rules, $previous );
+		[ $children, $protected ]    = $this->decide_children( $input, $output, $tree, $kept_rules, $previous );
+		$protected                   = \array_merge( $protected, $declined );
+		$tombstones                  = $this->decide_tombstones( $input, $output, $tree, $server, $previous );
 
 		$block    = build_pressable_deployignore_block( $root_entries, $children, $protected, $tombstones );
 		$contents = assemble_pressable_deployignore( $kept, $block );
@@ -427,7 +428,7 @@ final class Pressable_Site_Repository_Prepare extends Command {
 	 * @param   array[]         $kept_rules The rules outside the block.
 	 * @param   array           $previous   The earlier block's decisions.
 	 *
-	 * @return  string[] The entries to re-include, folders ending with a slash.
+	 * @return  array{0: string[], 1: string[]} The entries to re-include, folders ending with a slash, and the runtime-loaded ones declined.
 	 */
 	private function decide_root_entries( InputInterface $input, OutputInterface $output, array $tree, array $kept_rules, array $previous ): array {
 		$entries = array();
@@ -438,6 +439,7 @@ final class Pressable_Site_Repository_Prepare extends Command {
 
 		$referenced = $this->find_runtime_references();
 		$included   = array();
+		$declined   = array();
 		foreach ( $entries as $name => $paths ) {
 			if ( \in_array( $name, PRESSABLE_DEPLOYIGNORE_CONTENT_DIRS, true ) || \str_starts_with( $name, '.' ) ) {
 				continue;
@@ -451,23 +453,27 @@ final class Pressable_Site_Repository_Prepare extends Command {
 				continue;
 			}
 
-			$default = \in_array( $name, $previous['included'], true ) || ( ! $this->check && \in_array( $name, $referenced, true ) );
+			$is_referenced = \in_array( $name, $referenced, true );
+			$was_declined  = \in_array( $name, $previous['protected'], true );
+			$default       = \in_array( $name, $previous['included'], true ) || ( ! $this->check && $is_referenced && ! $was_declined );
 			if ( $this->check ) {
 				$deploy = \in_array( $name, $previous['included'], true );
-				if ( ! $deploy && \in_array( $name, $referenced, true ) ) {
+				if ( ! $deploy && $is_referenced && ! $was_declined ) {
 					$this->undecided[] = "Runtime PHP loads the root entry `$name`, which does not deploy. Decide on it with a full run.";
 				}
 			} else {
-				$hint     = \in_array( $name, $referenced, true ) ? ' Runtime PHP refers to it.' : '';
+				$hint     = $is_referenced ? ' Runtime PHP refers to it.' : '';
 				$question = new ConfirmationQuestion( '<question>Deploy the root ' . ( $is_dir ? 'folder' : 'file' ) . " `$name` (" . \count( $paths ) . " tracked files)? Not deploying freezes the server's copy.$hint [" . ( $default ? 'Y/n' : 'y/N' ) . ']</question> ', $default );
 				$deploy   = true === $this->getHelper( 'question' )->ask( $input, $output, $question );
 			}
 			if ( $deploy ) {
 				$included[] = $name . ( $is_dir ? '/' : '' );
+			} elseif ( $is_referenced && ( ! $this->check || $was_declined ) ) {
+				$declined[] = $name;
 			}
 		}
 
-		return $included;
+		return array( $included, $declined );
 	}
 
 	/**
@@ -760,7 +766,8 @@ final class Pressable_Site_Repository_Prepare extends Command {
 			$ssh->setTimeout( 0 );
 			$output->writeln( '<comment>Saving a snapshot of wp-content...</comment>' );
 			$ssh->exec( $this->cd_wp_content() . ' && cd .. && tar -czf ' . \escapeshellarg( $remote ) . ' --exclude=wp-content/uploads --exclude=wp-content/cache wp-content' );
-			if ( 0 !== $ssh->getExitStatus() ) {
+			// GNU tar exits 1 when a file changed while it was read, which a live site does constantly.
+			if ( ! \in_array( $ssh->getExitStatus(), array( 0, 1 ), true ) ) {
 				return null;
 			}
 		} finally {
