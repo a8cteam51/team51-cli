@@ -2385,7 +2385,7 @@ final class Team51McpTools {
 		// the raw argv scans that run before it.
 		return self::run_cli_command(
 			'pressable:run-site-wp-cli-command',
-			array( '--', $wp_cli_command, $site_id_or_url )
+			array( '--', $site_id_or_url, $wp_cli_command )
 		);
 	}
 

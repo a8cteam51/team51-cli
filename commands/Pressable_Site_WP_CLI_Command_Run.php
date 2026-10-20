@@ -59,21 +59,37 @@ final class Pressable_Site_WP_CLI_Command_Run extends Command {
 	 */
 	protected function configure(): void {
 		$this->setDescription( 'Runs a given WP-CLI command on a given Pressable site.' )
-			->setHelp( 'This command allows you to run an arbitrary WP-CLI command on a Pressable site.' );
+			->setHelp( "This command allows you to run an arbitrary WP-CLI command on a Pressable site.\n\nTo run it on several sites, pass `--multiple=all` or `--multiple=<site>,<site>` and leave out the site argument: `team51 pressable:run-site-wp-cli-command --multiple=example.com,example.net \"plugin list\"`." );
 
-		$this->addArgument( 'wp-cli-command', InputArgument::REQUIRED, 'The WP-CLI command to run.' )
-			->addArgument( 'site', InputArgument::OPTIONAL, 'The domain or numeric Pressable ID of the site to open the shell to.' );
+		// Both optional: `--multiple` replaces the site argument, and a required argument cannot follow an optional one.
+		$this->addArgument( 'site', InputArgument::OPTIONAL, 'The domain or numeric Pressable ID of the site to open the shell to.' )
+			->addArgument( 'wp-cli-command', InputArgument::OPTIONAL, 'The WP-CLI command to run.' );
 
-		$this->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Determines whether the `site` argument is optional or not. Accepted values are `all` or a comma-separated list of site IDs or domains.' )
+		$this->addOption( 'multiple', null, InputOption::VALUE_REQUIRED, 'Run the command on multiple sites instead of the `site` argument. Accepted values are `all` or a comma-separated list of site IDs or domains.' )
 			->addOption( 'skip-output', null, InputOption::VALUE_NONE, 'Skip outputting the response to the console.' );
 	}
 
 	/**
 	 * {@inheritDoc}
+	 *
+	 * @throws \InvalidArgumentException If `--multiple` is given together with a site argument.
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
 		$this->skip_output = get_bool_input( $input, 'skip-output' );
 		$this->multiple    = $input->getOption( 'multiple' );
+
+		if ( null !== $this->multiple ) {
+			// The sites take the place of the site argument, so the command lands in it instead.
+			if ( empty( $input->getArgument( 'wp-cli-command' ) ) ) {
+				$input->setArgument( 'wp-cli-command', $input->getArgument( 'site' ) );
+				$input->setArgument( 'site', null );
+			}
+
+			// Refused rather than ignored: whether the site argument was meant to join the list cannot be told.
+			if ( ! empty( $input->getArgument( 'site' ) ) ) {
+				throw new \InvalidArgumentException( 'With `--multiple`, leave out the site argument (got `' . $input->getArgument( 'site' ) . '`).' );
+			}
+		}
 
 		if ( null === $this->multiple ) {
 			// If multiple is not set, treat it as a single site operation
