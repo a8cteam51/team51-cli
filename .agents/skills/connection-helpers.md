@@ -122,6 +122,8 @@ Connection helpers obtain credentials via OpsOasis:
 
 Credentials are cached per `$site_identifier` during the request. Do not call these directly from commands; use the connection helpers.
 
+When a WPCOM connection returns `null` after a 403 from `site-ssh-users`, the concierge user (WordPress.com username `a8cteam51`) is not the site owner (the primary connected user): only the owner can manage SSH users through the API, so being an administrator is not enough. `fleet-scripts.md` lists this and the other reasons a connection fails, with what to do instead.
+
 The one credential-adjacent call a command may make itself is `Pressable_Connection_Helper::ensure_sftp_user( $site_id )`:
 opening a connection deliberately does **not** provision the concierge collaborator (that is a write, and read-only
 commands must not grant access as a side effect). A command that provisions a site — e.g. `Pressable_Site_Clone` —

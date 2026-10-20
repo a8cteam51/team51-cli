@@ -43,6 +43,7 @@ team51-cli/
 ├── includes/            # Shared functions and helpers
 │   ├── api-helper.php           # REST API calls (DeployHQ, GitHub, Jetpack, Pressable, WPCOM, WPORG)
 │   ├── abstract-connection-helper.php
+│   ├── abstract-fleet-command.php   # Base class for one-off fleet scripts
 │   ├── connection-helper-pressable.php
 │   ├── connection-helper-wpcom.php
 │   ├── functions.php            # Core helpers (console, input, process)
@@ -149,6 +150,12 @@ team51 --shell
 
 See `.agents/subagents/add-cli-command.md` for a detailed runbook.
 
+### One-off Fleet Scripts
+
+When asked for a script that checks or changes a list of sites (an incident audit, a bulk change from a CSV), extend `Abstract_Fleet_Command` (`includes/abstract-fleet-command.php`) rather than writing the loop again. It handles `--sites` (production/staging/list/CSV), `--limit`, `--dry-run`, `--retry-failed`, the resumable JSONL ledger, the CSV report and the follow-up list of sites a person must finish. The subclass implements `process_site()`. One-offs live on a branch, run with `team51 --dev`, and are deleted rather than merged.
+
+**For the workflow, templates and failure reasons (403s, SSH, WP-CLI quirks)**: `.agents/skills/fleet-scripts.md`
+
 ### Adding an MCP Tool
 
 1. Add a public method to `mcp/Team51McpTools.php`.
@@ -206,4 +213,5 @@ These are intentional; do not "fix" them without team discussion.
   - `local-setup.md` — Environment setup, prerequisites, troubleshooting.
   - `add-mcp-tool.md` — Adding MCP tools with identity, return format, annotations.
   - `connection-helpers.md` — SSH/SFTP to Pressable and WPCOM sites.
+  - `fleet-scripts.md` — One-off scripts across a set of sites, on `Abstract_Fleet_Command`.
 - **.agents/subagents/** — Runbooks for repeatable tasks (e.g. `add-cli-command.md`).
