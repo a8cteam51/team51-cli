@@ -62,7 +62,7 @@ final class Jetpack_Connection_Audit extends Command {
 	 *
 	 * @var string[]
 	 */
-	private const RETRYABLE_REASONS = array( 'rate_limited', 'timeout', 'batch_failed' );
+	private const RETRYABLE_REASONS = array( 'rate_limited', 'timeout', 'gateway_error', 'batch_failed' );
 
 	/**
 	 * What each failure reason means and what to do about it.
@@ -81,6 +81,7 @@ final class Jetpack_Connection_Audit extends Command {
 		'blocked'           => 'The server refused the request (an auth wall or a firewall). Allowlist WordPress.com, or skip the site.',
 		'json_api_disabled' => 'The Jetpack JSON API module is off, so WordPress.com cannot reach the site. Turn the module on.',
 		'server_error'      => 'The site returned a server error with nothing to read. Check the site.',
+		'gateway_error'     => 'A proxy or gateway in front of the site failed (502/503/504) even after retries. Check that the site is up.',
 		'empty_response'    => 'The site answered with nothing to read. Check the site.',
 		'rate_limited'      => 'The site rate-limited us even after retries. Re-run the audit later.',
 		'timeout'           => 'The site timed out even after retries. Check that it is up.',
@@ -162,7 +163,10 @@ EOT
 
 		$filter = maybe_get_string_input( $input, 'sites' );
 		if ( ! empty( $filter ) ) {
-			$this->sites = $this->filter_sites( $jetpack_sites, \array_filter( \array_map( 'trim', \explode( ',', $filter ) ) ) );
+			$this->sites = $this->filter_sites( $jetpack_sites, \array_filter( \array_map( 'trim', \explode( ',', $filter ) ) ), $unmatched );
+			if ( ! empty( $unmatched ) ) {
+				$output->writeln( '<error>Not connected to WPCOM through Jetpack, so not audited: ' . \implode( ', ', $unmatched ) . '</error>' );
+			}
 			$output->writeln( '<comment>Auditing ' . \count( $this->sites ) . ' of them, as asked. The Pressable check is skipped.</comment>' );
 			return;
 		}
@@ -181,6 +185,8 @@ EOT
 
 	/**
 	 * {@inheritDoc}
+	 *
+	 * @throws  \RuntimeException When every OpsOasis batch request fails.
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		$output->writeln( '<fg=magenta;options=bold>Auditing the Jetpack connection of ' . \count( $this->sites ) . ' site(s). This may take a few minutes...</>' );
@@ -191,6 +197,11 @@ EOT
 			$results = $this->fetch( $chunk ) + $results;
 		}
 
+		// Every batch failing means OpsOasis itself could not answer, which retrying site by site will not fix.
+		if ( ! empty( $results ) && \count( $results ) === \count( \array_filter( $results, static fn( array $result ) => 'batch_failed' === $result['reason'] ) ) ) {
+			throw new \RuntimeException( 'Every OpsOasis batch request failed. Check that OpsOasis is up and serves the `sites/batch/jetpack-connection` route.' );
+		}
+
 		for ( $attempt = 1; $attempt <= self::RETRY_ATTEMPTS; $attempt++ ) {
 			$retry = \array_keys( \array_filter( $results, static fn( array $result ) => \in_array( $result['reason'], self::RETRYABLE_REASONS, true ) ) );
 			if ( empty( $retry ) ) {
@@ -199,7 +210,10 @@ EOT
 
 			$output->writeln( '<comment>Retrying ' . \count( $retry ) . " site(s) whose failure looks temporary (attempt $attempt of " . self::RETRY_ATTEMPTS . ')...</comment>' );
 			foreach ( \array_chunk( $retry, self::RETRY_CHUNK_SIZE ) as $chunk ) {
-				\sleep( self::RETRY_DELAY );
+				// Only a site's own host needs a pause; a failed OpsOasis batch can be asked again straight away.
+				if ( ! empty( \array_filter( $chunk, static fn( $site_id ) => 'batch_failed' !== $results[ $site_id ]['reason'] ) ) ) {
+					\sleep( self::RETRY_DELAY );
+				}
 				$results = $this->fetch( $chunk ) + $results;
 			}
 		}
@@ -214,13 +228,16 @@ EOT
 
 		output_table( $output, $rows, self::COLUMNS, 'Jetpack connection audit' );
 
-		$issues = array_count_values( \array_merge( ...\array_map( static fn( array $row ) => \explode( ', ', $row[3] ), $rows ) ) );
+		$issues    = array_count_values( \array_merge( ...\array_map( static fn( array $row ) => \explode( ', ', $row[3] ), $rows ) ) );
+		$no_issues = $issues['ok'] ?? 0;
+		unset( $issues['ok'] );
 		\ksort( $issues );
 
 		$summary_output = array(
 			'REPORT SUMMARY'                 => '',
 			'Jetpack sites audited'          => \count( $site_ids ),
 			'Pressable sites not in Jetpack' => \is_null( $this->unconnected_pressable_sites ) ? 'Not checked' : \count( $this->unconnected_pressable_sites ),
+			'Sites with no issues'           => $no_issues,
 		);
 		foreach ( $issues as $issue => $count ) {
 			$summary_output[ "Sites with issue `$issue`" ] = $count;
@@ -244,18 +261,22 @@ EOT
 	 *
 	 * @param   \stdClass[] $jetpack_sites The connected Jetpack sites, keyed by WPCOM site ID.
 	 * @param   string[]    $identifiers   The site URLs and/or WPCOM IDs to keep.
+	 * @param   array|null  $unmatched     The identifiers that matched no connected site.
 	 *
 	 * @throws  \InvalidArgumentException When none of the given sites are connected.
 	 *
 	 * @return  \stdClass[]
 	 */
-	private function filter_sites( array $jetpack_sites, array $identifiers ): array {
-		$wanted = \array_map( fn( string $identifier ) => \is_numeric( $identifier ) ? $identifier : $this->normalize_host( $identifier ), $identifiers );
+	private function filter_sites( array $jetpack_sites, array $identifiers, ?array &$unmatched = null ): array {
+		$wanted = \array_combine( $identifiers, \array_map( fn( string $identifier ) => \is_numeric( $identifier ) ? $identifier : $this->normalize_host( $identifier ), $identifiers ) );
 
 		$sites = \array_filter(
 			$jetpack_sites,
 			fn( \stdClass $site ) => \in_array( (string) $site->userblog_id, $wanted, true ) || \in_array( $this->normalize_host( $site->siteurl ), $wanted, true )
 		);
+
+		$found     = \array_merge( \array_map( 'strval', \array_column( $sites, 'userblog_id' ) ), \array_map( fn( \stdClass $site ) => $this->normalize_host( $site->siteurl ), $sites ) );
+		$unmatched = \array_map( 'strval', \array_keys( \array_diff( $wanted, $found ) ) ); // Numeric keys come back as integers.
 		if ( empty( $sites ) ) {
 			throw new \InvalidArgumentException( 'None of the given sites are connected to WPCOM through Jetpack.' );
 		}
@@ -337,7 +358,9 @@ EOT
 			);
 
 			// Only worth reporting when the connection itself answered, since otherwise the connection error says it all.
-			if ( \is_null( $results[ $site_id ]['reason'] ) && isset( $module_errors[ $site_id ] ) ) {
+			if ( \is_null( $results[ $site_id ]['reason'] ) && \is_null( $modules ) ) {
+				$results[ $site_id ]['error'] = 'Modules: the batch request failed.';
+			} elseif ( \is_null( $results[ $site_id ]['reason'] ) && isset( $module_errors[ $site_id ] ) ) {
 				$results[ $site_id ]['error'] = 'Modules: ' . encode_json_content( $module_errors[ $site_id ]->errors ?? $module_errors[ $site_id ] );
 			}
 		}
@@ -380,11 +403,12 @@ EOT
 			\in_array( $status, array( 401, 403 ), true ) && \str_starts_with( $site_error, 'rest_' ) => 'not_permitted',
 			\in_array( $status, array( 401, 403 ), true ) => 'blocked',
 			429 === $status => 'rate_limited',
+			\in_array( $status, array( 502, 503, 504 ), true ) => 'gateway_error',
 			'' !== $raw_body => 'html_response',
 			'http_request_failed' === $site_error && \str_contains( $site_text, 'valid URL' ) => 'invalid_url',
 			'http_request_failed' === $site_error && \str_contains( $site_text, 'cURL error 28' ) => 'timeout',
 			'http_request_failed' === $site_error => 'connection_failed',
-			'invalid_response' === $code => 'empty_response',
+			\in_array( $code, array( 'invalid_response', 'empty_response' ), true ) => 'empty_response',
 			$status >= 500 => 'server_error',
 			default => 'unknown',
 		};
@@ -412,6 +436,7 @@ EOT
 				$result['reason'] ? 'unreachable' : null,
 				false === $is_master ? 'not_primary' : null,
 				false === $json_on ? 'json_api_off' : null,
+				\is_null( $result['reason'] ) && \is_null( $modules ) ? 'modules_unknown' : null,
 			)
 		);
 
