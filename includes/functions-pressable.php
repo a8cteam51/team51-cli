@@ -214,6 +214,151 @@ function update_pressable_site_deployhq_server( string $site_id_or_url, string $
 }
 
 /**
+ * Returns the GitHub deployment configuration of the specified Pressable site.
+ *
+ * @param   string $site_id_or_url The ID or URL of the Pressable site.
+ *
+ * @return  stdClass|null
+ */
+function get_pressable_site_git_config( string $site_id_or_url ): ?stdClass {
+	$site_id_or_url = pressable_maybe_resolve_site_alias( $site_id_or_url );
+	return API_Helper::make_pressable_request( "site-git/$site_id_or_url" );
+}
+
+/**
+ * Connects the specified Pressable site to a GitHub repository. Pressable ignores an empty
+ * `repository_subdirectory` here and keeps the one the site had before.
+ *
+ * @param   string $site_id_or_url          The ID or URL of the Pressable site.
+ * @param   string $repository              The repository's HTTPS github.com clone URL.
+ * @param   string $branch                  The branch to deploy.
+ * @param   string $destination_path        The path under the document root to deploy into, or empty for the document root.
+ * @param   string $repository_subdirectory The directory within the repository to deploy from, or empty for its root.
+ *
+ * @return  stdClass|null
+ */
+function connect_pressable_site_repository( string $site_id_or_url, string $repository, string $branch, string $destination_path = '', string $repository_subdirectory = '' ): ?stdClass {
+	$site_id_or_url = pressable_maybe_resolve_site_alias( $site_id_or_url );
+	return API_Helper::make_pressable_request(
+		"site-git/$site_id_or_url",
+		'POST',
+		array(
+			'repository'              => $repository,
+			'branch'                  => $branch,
+			'destination_path'        => $destination_path,
+			'repository_subdirectory' => $repository_subdirectory,
+		)
+	);
+}
+
+/**
+ * Changes the branch, destination path or repository subdirectory a connected Pressable site deploys.
+ *
+ * @param   string               $site_id_or_url The ID or URL of the Pressable site.
+ * @param   array<string, mixed> $params         The settings to change.
+ *
+ * @return  stdClass|null
+ */
+function update_pressable_site_git_config( string $site_id_or_url, array $params ): ?stdClass {
+	$site_id_or_url = pressable_maybe_resolve_site_alias( $site_id_or_url );
+	return API_Helper::make_pressable_request( "site-git/$site_id_or_url", 'PUT', $params );
+}
+
+/**
+ * Disconnects the specified Pressable site from its repository.
+ *
+ * @param   string $site_id_or_url The ID or URL of the Pressable site.
+ *
+ * @return  true|null
+ */
+function disconnect_pressable_site_repository( string $site_id_or_url ): ?true {
+	$site_id_or_url = pressable_maybe_resolve_site_alias( $site_id_or_url );
+	return is_null( API_Helper::make_pressable_request( "site-git/$site_id_or_url", 'DELETE' ) ) ? null : true;
+}
+
+/**
+ * Queues a deploy of the branch the specified Pressable site is connected to.
+ *
+ * @param   string $site_id_or_url The ID or URL of the Pressable site.
+ *
+ * @return  stdClass|null
+ */
+function trigger_pressable_site_git_deploy( string $site_id_or_url ): ?stdClass {
+	$site_id_or_url = pressable_maybe_resolve_site_alias( $site_id_or_url );
+	return API_Helper::make_pressable_request( "site-git/$site_id_or_url/deploy", 'POST' );
+}
+
+/**
+ * Returns the most recent deploys of the specified Pressable site, newest first.
+ *
+ * @param   string  $site_id_or_url The ID or URL of the Pressable site.
+ * @param   integer $per_page       How many deploys to return, at most 50.
+ *
+ * @return  stdClass[]|null
+ */
+function get_pressable_site_git_deploys( string $site_id_or_url, int $per_page = 10 ): ?array {
+	$site_id_or_url = pressable_maybe_resolve_site_alias( $site_id_or_url );
+	return API_Helper::make_pressable_request( "site-git/$site_id_or_url/history?paginate=1&per_page=$per_page" )?->records;
+}
+
+/**
+ * Waits for a deploy of the specified Pressable site to finish, and returns it.
+ *
+ * @param   string          $site_id_or_url The ID or URL of the Pressable site.
+ * @param   OutputInterface $output         The output to report progress to.
+ * @param   string|null     $deploy_id      The deploy's ID as Pressable answered it, or null to follow the newest deploy.
+ * @param   string|null     $previous_id    The newest deploy's ID before the one to wait for was queued, an empty string for none, or null when unknown.
+ * @param   integer         $timeout        How long to wait in all for the deploy to finish, in seconds, or 0 to return once it appears.
+ * @param   integer         $start_timeout  How long to look for `$deploy_id` before following the newest deploy, or without it, for any deploy to appear, in seconds.
+ *
+ * @return  stdClass|null The deploy as last listed, or null when none newer than `$previous_id` appeared.
+ */
+function wait_for_pressable_site_git_deploy( string $site_id_or_url, OutputInterface $output, ?string $deploy_id = null, ?string $previous_id = null, int $timeout = 600, int $start_timeout = 60 ): ?stdClass {
+	if ( is_null( $deploy_id ) && is_null( $previous_id ) ) {
+		return null;
+	}
+
+	$started_at = time();
+	$deploy     = null;
+	$reported   = '';
+	do {
+		sleep( 10 );
+
+		$deploys = get_pressable_site_git_deploys( $site_id_or_url ) ?? array();
+		$found   = null;
+		foreach ( $deploys as $candidate ) {
+			if ( ! is_null( $deploy_id ) && (string) ( $candidate->id ?? '' ) === $deploy_id ) {
+				$found = $candidate;
+				break;
+			}
+		}
+
+		$newest_id = (string) ( $deploys[0]->id ?? '' );
+		if ( is_null( $found ) && ! is_null( $previous_id ) && '' !== $newest_id && $newest_id !== $previous_id && ( is_null( $deploy_id ) || time() - $started_at >= $start_timeout ) ) {
+			$found = $deploys[0];
+		}
+
+		$deploy = $found ?? $deploy;
+		if ( is_null( $deploy ) ) {
+			$output->writeln( '<comment>Waiting for the deploy to start...</comment>', OutputInterface::VERBOSITY_VERBOSE );
+			continue;
+		}
+
+		$state  = (string) ( $deploy->state ?? '' );
+		$status = 'Deploy ' . ( $deploy->id ?? '' ) . ": $state";
+		if ( $status !== $reported ) {
+			$output->writeln( "<comment>$status</comment>" );
+			$reported = $status;
+		}
+		if ( \in_array( $state, array( 'deployed', 'failed' ), true ) ) {
+			return $deploy;
+		}
+	} while ( time() - $started_at < ( is_null( $deploy ) && is_null( $deploy_id ) ? $start_timeout : $timeout ) );
+
+	return $deploy;
+}
+
+/**
  * Creates a new collaborator on the specified Pressable site.
  *
  * @param   string $site_id_or_url     The ID or URL of the Pressable site to create the collaborator on.
