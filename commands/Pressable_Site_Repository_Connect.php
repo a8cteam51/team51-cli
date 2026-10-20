@@ -50,7 +50,7 @@ final class Pressable_Site_Repository_Connect extends Command {
 	private ?string $destination_path = null;
 
 	/**
-	 * The directory within the repository to deploy from, or null for its root.
+	 * The directory within the repository to deploy from, or an empty string for its root.
 	 *
 	 * @var string|null
 	 */
@@ -110,7 +110,7 @@ final class Pressable_Site_Repository_Connect extends Command {
 		}
 
 		$this->destination_path        = (string) $input->getOption( 'destination-path' );
-		$this->repository_subdirectory = maybe_get_string_input( $input, 'repository-subdirectory' );
+		$this->repository_subdirectory = (string) $input->getOption( 'repository-subdirectory' );
 		$this->no_wait                 = get_bool_input( $input, 'no-wait' );
 
 		$output->writeln( "<comment>Pressable deletes files on the site that are not in the repository, except what the repository's .deployignore protects. Make sure the branch has one, and that no DeployHQ server still deploys to this site, before connecting.</comment>" );
@@ -189,6 +189,10 @@ final class Pressable_Site_Repository_Connect extends Command {
 
 			if ( \is_null( $deploy_id ) && \is_null( $previous_id ) ) {
 				$output->writeln( "<error>The deploy cannot be told apart from earlier ones, because the deploy history could not be read. Check it with `team51 pressable:list-site-git-deploys {$this->site->id}`.</error>" );
+				return Command::FAILURE;
+			}
+			if ( \is_null( $deploy_id ) && $corrected && \is_null( $late_id ) ) {
+				$output->writeln( "<error>The deploy cannot be told apart from the one the connection queued, which may use the paths Pressable kept. Check the deploys with `team51 pressable:list-site-git-deploys {$this->site->id}`.</error>" );
 				return Command::FAILURE;
 			}
 			if ( $this->no_wait && ! \is_null( $deploy_id ) ) {
