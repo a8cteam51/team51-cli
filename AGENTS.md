@@ -48,6 +48,7 @@ team51-cli/
 │   ├── connection-helper-wpcom.php
 │   ├── functions.php            # Core helpers (console, input, process)
 │   ├── functions-*.php           # Service-specific (1password, deployhq, github, jetpack, pressable, wporg, wpcom)
+│   ├── functions-pressable-deployignore.php # Pressable's .deployignore matching, the allowlist block and its checks
 │   ├── parallel-process.php
 │   ├── autocomplete-trait.php
 │   ├── export-trait.php         # --export / --export-format / --export-exclude for commands that output a table
