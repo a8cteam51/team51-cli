@@ -1,5 +1,9 @@
 <?php
 
+use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Process\Process;
+use WPCOMSpecialProjects\CLI\Command\Pressable_Site_Repository_Prepare;
+
 const PRESSABLE_DEPLOYIGNORE_BEGIN = '# BEGIN Pressable deploy allowlist';
 const PRESSABLE_DEPLOYIGNORE_END   = '# END Pressable deploy allowlist';
 const PRESSABLE_DEPLOYIGNORE_NOTE  = '# Pressable deletes what this tree lacks unless a line here protects it; keep this block last.';
@@ -43,6 +47,15 @@ const PRESSABLE_DEPLOYIGNORE_SERVER_OWNED = array(
 	'blog-inactive.php',
 	'blog-suspended.php',
 );
+
+// The wp-content folders the snapshot leaves out: uploads for size, caches, and backup plugins' own archives.
+const PRESSABLE_SNAPSHOT_EXCLUDED = array( 'uploads', 'cache', 'ai1wm-backups', 'updraft' );
+
+// The wp-content folders the server listing skips, so the deploy preview cannot see them.
+const PRESSABLE_LISTING_SKIPPED = array( 'uploads', 'cache', 'upgrade' );
+
+// Pressable's own drop-ins, which unprotected live deploys left in place.
+const PRESSABLE_DEPLOY_KEPT_BY_PRESSABLE = array( 'object-cache.php', 'advanced-cache.php' );
 
 const PRESSABLE_DEPLOYIGNORE_SYNTHETIC_SERVER_PATHS = array(
 	'zz-unknown-root/x.txt',
@@ -574,7 +587,7 @@ function predict_pressable_deploy( string $contents, array $tracked, array $serv
 		'added'       => array(),
 	);
 	foreach ( $server as $path ) {
-		if ( ! isset( $is_repo[ $path ] ) && is_path_deployed_by_pressable( $path, $rules ) ) {
+		if ( ! isset( $is_repo[ $path ] ) && ! in_array( $path, PRESSABLE_DEPLOY_KEPT_BY_PRESSABLE, true ) && is_path_deployed_by_pressable( $path, $rules ) ) {
 			$result['deleted'][] = $path;
 		}
 	}
@@ -585,6 +598,319 @@ function predict_pressable_deploy( string $contents, array $tracked, array $serv
 	}
 
 	return $result;
+}
+
+// endregion
+
+// region SITE
+
+/**
+ * Returns the shell command that enters a Pressable site's wp-content folder over SSH.
+ *
+ * @return  string
+ */
+function get_pressable_wp_content_cd_command(): string {
+	return 'if [ -d htdocs/wp-content ]; then cd htdocs/wp-content; elif [ -d /htdocs/wp-content ]; then cd /htdocs/wp-content; else exit 3; fi';
+}
+
+/**
+ * Lists a Pressable site's wp-content files over SSH, leaving out uploads and caches.
+ *
+ * @param   string $site_id The site's ID.
+ *
+ * @return  array{files: string[], symlinks: string[]}|null The paths relative to wp-content, or null when the listing failed.
+ */
+function list_pressable_site_wp_content( string $site_id ): ?array {
+	$ssh = \Pressable_Connection_Helper::get_ssh_connection( $site_id );
+	if ( is_null( $ssh ) ) {
+		return null;
+	}
+
+	try {
+		$ssh->setTimeout( 0 );
+		$skipped = implode( ' -o ', array_map( static fn( string $dir ): string => '-path ' . escapeshellarg( "./$dir" ), PRESSABLE_LISTING_SKIPPED ) );
+		$listing = $ssh->exec( get_pressable_wp_content_cd_command() . " && find . -mindepth 1 \\( $skipped \\) -prune -o \\( -type f -o -type l \\) -printf '%y %P\\n'" );
+		if ( 0 !== $ssh->getExitStatus() ) {
+			return null;
+		}
+	} finally {
+		$ssh->disconnect();
+	}
+
+	$result = array(
+		'files'    => array(),
+		'symlinks' => array(),
+	);
+	foreach ( array_filter( explode( "\n", (string) $listing ) ) as $line ) {
+		[ $type, $path ] = explode( ' ', $line, 2 ) + array( '', '' );
+		if ( '' === $path ) {
+			continue;
+		}
+		$result['files'][] = $path;
+		if ( 'l' === $type ) {
+			$result['symlinks'][] = $path;
+		}
+	}
+
+	return $result;
+}
+
+/**
+ * Saves a snapshot of a Pressable site's wp-content, uploads and caches left out, to a local folder.
+ *
+ * @param   string          $site_id   The site's ID.
+ * @param   string          $directory The local folder.
+ * @param   OutputInterface $output    The output to report progress to.
+ *
+ * @return  string|null The local path, or null on failure.
+ */
+function save_pressable_site_wp_content_snapshot( string $site_id, string $directory, OutputInterface $output ): ?string {
+	$name   = "pressable-$site_id-wp-content-" . gmdate( 'Ymd-His' ) . '.tgz';
+	$remote = "/tmp/$name";
+	$local  = rtrim( $directory, '/' ) . "/$name";
+
+	$excludes = '';
+	foreach ( PRESSABLE_SNAPSHOT_EXCLUDED as $excluded ) {
+		$excludes .= ' --exclude=' . escapeshellarg( "wp-content/$excluded" );
+	}
+
+	$ok = false;
+	try {
+		$ssh = \Pressable_Connection_Helper::get_ssh_connection( $site_id );
+		if ( is_null( $ssh ) ) {
+			return null;
+		}
+		try {
+			$ssh->setTimeout( 0 );
+			$output->writeln( '<comment>Saving a snapshot of wp-content...</comment>' );
+			$ssh->exec( get_pressable_wp_content_cd_command() . ' && cd .. && tar -czf ' . escapeshellarg( $remote ) . $excludes . ' wp-content' );
+			// GNU tar exits 1 when a file changed while it was read, which a live site does constantly.
+			if ( ! in_array( $ssh->getExitStatus(), array( 0, 1 ), true ) ) {
+				return null;
+			}
+		} finally {
+			$ssh->disconnect();
+		}
+
+		$sftp = \Pressable_Connection_Helper::get_sftp_connection( $site_id );
+		if ( ! is_null( $sftp ) ) {
+			try {
+				$sftp->setTimeout( 0 );
+				$ok = $sftp->get( $remote, $local ) && is_file( $local ) && 0 < filesize( $local );
+			} finally {
+				$sftp->disconnect();
+			}
+		}
+	} finally {
+		$cleanup = \Pressable_Connection_Helper::get_ssh_connection( $site_id );
+		$cleanup?->exec( 'rm -f ' . escapeshellarg( $remote ) );
+		$cleanup?->disconnect();
+	}
+
+	return $ok ? $local : null;
+}
+
+/**
+ * Shows what a first Pressable deploy does to a site's files, grouped by component.
+ *
+ * @param   OutputInterface $output     The output object.
+ * @param   array           $prediction The prediction, as predict_pressable_deploy() returns it.
+ *
+ * @return  void
+ */
+function output_pressable_deploy_preview( OutputInterface $output, array $prediction ): void {
+	$rows = array();
+	foreach ( $prediction as $kind => $paths ) {
+		$groups = array();
+		foreach ( $paths as $path ) {
+			$segments         = explode( '/', $path );
+			$group            = in_array( $segments[0], PRESSABLE_DEPLOYIGNORE_CONTENT_DIRS, true ) && count( $segments ) > 2 ? "{$segments[0]}/{$segments[1]}" : $segments[0];
+			$groups[ $group ] = ( $groups[ $group ] ?? 0 ) + 1;
+		}
+		foreach ( $groups as $group => $count ) {
+			$rows[] = array( $kind, $group, $count );
+		}
+	}
+
+	output_table( $output, $rows, array( 'First deploy', 'Path', 'Files' ), 'What the first Pressable deploy does, uploads and caches aside' );
+}
+
+/**
+ * Reads a branch's tree and .deployignore from a shallow clone that downloads no other file contents.
+ *
+ * @param   string $clone_url The repository's clone URL.
+ * @param   string $branch    The branch.
+ *
+ * @return  array{files: string[], gitlinks: string[], deployignore: string}|null Null when the branch could not be read.
+ */
+function read_github_branch_for_pressable( string $clone_url, string $branch ): ?array {
+	$directory = sys_get_temp_dir() . '/team51-branch-' . bin2hex( random_bytes( 6 ) );
+	$run       = static function ( array $command ) use ( $directory ): Process {
+		$process = new Process( $command, sys_get_temp_dir(), null, null, 600 );
+		$process->run();
+		return $process;
+	};
+
+	try {
+		if ( ! $run( array( 'git', 'clone', '--quiet', '--filter=blob:none', '--no-checkout', '--depth=1', '--single-branch', '--branch', $branch, $clone_url, $directory ) )->isSuccessful() ) {
+			return null;
+		}
+		$tree = $run( array( 'git', '-C', $directory, 'ls-tree', '-r', '-z', '--full-tree', 'HEAD' ) );
+		if ( ! $tree->isSuccessful() ) {
+			return null;
+		}
+
+		$result = array(
+			'files'        => array(),
+			'gitlinks'     => array(),
+			'deployignore' => '',
+		);
+		foreach ( explode( "\0", $tree->getOutput() ) as $entry ) {
+			if ( preg_match( '/^\d+ (blob|commit) [0-9a-f]+\t(.+)$/s', $entry, $matches ) ) {
+				$result[ 'blob' === $matches[1] ? 'files' : 'gitlinks' ][] = $matches[2];
+			}
+		}
+		if ( in_array( '.deployignore', $result['files'], true ) ) {
+			$file = $run( array( 'git', '-C', $directory, 'show', 'HEAD:.deployignore' ) );
+			if ( ! $file->isSuccessful() ) {
+				return null;
+			}
+			$result['deployignore'] = str_replace( array( "\r\n", "\r" ), "\n", $file->getOutput() );
+		}
+
+		return $result;
+	} finally {
+		$run( array( 'rm', '-rf', $directory ) );
+	}
+}
+
+// endregion
+
+// region CONNECT CHECKS
+
+/**
+ * Describes an enabled DeployHQ server that deploys to a site, as a problem that blocks connecting it.
+ *
+ * @param   stdClass $server  The server.
+ * @param   string   $project The project's permalink.
+ *
+ * @return  string
+ */
+function describe_enabled_deployhq_server( stdClass $server, string $project ): string {
+	return 'The DeployHQ server `' . ( $server->name ?? '?' ) . "` of project `$project` still deploys `" . ( $server->branch ?? '?' ) . '` to the site' . ( empty( $server->auto_deploy ) ? '' : ' on every push' ) . '. Disable it in DeployHQ first.';
+}
+
+/**
+ * Lists the enabled DeployHQ servers, on any project for a repository, that deploy as a Pressable site's SFTP owner.
+ *
+ * @param   stdClass $site       The Pressable site.
+ * @param   stdClass $repository The GitHub repository.
+ *
+ * @return  array<string,string>|null The servers' problems keyed by server identifier, or null when DeployHQ or the site's SFTP owner could not be read.
+ */
+function find_enabled_deployhq_servers_for_pressable_site( stdClass $site, stdClass $repository ): ?array {
+	$owner    = get_pressable_site_sftp_owner( (string) $site->id );
+	$projects = get_deployhq_projects();
+	if ( empty( $owner->username ) || is_null( $projects ) ) {
+		return null;
+	}
+
+	$found = array();
+	foreach ( $projects as $project ) {
+		if ( 1 !== preg_match( '#github\.com[:/]([^/]+/[^/]+?)(?:\.git)?/?$#i', (string) ( $project->repository->url ?? '' ), $matches ) || 0 !== strcasecmp( $matches[1], (string) $repository->full_name ) ) {
+			continue;
+		}
+		$servers = get_deployhq_project_servers( (string) $project->permalink );
+		if ( is_null( $servers ) ) {
+			return null;
+		}
+		foreach ( $servers as $server ) {
+			if ( 0 === strcasecmp( (string) ( $server->username ?? '' ), (string) $owner->username ) && (bool) ( $server->enabled ?? true ) ) {
+				$found[ (string) ( $server->identifier ?? $server->name ?? '' ) ] = describe_enabled_deployhq_server( $server, (string) $project->permalink );
+			}
+		}
+	}
+
+	return $found;
+}
+
+/**
+ * Checks whether a Pressable site can be connected to a branch without its first deploy deleting what it must keep.
+ *
+ * @param   stdClass $site       The Pressable site.
+ * @param   stdClass $repository The GitHub repository.
+ * @param   string   $branch     The branch.
+ * @param   array    $paths      The requested paths, as `destination_path` and `repository_subdirectory`, slashes trimmed.
+ *
+ * @return  array{blocking: string[], overridable: string[]} Problems nothing may override, and ones --force may.
+ */
+function check_pressable_site_before_connect( stdClass $site, stdClass $repository, string $branch, array $paths ): array {
+	$problems = array(
+		'blocking'    => array(),
+		'overridable' => array(),
+	);
+
+	$git = get_pressable_site_git_config( $site->id );
+	if ( is_null( $git ) ) {
+		$problems['blocking'][] = 422 === API_Helper::$last_http_code
+			? 'The site is not enrolled in Pressable\'s new GitHub integration, which Pressable Support enables.'
+			: 'Could not read the site\'s GitHub integration settings.';
+	} else {
+		if ( ! empty( $git->connected ) ) {
+			$problems['blocking'][] = 'The site is already connected to ' . ( $git->repository ?? 'a repository' ) . ' on `' . ( $git->branch ?? '?' ) . '`. Disconnect it first.';
+		}
+		$stored = array(
+			'destination_path'        => $git->destinationPath ?? null, // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+			'repository_subdirectory' => $git->repositorySubdirectory ?? null, // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+		);
+		foreach ( $stored as $key => $value ) {
+			if ( ! is_null( $value ) && trim( (string) $value, '/' ) !== $paths[ $key ] ) {
+				$problems['blocking'][] = 'Pressable has `' . $value . "` stored as the site's $key, and the deploy that connecting starts would use it before it can be corrected. Correct it in MyPressable first.";
+			}
+		}
+	}
+
+	$enabled = array();
+	$config  = API_Helper::make_pressable_request( "sites/$site->id/deployhq" );
+	if ( is_null( $config ) && 404 === API_Helper::$last_http_code ) {
+		console_writeln( '<comment>The 404 above means OpsOasis found no DeployHQ server for the site; its projects for the repository are checked next.</comment>' );
+	} elseif ( is_null( $config ) ) {
+		$problems['blocking'][] = 'Could not confirm that no DeployHQ server deploys to the site.';
+	} else {
+		$server = $config->server ?? null;
+		if ( isset( $server->errors ) ) {
+			if ( ! isset( $server->errors->{'404'} ) ) {
+				$problems['blocking'][] = 'Could not read the site\'s DeployHQ server, so it cannot be confirmed stopped.';
+			}
+		} elseif ( is_object( $server ) && (bool) ( $server->enabled ?? true ) ) {
+			$enabled[ (string) ( $server->identifier ?? $server->name ?? '' ) ] = describe_enabled_deployhq_server( $server, (string) ( $config->project->permalink ?? '?' ) );
+		}
+	}
+
+	$servers = find_enabled_deployhq_servers_for_pressable_site( $site, $repository );
+	if ( is_null( $servers ) ) {
+		$problems['blocking'][] = "Could not read DeployHQ's projects or the site's SFTP owner, so the site's DeployHQ servers cannot be confirmed stopped.";
+	}
+	$problems['blocking'] = array_merge( $problems['blocking'], array_values( ( $servers ?? array() ) + $enabled ) );
+
+	if ( array( 'wp-content', '' ) !== array( $paths['destination_path'], $paths['repository_subdirectory'] ) ) {
+		$problems['overridable'][] = 'Only the repository root deployed into wp-content can be checked, so the first deploy of this layout is not.';
+	} elseif ( ! $problems['blocking'] ) {
+		$status = run_app_command(
+			Pressable_Site_Repository_Prepare::getDefaultName(),
+			array(
+				'site'         => (string) $site->id,
+				'--repository' => $repository->name,
+				'--branch'     => $branch,
+				'--check'      => true,
+			)
+		);
+		if ( 0 !== $status ) {
+			$problems['overridable'][] = "The branch's .deployignore is not ready, as reported above. Run `team51 pressable:prepare-site-repository $site->id --repository=$repository->name --branch=$branch` first.";
+		}
+	}
+
+	return $problems;
 }
 
 // endregion

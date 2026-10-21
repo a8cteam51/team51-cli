@@ -129,6 +129,10 @@ final class Pressable_Site_Repository_Prepare extends Command {
 	 * @throws  \InvalidArgumentException If --check is combined with an option that writes.
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
+		$this->undecided       = array();
+		$this->server_symlinks = array();
+		$this->work_dir        = null;
+
 		$this->site = get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
 		$input->setArgument( 'site', $this->site );
 
@@ -235,7 +239,11 @@ final class Pressable_Site_Repository_Prepare extends Command {
 		}
 		$previous = $this->read_previous_decisions( $parts['block'] ?? array() );
 
-		$server = $this->check ? null : $this->read_server_files( $output );
+		$listing = $this->check ? null : list_pressable_site_wp_content( (string) $this->site->id );
+		$server  = $listing['files'] ?? null;
+		foreach ( $listing['symlinks'] ?? array() as $symlink ) {
+			$this->server_symlinks[ $symlink ] = true;
+		}
 		if ( ! $this->check && \is_null( $server ) ) {
 			$output->writeln( '<error>Failed to list the site\'s files over SSH, which the tombstones and the deploy preview need.</error>' );
 			return Command::FAILURE;
@@ -287,7 +295,7 @@ final class Pressable_Site_Repository_Prepare extends Command {
 			return Command::FAILURE;
 		}
 
-		$this->show_preview( $output, $contents, $tree['files'], $server );
+		output_pressable_deploy_preview( $output, predict_pressable_deploy( $contents, $tree['files'], $server ) );
 		$this->show_diff( $output, $current, $contents );
 
 		if ( \rtrim( $current, "\r\n" ) . "\n" === $contents ) {
@@ -295,12 +303,12 @@ final class Pressable_Site_Repository_Prepare extends Command {
 			return Command::SUCCESS;
 		}
 
-		$snapshot = $this->save_snapshot( $output );
+		$snapshot = save_pressable_site_wp_content_snapshot( (string) $this->site->id, $this->snapshot_dir, $output );
 		if ( \is_null( $snapshot ) ) {
 			$output->writeln( '<error>Failed to save a snapshot of wp-content, so nothing was written.</error>' );
 			return Command::FAILURE;
 		}
-		$output->writeln( "<info>Saved a snapshot of wp-content, without uploads, to $snapshot.</info>" );
+		$output->writeln( "<info>Saved a snapshot of wp-content, without uploads, caches or backup archives, to $snapshot.</info>" );
 
 		$question = new ConfirmationQuestion( '<question>' . ( $this->push ? "Commit this .deployignore straight to `$this->branch`?" : "Open a pull request into `$this->branch` with this .deployignore?" ) . ' [y/N]</question> ', false );
 		if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
@@ -696,128 +704,6 @@ final class Pressable_Site_Repository_Prepare extends Command {
 			\array_pop( $kept );
 		}
 		return \array_merge( $kept, array( '', '# Written by the site at runtime; the deploy must not delete it.' ), $exclusions );
-	}
-
-	/**
-	 * Lists the site's wp-content files over SSH, uploads and caches excluded.
-	 *
-	 * @param   OutputInterface $output The output object.
-	 *
-	 * @return  string[]|null The paths relative to wp-content, or null on failure.
-	 */
-	private function read_server_files( OutputInterface $output ): ?array {
-		$ssh = \Pressable_Connection_Helper::get_ssh_connection( (string) $this->site->id );
-		if ( \is_null( $ssh ) ) {
-			return null;
-		}
-
-		try {
-			$ssh->setTimeout( 0 );
-			$listing = $ssh->exec( $this->cd_wp_content() . " && find . -mindepth 1 \\( -path ./uploads -o -path ./cache -o -path ./upgrade \\) -prune -o \\( -type f -o -type l \\) -printf '%y %P\\n'" );
-			if ( 0 !== $ssh->getExitStatus() ) {
-				$output->writeln( '<error>Failed to list wp-content on the site.</error>' );
-				return null;
-			}
-		} finally {
-			$ssh->disconnect();
-		}
-
-		$files = array();
-		foreach ( \array_filter( \explode( "\n", (string) $listing ) ) as $line ) {
-			[ $type, $path ] = \explode( ' ', $line, 2 ) + array( '', '' );
-			if ( '' === $path ) {
-				continue;
-			}
-			$files[] = $path;
-			if ( 'l' === $type ) {
-				$this->server_symlinks[ $path ] = true;
-			}
-		}
-
-		return $files;
-	}
-
-	/**
-	 * Returns the shell command that enters the site's wp-content folder.
-	 *
-	 * @return  string
-	 */
-	private function cd_wp_content(): string {
-		return 'if [ -d htdocs/wp-content ]; then cd htdocs/wp-content; elif [ -d /htdocs/wp-content ]; then cd /htdocs/wp-content; else exit 3; fi';
-	}
-
-	/**
-	 * Saves a snapshot of wp-content, uploads excluded, to the snapshot folder.
-	 *
-	 * @param   OutputInterface $output The output object.
-	 *
-	 * @return  string|null The local path, or null on failure.
-	 */
-	private function save_snapshot( OutputInterface $output ): ?string {
-		$name   = "pressable-{$this->site->id}-wp-content-" . \gmdate( 'Ymd-His' ) . '.tgz';
-		$remote = "/tmp/$name";
-		$local  = \rtrim( $this->snapshot_dir, '/' ) . "/$name";
-
-		$ssh = \Pressable_Connection_Helper::get_ssh_connection( (string) $this->site->id );
-		if ( \is_null( $ssh ) ) {
-			return null;
-		}
-		try {
-			$ssh->setTimeout( 0 );
-			$output->writeln( '<comment>Saving a snapshot of wp-content...</comment>' );
-			$ssh->exec( $this->cd_wp_content() . ' && cd .. && tar -czf ' . \escapeshellarg( $remote ) . ' --exclude=wp-content/uploads --exclude=wp-content/cache wp-content' );
-			// GNU tar exits 1 when a file changed while it was read, which a live site does constantly.
-			if ( ! \in_array( $ssh->getExitStatus(), array( 0, 1 ), true ) ) {
-				return null;
-			}
-		} finally {
-			$ssh->disconnect();
-		}
-
-		$sftp = \Pressable_Connection_Helper::get_sftp_connection( (string) $this->site->id );
-		$ok   = false;
-		if ( ! \is_null( $sftp ) ) {
-			try {
-				$sftp->setTimeout( 0 );
-				$ok = $sftp->get( $remote, $local ) && \is_file( $local ) && 0 < \filesize( $local );
-			} finally {
-				$sftp->disconnect();
-			}
-		}
-
-		$cleanup = \Pressable_Connection_Helper::get_ssh_connection( (string) $this->site->id );
-		$cleanup?->exec( 'rm -f ' . \escapeshellarg( $remote ) );
-		$cleanup?->disconnect();
-
-		return $ok ? $local : null;
-	}
-
-	/**
-	 * Shows what the first deploy with the generated file does to the site.
-	 *
-	 * @param   OutputInterface $output   The output object.
-	 * @param   string          $contents The generated file.
-	 * @param   string[]        $tracked  The tracked files.
-	 * @param   string[]        $server   The server's files.
-	 *
-	 * @return  void
-	 */
-	private function show_preview( OutputInterface $output, string $contents, array $tracked, array $server ): void {
-		$prediction = predict_pressable_deploy( $contents, $tracked, $server );
-		$rows       = array();
-		foreach ( $prediction as $kind => $paths ) {
-			$groups = array();
-			foreach ( $paths as $path ) {
-				$segments         = \explode( '/', $path );
-				$group            = \in_array( $segments[0], PRESSABLE_DEPLOYIGNORE_CONTENT_DIRS, true ) && \count( $segments ) > 2 ? "{$segments[0]}/{$segments[1]}" : $segments[0];
-				$groups[ $group ] = ( $groups[ $group ] ?? 0 ) + 1;
-			}
-			foreach ( $groups as $group => $count ) {
-				$rows[] = array( $kind, $group, $count );
-			}
-		}
-
-		output_table( $output, $rows, array( 'First deploy', 'Path', 'Files' ), 'What the first Pressable deploy does, uploads and caches aside' );
 	}
 
 	/**
