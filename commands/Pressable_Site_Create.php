@@ -64,6 +64,13 @@ final class Pressable_Site_Create extends Command {
 	 */
 	private ?\stdClass $gh_repository = null;
 
+	/**
+	 * Whether this run created the GitHub repository, so nothing deploys from it yet.
+	 *
+	 * @var bool
+	 */
+	private bool $repository_created = false;
+
 	// endregion
 
 	// region INHERITED METHODS
@@ -73,7 +80,7 @@ final class Pressable_Site_Create extends Command {
 	 */
 	protected function configure(): void {
 		$this->setDescription( 'Creates a new production site on Pressable.' )
-			->setHelp( 'Use this command to create a new production site on Pressable.' );
+			->setHelp( 'Use this command to create a new production site on Pressable. With a repository, the site deploys its `trunk` through Pressable\'s GitHub integration, and a repository this command creates gets its .deployignore prepared first. A site Pressable has not enrolled in that integration deploys through DeployHQ instead.' );
 
 		$this->addArgument( 'name', InputArgument::REQUIRED, 'The name of the site to create. Probably the same as the project name.' )
 			->addOption( 'datacenter', null, InputArgument::OPTIONAL, 'The datacenter to create the site in. Defaults to `Dallas, Texas`.' )
@@ -92,6 +99,8 @@ final class Pressable_Site_Create extends Command {
 		$this->datacenter = get_enum_input( $input, 'datacenter', array_keys( get_pressable_datacenters() ), fn() => $this->prompt_datacenter_input( $input, $output ), 'DFW' );
 		$input->setOption( 'datacenter', $this->datacenter );
 
+		$this->repository_created = false;
+
 		$repository          = maybe_get_string_input( $input, 'repository', fn() => $this->prompt_repository_input( $input, $output ) );
 		$this->gh_repository = $repository ? $this->create_or_get_repository( $input, $output, $repository ) : null;
 		$input->setOption( 'repository', $this->gh_repository->name ?? null );
@@ -102,7 +111,7 @@ final class Pressable_Site_Create extends Command {
 	 */
 	protected function interact( InputInterface $input, OutputInterface $output ): void {
 		$template_text = 'project' === $this->project_template ? 'using the `project` template' : 'using the `no-code-project` template';
-		$repo_query    = $this->gh_repository ? "and to connect it to the `{$this->gh_repository->full_name}` repository via DeployHQ {$template_text}" : 'without connecting it to a GitHub repository';
+		$repo_query    = $this->gh_repository ? "and to deploy the `{$this->gh_repository->full_name}` repository to it {$template_text}" : 'without connecting it to a GitHub repository';
 		$question      = new ConfirmationQuestion( "<question>Are you sure you want to create a new Pressable site named `$this->name` in the $this->datacenter datacenter $repo_query? [y/N]</question> ", false );
 		if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 			$output->writeln( '<comment>Command aborted by user.</comment>' );
@@ -117,7 +126,7 @@ final class Pressable_Site_Create extends Command {
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		$template_text = 'project' === $this->project_template ? 'using the `project` template' : 'using the `no-code-project` template';
-		$repo_text     = $this->gh_repository ? "and connecting it to the `{$this->gh_repository->full_name}` repository via DeployHQ {$template_text}" : 'without connecting it to a GitHub repository';
+		$repo_text     = $this->gh_repository ? "and deploying the `{$this->gh_repository->full_name}` repository to it {$template_text}" : 'without connecting it to a GitHub repository';
 		$output->writeln( "<fg=magenta;options=bold>Creating new Pressable site named `$this->name` in the $this->datacenter datacenter $repo_text.</>" );
 
 		// Create the site and wait for it to be deployed.
@@ -165,25 +174,7 @@ final class Pressable_Site_Create extends Command {
 			$atlantis_status = Command::FAILURE;
 		}
 
-		// Create a DeployHQ project and server for the site.
-		if ( ! \is_null( $this->gh_repository ) ) {
-			$deployhq_project = create_deployhq_project_for_pressable_site( $site, $this->gh_repository, $this->name );
-			if ( ! \is_null( $deployhq_project ) ) {
-				$deployhq_server = create_deployhq_project_server_for_pressable_site( $site, $deployhq_project, 'Production', 'trunk' );
-
-				// Trigger initial deployment
-				if ( ! \is_null( $deployhq_server ) ) {
-					$output->writeln( '<fg=magenta;options=bold>Triggering initial deployment...</>' );
-
-					$deployment_success = trigger_deployhq_deployment( $deployhq_project, $this->gh_repository, 'trunk' );
-					if ( $deployment_success ) {
-						$output->writeln( '<fg=green;options=bold>Initial deployment triggered successfully.</>' );
-					} else {
-						$output->writeln( '<error>Failed to trigger initial deployment. You may need to manually deploy from the DeployHQ dashboard.</error>' );
-					}
-				}
-			}
-		}
+		$deploy_problem = \is_null( $this->gh_repository ) ? null : $this->deploy_repository( $site, $output );
 
 		// Printed before the reachability verdict: an unreachable site is exactly when the rotation is most
 		// likely to have failed, and its pointer to a possibly-unrecorded password must not be skipped.
@@ -191,6 +182,13 @@ final class Pressable_Site_Create extends Command {
 			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 			$output->writeln( '<error>⚠  The WP user password rotation did not complete cleanly.</error>' );
 			$output->writeln( '<error>    See the warning above for the password to record or the rotation to retry.</error>' );
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+		}
+
+		if ( ! \is_null( $deploy_problem ) ) {
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			$output->writeln( "<error>⚠  Site $this->name (ID $site->id) was created, but {$this->gh_repository->full_name} has not deployed to it.</error>" );
+			$output->writeln( "<error>    $deploy_problem</error>" );
 			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 		}
 
@@ -217,7 +215,7 @@ final class Pressable_Site_Create extends Command {
 			return Command::FAILURE;
 		}
 
-		if ( 'failed' === $atlantis_managed['status'] ) {
+		if ( 'failed' === $atlantis_managed['status'] || ! \is_null( $deploy_problem ) ) {
 			return Command::FAILURE;
 		}
 
@@ -229,6 +227,100 @@ final class Pressable_Site_Create extends Command {
 	// endregion
 
 	// region HELPERS
+
+	/**
+	 * Deploys the repository's `trunk` to the site through Pressable's GitHub integration, or through DeployHQ
+	 * while Pressable has not enrolled the site in it.
+	 *
+	 * @param   \stdClass       $site   The site.
+	 * @param   OutputInterface $output The output object.
+	 *
+	 * @return  string|null Why nothing deploys to the site, or null when something does.
+	 */
+	private function deploy_repository( \stdClass $site, OutputInterface $output ): ?string {
+		$repository = $this->gh_repository->name;
+		$prepare    = "team51 pressable:prepare-site-repository $site->id --repository=$repository --branch=trunk --push";
+		$connect    = "team51 pressable:connect-site-repository $site->id $repository --branch=trunk";
+
+		$enrolled = is_pressable_site_git_enrolled( (string) $site->id );
+		if ( \is_null( $enrolled ) ) {
+			return "Could not read the site's GitHub integration settings, so it was not connected. Run " . ( $this->repository_created ? "`$prepare`, then " : '' ) . "`$connect`.";
+		}
+		if ( ! $enrolled ) {
+			$output->writeln( '<comment>Pressable has not enrolled the site in its GitHub integration, so it deploys through DeployHQ.</comment>' );
+			return $this->deploy_with_deployhq( $site, $output );
+		}
+
+		// A repository made from a template has no allowlist block yet, so connecting would refuse it.
+		if ( $this->repository_created ) {
+			$status = run_app_command_safely(
+				Pressable_Site_Repository_Prepare::getDefaultName(),
+				array(
+					'site'           => (string) $site->id,
+					'--repository'   => $repository,
+					'--branch'       => 'trunk',
+					'--push'         => true,
+					'--yes'          => true,
+					'--snapshot-dir' => \sys_get_temp_dir(),
+				)
+			);
+			if ( Command::SUCCESS !== $status ) {
+				return "Preparing the repository's .deployignore failed, as reported above, so the site was not connected. Run `$prepare`, then `$connect`.";
+			}
+		}
+
+		// Connecting exits the whole run, before the banners below, on a branch GitHub does not list.
+		$branches = get_github_repository_branches( $repository );
+		if ( \is_array( $branches ) && ! \in_array( 'trunk', \array_column( $branches, 'name' ), true ) ) {
+			return "GitHub lists no `trunk` branch for {$this->gh_repository->full_name}, so the site was not connected. Create it, then run `$connect`.";
+		}
+
+		$status = run_app_command_safely(
+			Pressable_Site_Repository_Connect::getDefaultName(),
+			array(
+				'site'           => (string) $site->id,
+				'repository'     => $repository,
+				'--branch'       => 'trunk',
+				'--snapshot-dir' => \sys_get_temp_dir(),
+			)
+		);
+		if ( Command::SUCCESS === $status ) {
+			return null;
+		}
+
+		return empty( get_pressable_site_git_config( (string) $site->id )?->connected )
+			? "Nothing was connected, as reported above. Fix that and run `$connect`, which also shows what the first deploy deletes."
+			: "The site is connected, so pushes to `trunk` deploy to it, but its first deploy did not finish cleanly, as reported above. Check it with `team51 pressable:list-site-git-deploys $site->id`.";
+	}
+
+	/**
+	 * Creates a DeployHQ project and server for the site and triggers their first deployment.
+	 *
+	 * @param   \stdClass       $site   The site.
+	 * @param   OutputInterface $output The output object.
+	 *
+	 * @return  string|null Why nothing deploys to the site, or null when something does.
+	 */
+	private function deploy_with_deployhq( \stdClass $site, OutputInterface $output ): ?string {
+		$deployhq_project = create_deployhq_project_for_pressable_site( $site, $this->gh_repository, $this->name );
+		if ( \is_null( $deployhq_project ) ) {
+			return 'Creating the DeployHQ project failed, as reported above.';
+		}
+
+		$deployhq_server = create_deployhq_project_server_for_pressable_site( $site, $deployhq_project, 'Production', 'trunk' );
+		if ( \is_null( $deployhq_server ) ) {
+			return "Creating the DeployHQ server on the project $deployhq_project->permalink failed, as reported above.";
+		}
+
+		$output->writeln( '<fg=magenta;options=bold>Triggering initial deployment...</>' );
+		if ( trigger_deployhq_deployment( $deployhq_project, $this->gh_repository, 'trunk' ) ) {
+			$output->writeln( '<fg=green;options=bold>Initial deployment triggered successfully.</>' );
+		} else {
+			$output->writeln( '<error>Failed to trigger initial deployment. You may need to manually deploy from the DeployHQ dashboard.</error>' );
+		}
+
+		return null;
+	}
 
 	/**
 	 * Prompts the user for a site name.
@@ -352,7 +444,8 @@ final class Pressable_Site_Create extends Command {
 					exit( 1 );
 				}
 
-				$repository = get_github_repository( $name );
+				$repository               = get_github_repository( $name );
+				$this->repository_created = ! \is_null( $repository );
 			}
 		}
 

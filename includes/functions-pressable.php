@@ -226,6 +226,21 @@ function get_pressable_site_git_config( string $site_id_or_url ): ?stdClass {
 }
 
 /**
+ * Returns whether the specified Pressable site can deploy through Pressable's GitHub integration.
+ *
+ * @param   string $site_id_or_url The ID or URL of the Pressable site.
+ *
+ * @return  bool|null False when Pressable has not enrolled the site, which it answers with a 422, or null when that could not be read.
+ */
+function is_pressable_site_git_enrolled( string $site_id_or_url ): ?bool {
+	if ( ! is_null( get_pressable_site_git_config( $site_id_or_url ) ) ) {
+		return true;
+	}
+
+	return 422 === API_Helper::$last_http_code ? false : null;
+}
+
+/**
  * Connects the specified Pressable site to a GitHub repository. Pressable ignores an empty
  * `repository_subdirectory` here and keeps the one the site had before.
  *

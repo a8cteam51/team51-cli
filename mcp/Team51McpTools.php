@@ -24,7 +24,8 @@ final class Team51McpTools {
 
 	/**
 	 * Seconds a clone tool waits for its clone command: creating the copy, waiting for SSH, installing Safety Net
-	 * and confirming it usually takes 10-25 minutes.
+	 * and confirming it usually takes 10-25 minutes, and connecting a Pressable clone to its branch waits up to
+	 * 11 more for the first deploy.
 	 *
 	 * @var float
 	 */
@@ -2306,7 +2307,7 @@ final class Team51McpTools {
 	}
 
 	/**
-	 * Creates a development clone of a Pressable site and secures it with Safety Net, which deletes its users, orders and subscriptions unless keep_data is set. Takes 10-25 minutes; the result says whether Safety Net confirmed the clone. Leave keep_data off unless the user explicitly asked to keep the real customer data on the clone, and confirm that with them first.
+	 * Creates a development clone of a Pressable site and secures it with Safety Net, which deletes its users, orders and subscriptions unless keep_data is set. Takes 10-25 minutes, plus the first deploy when the clone is connected to a branch; the result says whether Safety Net confirmed the clone. Leave keep_data off unless the user explicitly asked to keep the real customer data on the clone, and confirm that with them first.
 	 *
 	 * @param string      $site_id_or_url The site to clone.
 	 * @param string      $label          The suffix of the clone's name, e.g. development.

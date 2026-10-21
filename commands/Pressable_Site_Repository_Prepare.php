@@ -66,6 +66,13 @@ final class Pressable_Site_Repository_Prepare extends Command {
 	private ?bool $push = null;
 
 	/**
+	 * Whether to write without the opening and final confirmations.
+	 *
+	 * @var bool|null
+	 */
+	private ?bool $yes = null;
+
+	/**
 	 * The local folder the wp-content snapshot is saved in.
 	 *
 	 * @var string|null
@@ -137,13 +144,14 @@ final class Pressable_Site_Repository_Prepare extends Command {
 			->addOption( 'check', null, InputOption::VALUE_NONE, 'Only report whether the branch\'s .deployignore is current and passes the checks. Uses git alone.' )
 			->addOption( 'prune', null, InputOption::VALUE_NONE, 'Drop tombstones whose server copies are gone.' )
 			->addOption( 'push', null, InputOption::VALUE_NONE, 'Commit straight to the branch instead of opening a pull request.' )
+			->addOption( 'yes', null, InputOption::VALUE_NONE, 'Write without the opening and final confirmations. Without a terminal, every other question takes its default. Meant for a repository nothing deploys yet.' )
 			->addOption( 'snapshot-dir', null, InputOption::VALUE_REQUIRED, 'The local folder to save the wp-content snapshot in.', \getcwd() ?: '.' );
 	}
 
 	/**
 	 * {@inheritDoc}
 	 *
-	 * @throws  \InvalidArgumentException If --check is combined with an option that writes.
+	 * @throws  \InvalidArgumentException If --check is combined with an option that writes, or the repository cannot be found.
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
 		$this->undecided          = array();
@@ -157,9 +165,10 @@ final class Pressable_Site_Repository_Prepare extends Command {
 		$this->check        = get_bool_input( $input, 'check' );
 		$this->prune        = get_bool_input( $input, 'prune' );
 		$this->push         = get_bool_input( $input, 'push' );
+		$this->yes          = get_bool_input( $input, 'yes' );
 		$this->snapshot_dir = (string) $input->getOption( 'snapshot-dir' );
-		if ( $this->check && ( $this->prune || $this->push ) ) {
-			throw new \InvalidArgumentException( '--check writes nothing, so it cannot be combined with --prune or --push.' );
+		if ( $this->check && ( $this->prune || $this->push || $this->yes ) ) {
+			throw new \InvalidArgumentException( '--check writes nothing, so it cannot be combined with --prune, --push or --yes.' );
 		}
 
 		$repository = maybe_get_string_input( $input, 'repository' );
@@ -176,8 +185,7 @@ final class Pressable_Site_Repository_Prepare extends Command {
 
 		$this->gh_repository = get_github_repository( $repository );
 		if ( \is_null( $this->gh_repository ) ) {
-			$output->writeln( "<error>Could not find the GitHub repository `$repository`. Aborting!</error>" );
-			exit( 1 );
+			throw new \InvalidArgumentException( \sprintf( 'Could not find the GitHub repository `%s`.', $repository ) );
 		}
 		$this->branch = $branch;
 	}
@@ -186,7 +194,7 @@ final class Pressable_Site_Repository_Prepare extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function interact( InputInterface $input, OutputInterface $output ): void {
-		if ( $this->check ) {
+		if ( $this->check || $this->yes ) {
 			return;
 		}
 
@@ -333,7 +341,7 @@ final class Pressable_Site_Repository_Prepare extends Command {
 
 		$what     = $this->removed_submodules ? 'this .deployignore and the removal of ' . \implode( ', ', $this->removed_submodules ) : 'this .deployignore';
 		$question = new ConfirmationQuestion( '<question>' . ( $this->push ? "Commit $what straight to `$this->branch`?" : "Open a pull request into `$this->branch` with $what?" ) . ' [y/N]</question> ', false );
-		if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
+		if ( ! $this->yes && true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 			$output->writeln( '<comment>Nothing was written.</comment>' );
 			return Command::SUCCESS;
 		}
