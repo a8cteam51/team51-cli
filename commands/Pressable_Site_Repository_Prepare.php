@@ -516,22 +516,21 @@ final class Pressable_Site_Repository_Prepare extends Command {
 	 * @return  void
 	 */
 	private function decide_submodules( InputInterface $input, OutputInterface $output, array $gitlinks ): void {
-		$urls = array();
+		$entries = array();
 		foreach ( \explode( "\n", (string) $this->git( array( 'config', '--file', '.gitmodules', '--get-regexp', '^submodule\\..*\\.(path|url)$' ), false ) ) as $line ) {
 			if ( \preg_match( '/^submodule\.(.+)\.(path|url) (.+)$/', \trim( $line ), $matches ) ) {
-				$urls[ $matches[1] ][ $matches[2] ] = $matches[3];
+				$entries[ $matches[1] ][ $matches[2] ] = $matches[3];
 			}
+		}
+		$urls = array();
+		foreach ( $entries as $entry ) {
+			$urls[ \trim( (string) ( $entry['path'] ?? '' ), '/' ) ] = (string) ( $entry['url'] ?? '' );
 		}
 
 		$status = null;
-		foreach ( $urls as $submodule ) {
-			$path = \trim( (string) ( $submodule['path'] ?? '' ), '/' );
-			if ( '' === $path || ! \in_array( $path, $gitlinks, true ) ) {
-				continue;
-			}
-
-			$name   = \preg_match( '#github\.com[:/]a8cteam51/([^/]+?)(?:\.git)?/?$#i', (string) ( $submodule['url'] ?? '' ), $matches ) ? \strtolower( $matches[1] ) : null;
-			$module = self::ATLANTIS_REPLACES[ $name ] ?? null;
+		foreach ( $gitlinks as $path ) {
+			$name   = \preg_match( '#github\.com[:/]a8cteam51/([^/]+?)(?:\.git)?/?$#i', $urls[ $path ] ?? '', $matches ) ? \strtolower( $matches[1] ) : null;
+			$module = \is_null( $name ) ? null : ( self::ATLANTIS_REPLACES[ $name ] ?? null );
 			if ( \is_null( $module ) ) {
 				$output->writeln( "<comment>`$path` is a submodule. Pressable does not check out submodules, so it stays protected and its server copy never updates.</comment>" );
 				continue;
