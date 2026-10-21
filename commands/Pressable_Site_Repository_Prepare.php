@@ -874,7 +874,7 @@ final class Pressable_Site_Repository_Prepare extends Command {
 				$this->git( array( 'rm', '--quiet', $path ) );
 			}
 			if ( $this->removed_submodules && \is_file( "$this->work_dir/.gitmodules" ) && '' === \trim( (string) \file_get_contents( "$this->work_dir/.gitmodules" ) ) ) {
-				$this->git( array( 'rm', '--quiet', '.gitmodules' ) );
+				$this->git( array( 'rm', '--quiet', '--force', '.gitmodules' ) );
 			}
 			$this->git( array( 'add', '.deployignore' ) );
 			$this->git( array( 'commit', '--quiet', '-m', 'Protect the server\'s own files from Pressable deploys', '-m', 'Pressable deletes every file on the site that the repository lacks unless .deployignore protects it. The allowlist block deploys the components this repository owns and keeps everything else on the server.' . $this->describe_removed_submodules() ) );
@@ -915,7 +915,8 @@ final class Pressable_Site_Repository_Prepare extends Command {
 			return '';
 		}
 
-		return "\n\nRemoves the submodules " . \implode( ', ', $this->removed_submodules ) . ', whose work Atlantis now does on the site. Pressable never checks submodules out, and the first deploy deletes their server copies.';
+		$one = 1 === \count( $this->removed_submodules );
+		return "\n\nRemoves the submodule" . ( $one ? ' ' : 's ' ) . \implode( ', ', $this->removed_submodules ) . ', whose work Atlantis now does on the site. Pressable never checks submodules out, and the first deploy deletes ' . ( $one ? 'its server copy.' : 'their server copies.' );
 	}
 
 	/**
