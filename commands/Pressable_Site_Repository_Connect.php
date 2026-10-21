@@ -64,6 +64,20 @@ final class Pressable_Site_Repository_Connect extends Command {
 	private ?bool $no_wait = null;
 
 	/**
+	 * Whether to connect although the branch's .deployignore did not pass its check.
+	 *
+	 * @var bool|null
+	 */
+	private ?bool $force = null;
+
+	/**
+	 * The local folder the wp-content snapshot is saved in.
+	 *
+	 * @var string|null
+	 */
+	private ?string $snapshot_dir = null;
+
+	/**
 	 * How long to look for a deploy Pressable did not confirm before concluding it queued none, in seconds.
 	 *
 	 * @var int
@@ -79,7 +93,7 @@ final class Pressable_Site_Repository_Connect extends Command {
 	 */
 	protected function configure(): void {
 		$this->setDescription( 'Connects a Pressable site to a GitHub repository through Pressable\'s GitHub integration.' )
-			->setHelp( 'Use this command to connect a Pressable site to a GitHub repository. OpsOasis stores the GitHub deploy token on the Pressable account. The command resets any path Pressable kept from before, queues a deploy when the connection did not, and waits for the deploy to finish unless --no-wait is given.' );
+			->setHelp( 'Use this command to connect a Pressable site to a GitHub repository. OpsOasis stores the GitHub deploy token on the Pressable account. Before connecting, the command refuses a site that is already connected, has other paths stored, or still has an enabled DeployHQ server deploying as its SFTP owner on any project for the repository, and a branch whose .deployignore does not pass `pressable:prepare-site-repository --check`. It then shows what the first deploy deletes and saves a snapshot of wp-content. After connecting, it resets any path Pressable kept from before, queues a deploy when the connection did not, and waits for the deploy to finish unless --no-wait is given.' );
 
 		$this->addArgument( 'site', InputArgument::REQUIRED, 'The domain or numeric Pressable ID of the site to connect.' )
 			->addArgument( 'repository', InputArgument::REQUIRED, 'The slug of the GitHub repository to connect.' );
@@ -87,7 +101,9 @@ final class Pressable_Site_Repository_Connect extends Command {
 		$this->addOption( 'branch', null, InputOption::VALUE_REQUIRED, 'The branch to deploy.' )
 			->addOption( 'destination-path', null, InputOption::VALUE_REQUIRED, 'The path under the site\'s document root to deploy into. Pass an empty value for the document root itself.', 'wp-content' )
 			->addOption( 'repository-subdirectory', null, InputOption::VALUE_REQUIRED, 'The directory within the repository to deploy from. Defaults to the repository root, whatever the site had before.' )
-			->addOption( 'no-wait', null, InputOption::VALUE_NONE, 'Return once the first deploy has started instead of waiting for it to finish.' );
+			->addOption( 'no-wait', null, InputOption::VALUE_NONE, 'Return once the first deploy has started instead of waiting for it to finish.' )
+			->addOption( 'force', null, InputOption::VALUE_NONE, 'Connect although the branch\'s .deployignore did not pass its check, or the layout cannot be checked. The other checks still apply.' )
+			->addOption( 'snapshot-dir', null, InputOption::VALUE_REQUIRED, 'The local folder to save the wp-content snapshot in.', \getcwd() ?: '.' );
 	}
 
 	/**
@@ -112,8 +128,8 @@ final class Pressable_Site_Repository_Connect extends Command {
 		$this->destination_path        = (string) $input->getOption( 'destination-path' );
 		$this->repository_subdirectory = (string) $input->getOption( 'repository-subdirectory' );
 		$this->no_wait                 = get_bool_input( $input, 'no-wait' );
-
-		$output->writeln( "<comment>Pressable deletes files on the site that are not in the repository, except what the repository's .deployignore protects. Make sure the branch has one, and that no DeployHQ server still deploys to this site, before connecting.</comment>" );
+		$this->force                   = get_bool_input( $input, 'force' );
+		$this->snapshot_dir            = (string) $input->getOption( 'snapshot-dir' );
 	}
 
 	/**
@@ -132,6 +148,10 @@ final class Pressable_Site_Repository_Connect extends Command {
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
 		$output->writeln( "<fg=magenta;options=bold>Connecting {$this->site->displayName} (ID {$this->site->id}) to the branch `$this->gh_repo_branch` of {$this->gh_repository->full_name}.</>" );
+
+		if ( Command::SUCCESS !== $this->check_before_connecting( $input, $output ) ) {
+			return Command::FAILURE;
+		}
 
 		$previous_id = $this->get_newest_deploy_id();
 		if ( \is_null( $previous_id ) ) {
@@ -210,6 +230,84 @@ final class Pressable_Site_Repository_Connect extends Command {
 	// endregion
 
 	// region HELPERS
+
+	/**
+	 * Refuses to connect while the first deploy could delete what the site must keep, then saves a snapshot.
+	 *
+	 * @param   InputInterface  $input  The input object.
+	 * @param   OutputInterface $output The output object.
+	 *
+	 * @return  int Command::SUCCESS when connecting may go ahead.
+	 */
+	private function check_before_connecting( InputInterface $input, OutputInterface $output ): int {
+		$requested = $this->get_requested_paths();
+		$problems  = check_pressable_site_before_connect( $this->site, $this->gh_repository, $this->gh_repo_branch, $requested );
+		foreach ( $problems['blocking'] as $problem ) {
+			$output->writeln( "<error>$problem</error>" );
+		}
+		foreach ( $problems['overridable'] as $problem ) {
+			$output->writeln( $this->force ? "<comment>Connecting anyway, as --force asks: $problem</comment>" : "<error>$problem</error>" );
+		}
+		if ( $problems['blocking'] ) {
+			$output->writeln( '<error>Nothing was connected.</error>' );
+			return Command::FAILURE;
+		}
+		if ( $problems['overridable'] && ! $this->force ) {
+			$output->writeln( '<error>Nothing was connected. Resolve the problems above, or pass --force to connect anyway.</error>' );
+			return Command::FAILURE;
+		}
+
+		if ( array( 'wp-content', '' ) === array( $requested['destination_path'], $requested['repository_subdirectory'] ) ) {
+			$clone_url = $this->gh_repository->clone_url ?? "https://github.com/{$this->gh_repository->full_name}.git";
+			$branch    = read_github_branch_for_pressable( $this->gh_repository->ssh_url ?? $clone_url, $this->gh_repo_branch );
+			$listing   = list_pressable_site_wp_content( (string) $this->site->id );
+			if ( \is_null( $branch ) || \is_null( $listing ) ) {
+				$output->writeln( '<error>Could not read ' . ( \is_null( $branch ) ? 'the branch' : 'the site\'s files over SSH' ) . ', so the first deploy cannot be previewed. Nothing was connected.</error>' );
+				return Command::FAILURE;
+			}
+
+			$prediction = predict_pressable_deploy( $branch['deployignore'], $branch['files'], $listing['files'] );
+			output_pressable_deploy_preview( $output, $prediction );
+
+			$rules = parse_pressable_deployignore( $branch['deployignore'] );
+			foreach ( PRESSABLE_LISTING_SKIPPED as $dir ) {
+				if ( ! is_path_deployed_by_pressable( "$dir/zz-server-only", $rules ) ) {
+					continue;
+				}
+				if ( 'uploads' === $dir ) {
+					$output->writeln( '<error>The branch\'s .deployignore lets the first deploy delete wp-content/uploads, which the snapshot does not cover. Nothing was connected.</error>' );
+					return Command::FAILURE;
+				}
+				$prediction['deleted'][] = "$dir/ (everything in it)";
+			}
+
+			if ( $prediction['deleted'] ) {
+				$output->writeln( '<comment>The first deploy deletes these files from the server:</comment>' );
+				foreach ( \array_slice( $prediction['deleted'], 0, 20 ) as $path ) {
+					$output->writeln( "  $path" );
+				}
+				if ( \count( $prediction['deleted'] ) > 20 ) {
+					$output->writeln( '  ... and ' . ( \count( $prediction['deleted'] ) - 20 ) . ' more' );
+				}
+				$question = new ConfirmationQuestion( '<question>Connect, and let the first deploy delete these ' . \count( $prediction['deleted'] ) . ' files? [y/N]</question> ', false );
+				if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
+					$output->writeln( '<comment>Nothing was connected.</comment>' );
+					return Command::FAILURE;
+				}
+			}
+		} else {
+			$output->writeln( '<comment>This layout cannot be previewed, so check what the first deploy changes yourself.</comment>' );
+		}
+
+		$snapshot = save_pressable_site_wp_content_snapshot( (string) $this->site->id, $this->snapshot_dir, $output );
+		if ( \is_null( $snapshot ) ) {
+			$output->writeln( '<error>Failed to save a snapshot of wp-content. Nothing was connected.</error>' );
+			return Command::FAILURE;
+		}
+		$output->writeln( "<info>Saved a snapshot of wp-content, without uploads, caches or backup archives, to $snapshot.</info>" );
+
+		return Command::SUCCESS;
+	}
 
 	/**
 	 * Queues a deploy of the connected branch.

@@ -4,6 +4,17 @@
  * Handles making and parsing the API calls to the central REST API server.
  */
 final class API_Helper {
+	// region FIELDS
+
+	/**
+	 * The HTTP status of the last request, so a caller can tell a 404 from other failures behind a null.
+	 *
+	 * @var int|null
+	 */
+	public static ?int $last_http_code = null;
+
+	// endregion
+
 	// region METHODS
 
 	/**
@@ -136,6 +147,7 @@ final class API_Helper {
 			$body
 		);
 
+		self::$last_http_code = (int) $result['headers']['http_code'];
 		if ( ! str_starts_with( (string) $result['headers']['http_code'], '2' ) ) {
 			console_writeln( "❌ API error ({$result['headers']['http_code']} $endpoint): " . $result['body'] );
 
