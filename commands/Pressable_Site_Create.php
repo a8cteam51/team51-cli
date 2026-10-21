@@ -288,9 +288,7 @@ final class Pressable_Site_Create extends Command {
 			return null;
 		}
 
-		return empty( get_pressable_site_git_config( (string) $site->id )?->connected )
-			? "Nothing was connected, as reported above. Fix that and run `$connect`, which also shows what the first deploy deletes."
-			: "The site is connected, so pushes to `trunk` deploy to it, but its first deploy did not finish cleanly, as reported above. Check it with `team51 pressable:list-site-git-deploys $site->id`.";
+		return explain_pressable_site_git_connect_failure( (string) $site->id, $this->gh_repository, 'trunk', $connect );
 	}
 
 	/**

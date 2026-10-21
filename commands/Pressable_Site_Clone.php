@@ -332,13 +332,16 @@ final class Pressable_Site_Clone extends Command {
 
 		$connect_problem = null;
 		if ( ! \is_null( $this->deployhq_project ) ) {
-			create_deployhq_project_server_for_pressable_site(
+			$server = create_deployhq_project_server_for_pressable_site(
 				$site_clone,
 				$this->deployhq_project,
 				'Development' . ( 'development' !== $this->label ? "-$this->label" : '' ),
 				$this->gh_repo_branch,
 				$this->site_deployhq_project_server->branch,
 			);
+			if ( \is_null( $server ) ) {
+				$connect_problem = "Creating the DeployHQ server on the project {$this->deployhq_project->permalink} failed, as reported above.";
+			}
 		} elseif ( ! \is_null( $this->source_git_branch ) ) {
 			$connect_problem = $this->connect_clone( $site_clone, $output );
 		}
@@ -558,9 +561,7 @@ final class Pressable_Site_Clone extends Command {
 			return null;
 		}
 
-		return empty( get_pressable_site_git_config( (string) $site_clone->id )?->connected )
-			? "Nothing was connected, as reported above. Fix that and run `$connect`, which also shows what the first deploy deletes."
-			: "The clone is connected, so pushes to `$this->gh_repo_branch` deploy to it, but its first deploy did not finish cleanly, as reported above. Check it with `team51 pressable:list-site-git-deploys $site_clone->id`.";
+		return explain_pressable_site_git_connect_failure( (string) $site_clone->id, $this->gh_repository, $this->gh_repo_branch, $connect );
 	}
 
 	/**

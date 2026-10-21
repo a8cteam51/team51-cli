@@ -241,6 +241,32 @@ function is_pressable_site_git_enrolled( string $site_id_or_url ): ?bool {
 }
 
 /**
+ * Explains, from the site's git configuration as it now stands, why connecting it to a branch did not complete.
+ *
+ * @param   string   $site_id    The Pressable site ID.
+ * @param   stdClass $repository The GitHub repository the site was being connected to.
+ * @param   string   $branch     The branch the site was being connected to.
+ * @param   string   $connect    The command that connects it.
+ *
+ * @return  string
+ */
+function explain_pressable_site_git_connect_failure( string $site_id, stdClass $repository, string $branch, string $connect ): string {
+	$git = get_pressable_site_git_config( $site_id );
+	if ( empty( $git->connected ) ) {
+		return "Nothing was connected, as reported above. Fix that and run `$connect`, which also shows what the first deploy deletes.";
+	}
+
+	$parsed    = parse_github_remote_repository_url( (string) ( $git->repository ?? '' ) );
+	$connected = is_null( $parsed ) ? (string) ( $git->repository ?? '?' ) : "$parsed->user/$parsed->repo";
+	$deployed  = (string) ( $git->branch ?? '?' );
+	if ( 0 !== strcasecmp( $connected, (string) $repository->full_name ) || $deployed !== $branch ) {
+		return "The site was already connected to `$deployed` of $connected, so pushes to that branch deploy to it, not `$branch` of $repository->full_name. If that is wrong, disconnect it in MyPressable, then run `$connect`.";
+	}
+
+	return "The site is connected, so pushes to `$branch` deploy to it, but its first deploy did not finish cleanly, as reported above. Check it with `team51 pressable:list-site-git-deploys $site_id`.";
+}
+
+/**
  * Connects the specified Pressable site to a GitHub repository. Pressable ignores an empty
  * `repository_subdirectory` here and keeps the one the site had before.
  *
