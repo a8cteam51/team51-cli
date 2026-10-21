@@ -864,7 +864,8 @@ function check_pressable_site_before_connect( stdClass $site, stdClass $reposito
 			'repository_subdirectory' => $git->repositorySubdirectory ?? null, // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 		);
 		foreach ( $stored as $key => $value ) {
-			if ( ! is_null( $value ) && trim( (string) $value, '/' ) !== $paths[ $key ] ) {
+			// A site that is not connected reports both paths empty, and Pressable takes the non-empty ones a connect sends.
+			if ( '' !== trim( (string) $value, '/' ) && trim( (string) $value, '/' ) !== $paths[ $key ] ) {
 				$problems['blocking'][] = 'Pressable has `' . $value . "` stored as the site's $key, and the deploy that connecting starts would use it before it can be corrected. Correct it in MyPressable first.";
 			}
 		}
