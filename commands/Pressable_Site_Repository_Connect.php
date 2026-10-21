@@ -246,7 +246,7 @@ final class Pressable_Site_Repository_Connect extends Command {
 			$output->writeln( "<error>$problem</error>" );
 		}
 		foreach ( $problems['overridable'] as $problem ) {
-			$output->writeln( $this->force ? "<comment>Connecting anyway, as --force asks: $problem</comment>" : "<error>$problem</error>" );
+			$output->writeln( $this->force && ! $problems['blocking'] ? "<comment>Connecting anyway, as --force asks: $problem</comment>" : "<error>$problem</error>" );
 		}
 		if ( $problems['blocking'] ) {
 			$output->writeln( '<error>Nothing was connected.</error>' );
@@ -269,7 +269,8 @@ final class Pressable_Site_Repository_Connect extends Command {
 			$prediction = predict_pressable_deploy( $branch['deployignore'], $branch['files'], $listing['files'] );
 			output_pressable_deploy_preview( $output, $prediction );
 
-			$rules = parse_pressable_deployignore( $branch['deployignore'] );
+			$rules        = parse_pressable_deployignore( $branch['deployignore'] );
+			$deleted_dirs = array();
 			foreach ( PRESSABLE_LISTING_SKIPPED as $dir ) {
 				if ( ! is_path_deployed_by_pressable( "$dir/zz-server-only", $rules ) ) {
 					continue;
@@ -278,18 +279,21 @@ final class Pressable_Site_Repository_Connect extends Command {
 					$output->writeln( '<error>The branch\'s .deployignore lets the first deploy delete wp-content/uploads, which the snapshot does not cover. Nothing was connected.</error>' );
 					return Command::FAILURE;
 				}
-				$prediction['deleted'][] = "$dir/ (everything in it)";
+				$deleted_dirs[] = "$dir/";
 			}
 
-			if ( $prediction['deleted'] ) {
-				$output->writeln( '<comment>The first deploy deletes these files from the server:</comment>' );
+			if ( $prediction['deleted'] || $deleted_dirs ) {
+				$output->writeln( '<comment>The first deploy deletes these from the server:</comment>' );
+				foreach ( $deleted_dirs as $dir ) {
+					$output->writeln( "  $dir (the whole folder)" );
+				}
 				foreach ( \array_slice( $prediction['deleted'], 0, 20 ) as $path ) {
 					$output->writeln( "  $path" );
 				}
 				if ( \count( $prediction['deleted'] ) > 20 ) {
 					$output->writeln( '  ... and ' . ( \count( $prediction['deleted'] ) - 20 ) . ' more' );
 				}
-				$question = new ConfirmationQuestion( '<question>Connect, and let the first deploy delete these ' . \count( $prediction['deleted'] ) . ' files? [y/N]</question> ', false );
+				$question = new ConfirmationQuestion( '<question>Connect, and let the first deploy delete these ' . \count( $prediction['deleted'] ) . ' files' . ( $deleted_dirs ? ' and ' . \count( $deleted_dirs ) . ' whole folders' : '' ) . '? [y/N]</question> ', false );
 				if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 					$output->writeln( '<comment>Nothing was connected.</comment>' );
 					return Command::FAILURE;
