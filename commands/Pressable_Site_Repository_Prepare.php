@@ -103,6 +103,23 @@ final class Pressable_Site_Repository_Prepare extends Command {
 	 */
 	private const STOCK_COMPONENTS = array( 'plugins/hello.php', 'plugins/akismet', 'plugins/jetpack', 'plugins/a8csp-atlantis' );
 
+	/**
+	 * The submodules an Atlantis module replaces, by repository name, with the module that must be on first.
+	 */
+	private const ATLANTIS_REPLACES = array(
+		'colophon'                      => 'colophon',
+		'team51-tracking'               => 'tracking',
+		'wc-usage-tracking-auto-opt-in' => 'tracking',
+		'plugin-autoupdate-filter'      => 'autoupdates',
+	);
+
+	/**
+	 * The submodules to remove from the repository, because Atlantis now does their work on the site.
+	 *
+	 * @var string[]
+	 */
+	private array $removed_submodules = array();
+
 	// endregion
 
 	// region INHERITED METHODS
@@ -129,9 +146,10 @@ final class Pressable_Site_Repository_Prepare extends Command {
 	 * @throws  \InvalidArgumentException If --check is combined with an option that writes.
 	 */
 	protected function initialize( InputInterface $input, OutputInterface $output ): void {
-		$this->undecided       = array();
-		$this->server_symlinks = array();
-		$this->work_dir        = null;
+		$this->undecided          = array();
+		$this->server_symlinks    = array();
+		$this->removed_submodules = array();
+		$this->work_dir           = null;
 
 		$this->site = get_pressable_site_input( $input, fn() => $this->prompt_site_input( $input, $output ) );
 		$input->setArgument( 'site', $this->site );
@@ -249,16 +267,19 @@ final class Pressable_Site_Repository_Prepare extends Command {
 			return Command::FAILURE;
 		}
 
+		$this->decide_submodules( $input, $output, $tree['gitlinks'] );
+		$tree['gitlinks'] = \array_values( \array_diff( $tree['gitlinks'], $this->removed_submodules ) );
+
 		[ $root_entries, $declined ] = $this->decide_root_entries( $input, $output, $tree, $kept_rules, $previous );
 		[ $children, $protected ]    = $this->decide_children( $input, $output, $tree, $kept_rules, $previous );
 		$protected                   = \array_merge( $protected, $declined );
-		$tombstones                  = $this->decide_tombstones( $input, $output, $tree, $server, $previous );
+		$tombstones                  = \array_values( \array_unique( \array_merge( $this->decide_tombstones( $input, $output, $tree, $server, $previous ), \array_map( static fn( string $path ): string => "$path/", $this->removed_submodules ) ) ) );
 
 		$block    = build_pressable_deployignore_block( $root_entries, $children, $protected, $tombstones );
 		$contents = assemble_pressable_deployignore( $kept, $block );
 
 		if ( ! \is_null( $server ) ) {
-			$kept     = $this->decide_runtime_exclusions( $input, $output, $contents, $tree['files'], $server, $kept );
+			$kept     = $this->decide_runtime_exclusions( $input, $output, $contents, $tree['files'], $server, $kept, $tombstones );
 			$contents = assemble_pressable_deployignore( $kept, $block );
 		}
 
@@ -298,7 +319,7 @@ final class Pressable_Site_Repository_Prepare extends Command {
 		output_pressable_deploy_preview( $output, predict_pressable_deploy( $contents, $tree['files'], $server ) );
 		$this->show_diff( $output, $current, $contents );
 
-		if ( \rtrim( $current, "\r\n" ) . "\n" === $contents ) {
+		if ( \rtrim( $current, "\r\n" ) . "\n" === $contents && ! $this->removed_submodules ) {
 			$output->writeln( '<fg=green;options=bold>The branch\'s .deployignore is already current.</>' );
 			return Command::SUCCESS;
 		}
@@ -310,7 +331,8 @@ final class Pressable_Site_Repository_Prepare extends Command {
 		}
 		$output->writeln( "<info>Saved a snapshot of wp-content, without uploads, caches or backup archives, to $snapshot.</info>" );
 
-		$question = new ConfirmationQuestion( '<question>' . ( $this->push ? "Commit this .deployignore straight to `$this->branch`?" : "Open a pull request into `$this->branch` with this .deployignore?" ) . ' [y/N]</question> ', false );
+		$what     = $this->removed_submodules ? 'this .deployignore and the removal of ' . \implode( ', ', $this->removed_submodules ) : 'this .deployignore';
+		$question = new ConfirmationQuestion( '<question>' . ( $this->push ? "Commit $what straight to `$this->branch`?" : "Open a pull request into `$this->branch` with $what?" ) . ' [y/N]</question> ', false );
 		if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
 			$output->writeln( '<comment>Nothing was written.</comment>' );
 			return Command::SUCCESS;
@@ -485,6 +507,105 @@ final class Pressable_Site_Repository_Prepare extends Command {
 	}
 
 	/**
+	 * Decides which submodules to remove, since Pressable never checks them out and Atlantis replaces some.
+	 *
+	 * @param   InputInterface  $input    The input object.
+	 * @param   OutputInterface $output   The output object.
+	 * @param   string[]        $gitlinks The submodule paths in the branch.
+	 *
+	 * @return  void
+	 */
+	private function decide_submodules( InputInterface $input, OutputInterface $output, array $gitlinks ): void {
+		$urls = array();
+		foreach ( \explode( "\n", (string) $this->git( array( 'config', '--file', '.gitmodules', '--get-regexp', '^submodule\\..*\\.(path|url)$' ), false ) ) as $line ) {
+			if ( \preg_match( '/^submodule\.(.+)\.(path|url) (.+)$/', \trim( $line ), $matches ) ) {
+				$urls[ $matches[1] ][ $matches[2] ] = $matches[3];
+			}
+		}
+
+		$status = null;
+		foreach ( $urls as $submodule ) {
+			$path = \trim( (string) ( $submodule['path'] ?? '' ), '/' );
+			if ( '' === $path || ! \in_array( $path, $gitlinks, true ) ) {
+				continue;
+			}
+
+			$name   = \preg_match( '#github\.com[:/]a8cteam51/([^/]+?)(?:\.git)?/?$#i', (string) ( $submodule['url'] ?? '' ), $matches ) ? \strtolower( $matches[1] ) : null;
+			$module = self::ATLANTIS_REPLACES[ $name ] ?? null;
+			if ( \is_null( $module ) ) {
+				$output->writeln( "<comment>`$path` is a submodule. Pressable does not check out submodules, so it stays protected and its server copy never updates.</comment>" );
+				continue;
+			}
+			if ( $this->check ) {
+				$output->writeln( "<comment>`$path` is a submodule that Atlantis's $module module replaces. A full run removes it once that module is on for the site.</comment>" );
+				continue;
+			}
+
+			$status ??= $this->read_atlantis_status();
+			$missing = $this->find_missing_atlantis_requirements( $status, $module );
+			if ( $missing ) {
+				$output->writeln( "<comment>`$path` is a submodule that Atlantis's $module module replaces, but it stays for now: $missing. It stays protected, and its server copy keeps running.</comment>" );
+				continue;
+			}
+
+			$question = new ConfirmationQuestion( "<question>Atlantis's $module module is on for the site, so it does `$path`'s work. Remove the submodule, and let the first deploy delete the server's copy? Every site deploying `$this->branch` needs that module on too. [Y/n]</question> ", true );
+			if ( true === $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
+				$this->removed_submodules[] = $path;
+			}
+		}
+	}
+
+	/**
+	 * Reads the site's Atlantis status through its WordPress.com ID, which the status endpoint needs.
+	 *
+	 * @return  \stdClass|string The status, or why it could not be read.
+	 */
+	private function read_atlantis_status(): \stdClass|string {
+		$wpcom = get_wpcom_site( (string) \parse_url( 'https://' . \preg_replace( '#^https?://#', '', (string) $this->site->url ), PHP_URL_HOST ) );
+		if ( \is_null( $wpcom ) ) {
+			$domain = get_pressable_site_primary_domain( (string) $this->site->id )->domainName ?? ''; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+			$wpcom  = '' === $domain ? null : get_wpcom_site( $domain );
+		}
+		if ( empty( $wpcom->ID ) ) {
+			return 'the site could not be found on WordPress.com through Jetpack';
+		}
+
+		$errors   = array();
+		$statuses = get_wpcom_sites_atlantis_status_batch( array( (int) $wpcom->ID ), $errors );
+		$status   = \is_array( $statuses ) ? \reset( $statuses ) : false;
+		if ( \is_object( $status ) ) {
+			return $status;
+		}
+
+		return \str_contains( (string) \json_encode( $errors ), 'rest_no_route' ) ? 'Atlantis is not installed on the site' : 'the site\'s Atlantis status could not be read';
+	}
+
+	/**
+	 * Says what is missing before an Atlantis module can replace a submodule on the site.
+	 *
+	 * @param   \stdClass|string $status The site's Atlantis status, or why it could not be read.
+	 * @param   string           $module The module's key.
+	 *
+	 * @return  string|null What is missing, or null when nothing is.
+	 */
+	private function find_missing_atlantis_requirements( \stdClass|string $status, string $module ): ?string {
+		if ( \is_string( $status ) ) {
+			return $status;
+		}
+		if ( true !== ( $status->plugin->managed ?? null ) ) {
+			return 'the site is not marked as managed in Atlantis (`team51 atlantis:mark-managed`)';
+		}
+		if ( true !== ( $status->modules->$module->enabled ?? null ) ) {
+			return "Atlantis's $module module is not on";
+		}
+		if ( 'autoupdates' === $module && false === ( $status->modules->$module->settings_url_configured ?? null ) ) {
+			return "Atlantis's autoupdates module has no settings address (`team51 atlantis:mark-managed`)";
+		}
+
+		return null;
+	}
+
+	/**
 	 * Finds root entries that the tracked runtime PHP loads.
 	 *
 	 * @return  string[]
@@ -516,13 +637,6 @@ final class Pressable_Site_Repository_Prepare extends Command {
 				$children[ "{$segments[0]}/{$segments[1]}" ][] = $path;
 			}
 		}
-		foreach ( $tree['gitlinks'] as $gitlink ) {
-			$segments = \explode( '/', $gitlink );
-			if ( \in_array( $segments[0], PRESSABLE_DEPLOYIGNORE_CONTENT_DIRS, true ) ) {
-				$output->writeln( "<comment>`$gitlink` is a submodule. Pressable does not check out submodules, so it stays protected and its server copy never updates.</comment>" );
-			}
-		}
-
 		$included  = array();
 		$protected = array();
 		foreach ( $children as $child => $paths ) {
@@ -654,11 +768,12 @@ final class Pressable_Site_Repository_Prepare extends Command {
 	 * @param   string          $contents The generated file.
 	 * @param   string[]        $tracked  The tracked files.
 	 * @param   string[]        $server   The server's files.
-	 * @param   string[]        $kept     The lines outside the block.
+	 * @param   string[]        $kept       The lines outside the block.
+	 * @param   string[]        $tombstones The paths the deploy deletes on purpose, folders ending with a slash.
 	 *
 	 * @return  string[] The lines outside the block, with any runtime exclusions added.
 	 */
-	private function decide_runtime_exclusions( InputInterface $input, OutputInterface $output, string $contents, array $tracked, array $server, array $kept ): array {
+	private function decide_runtime_exclusions( InputInterface $input, OutputInterface $output, string $contents, array $tracked, array $server, array $kept, array $tombstones ): array {
 		$tracked_dirs = array();
 		foreach ( $tracked as $path ) {
 			$segments = \explode( '/', $path );
@@ -669,6 +784,11 @@ final class Pressable_Site_Repository_Prepare extends Command {
 
 		$groups = array();
 		foreach ( predict_pressable_deploy( $contents, $tracked, $server )['deleted'] as $path ) {
+			foreach ( $tombstones as $tombstone ) {
+				if ( $path === $tombstone || \str_starts_with( $path, \rtrim( $tombstone, '/' ) . '/' ) ) {
+					continue 2;
+				}
+			}
 			$segments = \explode( '/', $path );
 			$count    = \count( $segments );
 			$key      = $path;
@@ -750,8 +870,14 @@ final class Pressable_Site_Repository_Prepare extends Command {
 
 		\file_put_contents( "$this->work_dir/.deployignore", $contents );
 		try {
+			foreach ( $this->removed_submodules as $path ) {
+				$this->git( array( 'rm', '--quiet', $path ) );
+			}
+			if ( $this->removed_submodules && \is_file( "$this->work_dir/.gitmodules" ) && '' === \trim( (string) \file_get_contents( "$this->work_dir/.gitmodules" ) ) ) {
+				$this->git( array( 'rm', '--quiet', '.gitmodules' ) );
+			}
 			$this->git( array( 'add', '.deployignore' ) );
-			$this->git( array( 'commit', '--quiet', '-m', 'Protect the server\'s own files from Pressable deploys', '-m', 'Pressable deletes every file on the site that the repository lacks unless .deployignore protects it. The allowlist block deploys the components this repository owns and keeps everything else on the server.' ) );
+			$this->git( array( 'commit', '--quiet', '-m', 'Protect the server\'s own files from Pressable deploys', '-m', 'Pressable deletes every file on the site that the repository lacks unless .deployignore protects it. The allowlist block deploys the components this repository owns and keeps everything else on the server.' . $this->describe_removed_submodules() ) );
 		} catch ( \RuntimeException $exception ) {
 			$output->writeln( "<error>{$exception->getMessage()}</error>" );
 			return Command::FAILURE;
@@ -767,7 +893,7 @@ final class Pressable_Site_Repository_Prepare extends Command {
 		}
 
 		$pr = $this->run_process(
-			array( 'gh', 'pr', 'create', '--repo', $this->gh_repository->full_name, '--base', $this->branch, '--head', $target, '--title', 'Protect the server\'s own files from Pressable deploys', '--body', "Generated by `team51 pressable:prepare-site-repository {$this->site->id}`.\n\nPressable deletes every file on the site that the repository lacks unless `.deployignore` protects it. The allowlist block at the end deploys the components this repository owns and keeps everything else on the server. Negations outside the block are removed, because Pressable lets them beat every other rule." ),
+			array( 'gh', 'pr', 'create', '--repo', $this->gh_repository->full_name, '--base', $this->branch, '--head', $target, '--title', 'Protect the server\'s own files from Pressable deploys', '--body', "Generated by `team51 pressable:prepare-site-repository {$this->site->id}`.\n\nPressable deletes every file on the site that the repository lacks unless `.deployignore` protects it. The allowlist block at the end deploys the components this repository owns and keeps everything else on the server. Negations outside the block are removed, because Pressable lets them beat every other rule." . $this->describe_removed_submodules() ),
 			$this->work_dir
 		);
 		if ( ! $pr->isSuccessful() ) {
@@ -777,6 +903,19 @@ final class Pressable_Site_Repository_Prepare extends Command {
 
 		$output->writeln( '<fg=green;options=bold>Opened ' . \trim( $pr->getOutput() ) . '</>' );
 		return Command::SUCCESS;
+	}
+
+	/**
+	 * Describes the removed submodules for the commit message and pull request, or nothing when there are none.
+	 *
+	 * @return  string
+	 */
+	private function describe_removed_submodules(): string {
+		if ( ! $this->removed_submodules ) {
+			return '';
+		}
+
+		return "\n\nRemoves the submodules " . \implode( ', ', $this->removed_submodules ) . ', whose work Atlantis now does on the site. Pressable never checks submodules out, and the first deploy deletes their server copies.';
 	}
 
 	/**
