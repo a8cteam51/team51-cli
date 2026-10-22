@@ -796,33 +796,69 @@ function read_github_branch_for_pressable( string $clone_url, string $branch ): 
 // region CONNECT CHECKS
 
 /**
- * Describes an enabled DeployHQ server that deploys to a site, as a problem that blocks connecting it.
+ * Returns whether a push could still deploy to a DeployHQ server: it is enabled and deploys automatically, or belongs to a server group.
  *
- * @param   stdClass $server  The server.
- * @param   string   $project The project's permalink.
+ * @param   stdClass $server The server.
  *
- * @return  string
+ * @return  boolean
  */
-function describe_enabled_deployhq_server( stdClass $server, string $project ): string {
-	return 'The DeployHQ server `' . ( $server->name ?? '?' ) . "` of project `$project` still deploys `" . ( $server->branch ?? '?' ) . '` to the site' . ( empty( $server->auto_deploy ) ? '' : ' on every push' ) . '. Disable it in DeployHQ first.';
+function is_deployhq_server_live( stdClass $server ): bool {
+	// A group carries its own deployment settings, which the server's auto_deploy does not show.
+	return (bool) ( $server->enabled ?? true ) && ( (bool) ( $server->auto_deploy ?? true ) || ! empty( $server->server_group_identifier ) );
 }
 
 /**
- * Lists the enabled DeployHQ servers, on any project for a repository, that deploy as a Pressable site's SFTP owner.
+ * Describes a DeployHQ server a push would still deploy to a site, as a problem that blocks connecting it.
+ *
+ * @param   stdClass $server     The server.
+ * @param   string   $project    The project's permalink.
+ * @param   stdClass $site       The Pressable site.
+ * @param   stdClass $repository The GitHub repository.
+ *
+ * @return  string
+ */
+function describe_live_deployhq_server( stdClass $server, string $project, stdClass $site, stdClass $repository ): string {
+	if ( ! empty( $server->server_group_identifier ) ) {
+		return 'The DeployHQ server `' . ( $server->name ?? '?' ) . "` of project `$project` belongs to a server group, which may still deploy to the site on every push. Disable the server in DeployHQ first.";
+	}
+
+	return 'The DeployHQ server `' . ( $server->name ?? '?' ) . "` of project `$project` still deploys `" . ( $server->branch ?? '?' ) . "` to the site on every push. Run `team51 pressable:pause-site-deployhq $site->id $repository->name` first.";
+}
+
+/**
+ * Lists the DeployHQ servers that deploy to a Pressable site: the one OpsOasis maps it to, and any on a project for the repository that deploys as the site's SFTP owner.
  *
  * @param   stdClass $site       The Pressable site.
  * @param   stdClass $repository The GitHub repository.
  *
- * @return  array<string,string>|null The servers' problems keyed by server identifier, or null when DeployHQ or the site's SFTP owner could not be read.
+ * @return  array<string,array{project: string, server: stdClass}>|null The servers keyed by identifier, or null when OpsOasis, DeployHQ or the site's SFTP owner could not be read.
  */
-function find_enabled_deployhq_servers_for_pressable_site( stdClass $site, stdClass $repository ): ?array {
+function list_deployhq_servers_for_pressable_site( stdClass $site, stdClass $repository ): ?array {
+	$found  = array();
+	$config = API_Helper::make_pressable_request( "sites/$site->id/deployhq" );
+	if ( is_null( $config ) && 404 === API_Helper::$last_http_code ) {
+		console_writeln( '<comment>The 404 above means OpsOasis found no DeployHQ server for the site; its projects for the repository are checked next.</comment>' );
+	} elseif ( is_null( $config ) ) {
+		return null;
+	} else {
+		$server = $config->server ?? null;
+		if ( isset( $server->errors ) && ! isset( $server->errors->{'404'} ) ) {
+			return null;
+		}
+		if ( is_object( $server ) && ! isset( $server->errors ) ) {
+			$found[ (string) ( $server->identifier ?? $server->name ?? '' ) ] = array(
+				'project' => (string) ( $config->project->permalink ?? '?' ),
+				'server'  => $server,
+			);
+		}
+	}
+
 	$owner    = get_pressable_site_sftp_owner( (string) $site->id );
 	$projects = get_deployhq_projects();
 	if ( empty( $owner->username ) || is_null( $projects ) ) {
 		return null;
 	}
 
-	$found = array();
 	foreach ( $projects as $project ) {
 		if ( 1 !== preg_match( '#github\.com[:/]([^/]+/[^/]+?)(?:\.git)?/?$#i', (string) ( $project->repository->url ?? '' ), $matches ) || 0 !== strcasecmp( $matches[1], (string) $repository->full_name ) ) {
 			continue;
@@ -832,8 +868,11 @@ function find_enabled_deployhq_servers_for_pressable_site( stdClass $site, stdCl
 			return null;
 		}
 		foreach ( $servers as $server ) {
-			if ( 0 === strcasecmp( (string) ( $server->username ?? '' ), (string) $owner->username ) && (bool) ( $server->enabled ?? true ) ) {
-				$found[ (string) ( $server->identifier ?? $server->name ?? '' ) ] = describe_enabled_deployhq_server( $server, (string) $project->permalink );
+			if ( 0 === strcasecmp( (string) ( $server->username ?? '' ), (string) $owner->username ) ) {
+				$found[ (string) ( $server->identifier ?? $server->name ?? '' ) ] = array(
+					'project' => (string) $project->permalink,
+					'server'  => $server,
+				);
 			}
 		}
 	}
@@ -873,28 +912,15 @@ function check_pressable_site_before_connect( stdClass $site, stdClass $reposito
 		}
 	}
 
-	$enabled = array();
-	$config  = API_Helper::make_pressable_request( "sites/$site->id/deployhq" );
-	if ( is_null( $config ) && 404 === API_Helper::$last_http_code ) {
-		console_writeln( '<comment>The 404 above means OpsOasis found no DeployHQ server for the site; its projects for the repository are checked next.</comment>' );
-	} elseif ( is_null( $config ) ) {
-		$problems['blocking'][] = 'Could not confirm that no DeployHQ server deploys to the site.';
-	} else {
-		$server = $config->server ?? null;
-		if ( isset( $server->errors ) ) {
-			if ( ! isset( $server->errors->{'404'} ) ) {
-				$problems['blocking'][] = 'Could not read the site\'s DeployHQ server, so it cannot be confirmed stopped.';
-			}
-		} elseif ( is_object( $server ) && (bool) ( $server->enabled ?? true ) ) {
-			$enabled[ (string) ( $server->identifier ?? $server->name ?? '' ) ] = describe_enabled_deployhq_server( $server, (string) ( $config->project->permalink ?? '?' ) );
+	$servers = list_deployhq_servers_for_pressable_site( $site, $repository );
+	if ( is_null( $servers ) ) {
+		$problems['blocking'][] = "Could not read the site's DeployHQ servers from OpsOasis, DeployHQ or the site's SFTP owner, so they cannot be confirmed stopped.";
+	}
+	foreach ( $servers ?? array() as $entry ) {
+		if ( is_deployhq_server_live( $entry['server'] ) ) {
+			$problems['blocking'][] = describe_live_deployhq_server( $entry['server'], $entry['project'], $site, $repository );
 		}
 	}
-
-	$servers = find_enabled_deployhq_servers_for_pressable_site( $site, $repository );
-	if ( is_null( $servers ) ) {
-		$problems['blocking'][] = "Could not read DeployHQ's projects or the site's SFTP owner, so the site's DeployHQ servers cannot be confirmed stopped.";
-	}
-	$problems['blocking'] = array_merge( $problems['blocking'], array_values( ( $servers ?? array() ) + $enabled ) );
 
 	if ( array( 'wp-content', '' ) !== array( $paths['destination_path'], $paths['repository_subdirectory'] ) ) {
 		$problems['overridable'][] = 'Only the repository root deployed into wp-content can be checked, so the first deploy of this layout is not.';

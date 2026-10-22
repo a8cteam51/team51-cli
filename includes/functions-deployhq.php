@@ -137,6 +137,38 @@ function get_deployhq_project_server( string $project, string $server ): ?stdCla
 }
 
 /**
+ * Turns a DeployHQ server's automatic deployments on or off, leaving its other settings as they are.
+ *
+ * @param   string   $project     The permalink of the project the server belongs to.
+ * @param   stdClass $server      The server, as DeployHQ lists it.
+ * @param   bool     $auto_deploy Whether a push should deploy to the server.
+ *
+ * @return  stdClass|null The server as DeployHQ returned it, or null on failure.
+ */
+function set_deployhq_project_server_auto_deploy( string $project, stdClass $server, bool $auto_deploy ): ?stdClass {
+	if ( empty( $server->identifier ) ) {
+		return null;
+	}
+
+	// DeployHQ refuses an update that does not repeat the server's protocol.
+	$protocol = $server->protocol_type ?? get_deployhq_project_server( $project, (string) $server->identifier )?->protocol_type ?? null;
+	if ( empty( $protocol ) ) {
+		return null;
+	}
+
+	$updated = API_Helper::make_deployhq_request(
+		"projects/$project/servers/$server->identifier",
+		'PUT',
+		array(
+			'protocol_type' => $protocol,
+			'auto_deploy'   => $auto_deploy,
+		)
+	);
+
+	return $updated instanceof stdClass ? $updated : null;
+}
+
+/**
  * Creates a new server for a DeployHQ project.
  *
  * @param   string $project The permalink of the project to create the server for.
