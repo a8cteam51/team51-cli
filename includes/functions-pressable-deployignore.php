@@ -57,6 +57,9 @@ const PRESSABLE_LISTING_SKIPPED = array( 'uploads', 'cache', 'upgrade' );
 // Pressable's own drop-ins, which unprotected live deploys left in place.
 const PRESSABLE_DEPLOY_KEPT_BY_PRESSABLE = array( 'object-cache.php', 'advanced-cache.php' );
 
+// Folders live deploys neither shipped nor deleted inside a theme with no line naming them; assumed at any depth.
+const PRESSABLE_DEPLOY_SKIPPED_DIRS = array( '.github' );
+
 const PRESSABLE_DEPLOYIGNORE_SYNTHETIC_SERVER_PATHS = array(
 	'zz-unknown-root/x.txt',
 	'zz-unknown-root.php',
@@ -167,6 +170,10 @@ function pressable_deployignore_glob_to_regex( string $glob ): string {
  */
 function is_path_deployed_by_pressable( string $path, array $rules ): bool {
 	$parts = explode( '/', $path );
+	if ( array_intersect( array_slice( $parts, 0, -1 ), PRESSABLE_DEPLOY_SKIPPED_DIRS ) ) {
+		return false;
+	}
+
 	$count = count( $parts );
 	for ( $depth = 1; $depth <= $count; $depth++ ) {
 		$entry  = implode( '/', array_slice( $parts, 0, $depth ) );
