@@ -859,10 +859,10 @@ function check_pressable_site_before_connect( stdClass $site, stdClass $reposito
 		if ( ! empty( $git->connected ) ) {
 			$problems['blocking'][] = 'The site is already connected to ' . ( $git->repository ?? 'a repository' ) . ' on `' . ( $git->branch ?? '?' ) . '`. Disconnect it first.';
 		}
-		// Pressable takes any non-empty path a connect sends, and the repository subdirectory always goes as one.
+		// Pressable takes any non-empty path a connect sends, and keeps the stored one when it gets an empty one.
 		$stored = trim( (string) ( $git->destinationPath ?? '' ), '/' ); // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
-		if ( '' !== $stored && $stored !== $paths['destination_path'] ) {
-			$problems['blocking'][] = "Pressable has `$stored` stored as the site's destination_path, and the deploy that connecting starts would use it before it can be corrected. Correct it in MyPressable first.";
+		if ( '' === $paths['destination_path'] && '' !== $stored ) {
+			$problems['blocking'][] = "Pressable has `$stored` stored as the site's destination_path, and would keep it in place of the document root. Correct it in MyPressable first.";
 		}
 	}
 
