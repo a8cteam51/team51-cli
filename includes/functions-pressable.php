@@ -268,7 +268,8 @@ function explain_pressable_site_git_connect_failure( string $site_id, stdClass $
 
 /**
  * Connects the specified Pressable site to a GitHub repository. Pressable ignores an empty
- * `repository_subdirectory` here and keeps the one the site had before.
+ * `repository_subdirectory` here and keeps the one the site had, `wp-content` on a site it has just
+ * enrolled, so the repository root is sent as `/`, which it stores as the root.
  *
  * @param   string $site_id_or_url          The ID or URL of the Pressable site.
  * @param   string $repository              The repository's HTTPS github.com clone URL.
@@ -287,7 +288,7 @@ function connect_pressable_site_repository( string $site_id_or_url, string $repo
 			'repository'              => $repository,
 			'branch'                  => $branch,
 			'destination_path'        => $destination_path,
-			'repository_subdirectory' => $repository_subdirectory,
+			'repository_subdirectory' => '' === trim( $repository_subdirectory, '/' ) ? '/' : $repository_subdirectory,
 		)
 	);
 }
