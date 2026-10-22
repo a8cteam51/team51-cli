@@ -818,6 +818,7 @@ function is_deployhq_server_live( stdClass $server ): bool {
  * @return  string
  */
 function describe_live_deployhq_server( stdClass $server, string $project, stdClass $site, stdClass $repository ): string {
+	$project = '' !== $project ? $project : '?';
 	if ( ! empty( $server->server_group_identifier ) ) {
 		return 'The DeployHQ server `' . ( $server->name ?? '?' ) . "` of project `$project` belongs to a server group, which may still deploy to the site on every push. Disable the server in DeployHQ first.";
 	}
@@ -831,7 +832,7 @@ function describe_live_deployhq_server( stdClass $server, string $project, stdCl
  * @param   stdClass $site       The Pressable site.
  * @param   stdClass $repository The GitHub repository.
  *
- * @return  array<string,array{project: string, server: stdClass}>|null The servers keyed by identifier, or null when OpsOasis, DeployHQ or the site's SFTP owner could not be read.
+ * @return  array<string,array{project: string, server: stdClass}>|null The servers keyed by identifier, each with its project's permalink or an empty string when OpsOasis named none; null when OpsOasis, DeployHQ or the site's SFTP owner could not be read.
  */
 function list_deployhq_servers_for_pressable_site( stdClass $site, stdClass $repository ): ?array {
 	$found  = array();
@@ -847,7 +848,7 @@ function list_deployhq_servers_for_pressable_site( stdClass $site, stdClass $rep
 		}
 		if ( is_object( $server ) && ! isset( $server->errors ) ) {
 			$found[ (string) ( $server->identifier ?? $server->name ?? '' ) ] = array(
-				'project' => (string) ( $config->project->permalink ?? '?' ),
+				'project' => (string) ( $config->project->permalink ?? '' ),
 				'server'  => $server,
 			);
 		}

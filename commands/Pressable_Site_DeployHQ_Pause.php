@@ -133,7 +133,9 @@ final class Pressable_Site_DeployHQ_Pause extends Command {
 			$before = (bool) ( $server->auto_deploy ?? true );
 			$after  = $before;
 			if ( ! empty( $server->server_group_identifier ) ) {
-				$grouped[] = $server->name ?? $id;
+				if ( (bool) ( $server->enabled ?? true ) ) {
+					$grouped[] = $server->name ?? $id;
+				}
 			} elseif ( $before !== $target ) {
 				$updated = set_deployhq_project_server_auto_deploy( $entry['project'], $server, $target );
 				$after   = \is_null( $updated ) ? $before : (bool) ( $updated->auto_deploy ?? $before );
@@ -144,7 +146,7 @@ final class Pressable_Site_DeployHQ_Pause extends Command {
 				}
 			}
 
-			$rows[] = array( $entry['project'], $server->name ?? '?', $id, $server->branch ?? '?', (bool) ( $server->enabled ?? true ) ? 'yes' : 'no', $before ? 'on' : 'off', $after ? 'on' : 'off' );
+			$rows[] = array( '' !== $entry['project'] ? $entry['project'] : '?', $server->name ?? '?', $id, $server->branch ?? '?', (bool) ( $server->enabled ?? true ) ? 'yes' : 'no', $before ? 'on' : 'off', $after ? 'on' : 'off' );
 		}
 
 		output_table( $output, $rows, array( 'Project', 'Server', 'Identifier', 'Branch', 'Enabled', 'Auto deploy before', 'Auto deploy now' ), 'DeployHQ servers deploying to the site' );
@@ -153,7 +155,7 @@ final class Pressable_Site_DeployHQ_Pause extends Command {
 			$output->writeln( '<error>DeployHQ did not take the change for every server, as the table shows.</error>' );
 		}
 		if ( $grouped ) {
-			$output->writeln( '<error>These servers belong to a DeployHQ server group, whose own settings may still deploy on push, so they were left as they are: ' . \implode( ', ', $grouped ) . '. Disable them in DeployHQ instead.</error>' );
+			$output->writeln( '<error>These enabled servers belong to a DeployHQ server group, whose own settings may still deploy on push, so they were left as they are: ' . \implode( ', ', $grouped ) . '. Disable them in DeployHQ instead.</error>' );
 		}
 		if ( $changed && ! $this->resume ) {
 			$servers_option = \implode( ' ', \array_map( static fn( string $id ): string => "--server=$id", $changed ) );

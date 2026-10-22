@@ -146,7 +146,7 @@ function get_deployhq_project_server( string $project, string $server ): ?stdCla
  * @return  stdClass|null The server as DeployHQ returned it, or null on failure.
  */
 function set_deployhq_project_server_auto_deploy( string $project, stdClass $server, bool $auto_deploy ): ?stdClass {
-	if ( empty( $server->identifier ) ) {
+	if ( '' === $project || empty( $server->identifier ) ) {
 		return null;
 	}
 
