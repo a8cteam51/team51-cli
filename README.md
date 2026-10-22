@@ -4,7 +4,7 @@
 
 Glad you asked.
 
-This is a small utility written by some fine folks at Automattic.com. It automates and standardizes provisioning new WordPress sites (on Pressable.com), connecting them to code repositories (on GitHub.com) and configuring deploy automation (via DeployHQ.com). It does a few other things, but that's the gist.
+This is a small utility written by some fine folks at Automattic.com. It automates and standardizes provisioning new WordPress sites (on Pressable.com), connecting them to code repositories (on GitHub.com) and configuring deploy automation (via Pressable's GitHub integration, or DeployHQ.com for sites not yet moved off it). It does a few other things, but that's the gist.
 
 ## How do I use this?
 

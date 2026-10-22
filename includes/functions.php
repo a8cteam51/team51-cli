@@ -348,6 +348,23 @@ function run_app_command( string $command_name, array $command_input, bool $inte
 }
 
 /**
+ * Runs a command non-interactively and returns the exit code, reporting what it throws as a failure so the caller can carry on.
+ *
+ * @param   string $command_name  The name of the command to run.
+ * @param   array  $command_input The input to pass to the command.
+ *
+ * @return  integer  The command exit code, or 1 when it threw.
+ */
+function run_app_command_safely( string $command_name, array $command_input ): int {
+	try {
+		return run_app_command( $command_name, $command_input );
+	} catch ( \Throwable $exception ) {
+		console_writeln( "<error>{$exception->getMessage()}</error>" );
+		return 1;
+	}
+}
+
+/**
  * Runs a system command and returns the output.
  *
  * @param   array      $command           The command to run.

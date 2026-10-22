@@ -51,11 +51,18 @@ final class Pressable_Site_Clone extends Command {
 	private ?\stdClass $site_deployhq_project_server = null;
 
 	/**
-	 * The GitHub repository connected to the DeployHQ project.
+	 * The GitHub repository the given site deploys from.
 	 *
 	 * @var \stdClass|null
 	 */
 	private ?\stdClass $gh_repository = null;
+
+	/**
+	 * The branch the given site deploys through Pressable's GitHub integration, or null when it does not deploy through it.
+	 *
+	 * @var string|null
+	 */
+	private ?string $source_git_branch = null;
 
 	/**
 	 * The GitHub branch to deploy to the site from.
@@ -100,7 +107,7 @@ final class Pressable_Site_Clone extends Command {
 	private ?string $keep_until = null;
 
 	/**
-	 * Whether to clone without looking for or connecting the site's DeployHQ project and GitHub repository.
+	 * Whether to clone without looking for the site's GitHub repository or connecting the clone to it.
 	 *
 	 * @var bool|null
 	 */
@@ -115,13 +122,13 @@ final class Pressable_Site_Clone extends Command {
 	 */
 	protected function configure(): void {
 		$this->setDescription( 'Creates a development clone of an existing Pressable site.' )
-			->setHelp( 'Use this command to create a development clone of an existing Pressable site.' );
+			->setHelp( 'Use this command to create a development clone of an existing Pressable site. The clone deploys the way the site does: a site that deploys through Pressable\'s GitHub integration gets a clone connected to the branch, which is created from the site\'s branch when missing; a site that deploys through DeployHQ gets a clone with a DeployHQ server.' );
 
 		$this->addArgument( 'site', InputArgument::REQUIRED, 'The site to clone.' )
 			->addArgument( 'label', InputArgument::OPTIONAL, 'The suffix to append to the site name. Defaults to `development`.' )
 			->addOption( 'datacenter', null, InputOption::VALUE_REQUIRED, 'The datacenter to clone the site in. Defaults to the datacenter of the given site.' )
 			->addOption( 'branch', null, InputOption::VALUE_REQUIRED, 'The branch to deploy to the site from. Defaults to `develop`.' )
-			->addOption( 'skip-repository', null, InputOption::VALUE_NONE, "Clone without the site's DeployHQ project and GitHub repository, and without asking about them." );
+			->addOption( 'skip-repository', null, InputOption::VALUE_NONE, "Clone without looking for the site's GitHub repository or connecting the clone to it, and without asking about it." );
 
 		$this->addOption( 'skip-safety-net', null, InputOption::VALUE_NONE, 'Skip the installation of SafetyNet as a mu-plugin.' )
 			->addOption( 'keep-data', null, InputOption::VALUE_NONE, "Keep the source site's users, orders and subscriptions on the clone (sets SAFETY_NET_DELETE_DATA to false). Safety Net still scrubs credentials, deactivates risky plugins, blocks emails and blocks logins of copied customer accounts." )
@@ -160,43 +167,20 @@ final class Pressable_Site_Clone extends Command {
 
 		// Without a terminal to answer them, the questions below about a missing project or repository would
 		// abort the clone, so a caller that does not need the repository skips them altogether.
-		$deployhq_config = $this->skip_repository ? null : get_pressable_site_deployhq_config( $this->site->id );
+		$source_git = $this->skip_repository ? null : get_pressable_site_git_config( $this->site->id );
+		$git_unread = ! $this->skip_repository && \is_null( $source_git ) && 422 !== \API_Helper::$last_http_code;
 		if ( $this->skip_repository ) {
-			$output->writeln( '<comment>Cloning without the DeployHQ project and GitHub repository.</comment>' );
-		} elseif ( \is_null( $deployhq_config ) ) {
-			$output->writeln( '<error>Unable to find a DeployHQ project for the site.</error>' );
-
-			$question = new ConfirmationQuestion( '<question>Do you want to continue anyway? [y/N]</question> ', false );
-			if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
-				$output->writeln( '<comment>Command aborted by user.</comment>' );
-				exit( 1 );
-			}
+			$output->writeln( '<comment>Cloning without the GitHub repository.</comment>' );
+		} elseif ( ! empty( $source_git->connected ) ) {
+			$this->find_git_repository( $input, $output, $source_git );
+		} elseif ( $git_unread ) {
+			$output->writeln( '<error>Failed to read the site\'s GitHub integration settings.</error>' );
+			$this->confirm_without_repository( $input, $output );
 		} else {
-			$this->deployhq_project = $deployhq_config->project;
-			$output->writeln( "<comment>Found DeployHQ project {$this->deployhq_project->name} (permalink {$this->deployhq_project->permalink}) for the given site.</comment>", OutputInterface::VERBOSITY_VERBOSE );
-
-			$this->site_deployhq_project_server = $deployhq_config->server;
-			if ( \is_null( $this->site_deployhq_project_server ) ) {
-				$output->writeln( '<error>Failed to get the DeployHQ project server connected to the site. Aborting!</error>' );
-				exit( 1 );
+			if ( \is_null( $source_git ) ) {
+				$output->writeln( '<comment>The 422 above means Pressable has not enrolled the site in its GitHub integration, so its DeployHQ project is looked up instead.</comment>' );
 			}
-
-			$this->gh_repository = get_github_repository_from_deployhq_project( $this->deployhq_project->permalink );
-			if ( \is_null( $this->gh_repository ) ) {
-				// A repository outside our GitHub organization cannot be looked up, but the clone does not need it.
-				$output->writeln( '<error>Failed to get the GitHub repository connected to the project or invalid connected repository.</error>' );
-
-				$question = new ConfirmationQuestion( '<question>Do you want to continue without connecting the clone to a GitHub repository? [y/N]</question> ', false );
-				if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
-					$output->writeln( '<comment>Command aborted by user.</comment>' );
-					exit( 1 );
-				}
-
-				$this->deployhq_project = null;
-			} else {
-				$this->gh_repo_branch = get_string_input( $input, 'branch', fn() => $this->prompt_branch_input( $input, $output ) );
-				$input->setOption( 'branch', $this->gh_repo_branch );
-			}
+			$this->find_deployhq_repository( $input, $output );
 		}
 
 		$this->label = slugify( get_string_input( $input, 'label', fn() => $this->prompt_label_input( $input, $output ) ) );
@@ -346,15 +330,20 @@ final class Pressable_Site_Clone extends Command {
 		}
 		$ssh_connection?->disconnect();
 
-		// Create a DeployHQ server for the site.
+		$connect_problem = null;
 		if ( ! \is_null( $this->deployhq_project ) ) {
-			create_deployhq_project_server_for_pressable_site(
+			$server = create_deployhq_project_server_for_pressable_site(
 				$site_clone,
 				$this->deployhq_project,
 				'Development' . ( 'development' !== $this->label ? "-$this->label" : '' ),
 				$this->gh_repo_branch,
 				$this->site_deployhq_project_server->branch,
 			);
+			if ( \is_null( $server ) ) {
+				$connect_problem = "Creating the DeployHQ server on the project {$this->deployhq_project->permalink} failed, as reported above.";
+			}
+		} elseif ( ! \is_null( $this->source_git_branch ) ) {
+			$connect_problem = $this->connect_clone( $site_clone, $output );
 		}
 
 		// Done last because it seems to cause issues sometimes with the connection breaking off.
@@ -365,6 +354,13 @@ final class Pressable_Site_Clone extends Command {
 			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 			$output->writeln( '<error>⚠  The WP user password rotation did not complete cleanly.</error>' );
 			$output->writeln( '<error>    See the warning above for the password to record or the rotation to retry.</error>' );
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+		}
+
+		if ( ! \is_null( $connect_problem ) ) {
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			$output->writeln( "<error>⚠  The clone was created, but connecting it to `$this->gh_repo_branch` of {$this->gh_repository->full_name} did not complete.</error>" );
+			$output->writeln( "<error>    $connect_problem</error>" );
 			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 		}
 
@@ -417,7 +413,7 @@ final class Pressable_Site_Clone extends Command {
 		}
 
 		// The clone is safe, but it is not what was asked for, so the run must not exit 0 as though it were.
-		if ( $this->keep_data && ! $keep_data_applied ) {
+		if ( ( $this->keep_data && ! $keep_data_applied ) || ! \is_null( $connect_problem ) ) {
 			return Command::FAILURE;
 		}
 
@@ -427,6 +423,157 @@ final class Pressable_Site_Clone extends Command {
 	// endregion
 
 	// region HELPERS
+
+	/**
+	 * Finds the repository and branch the given site deploys through Pressable's GitHub integration, and asks for the clone's branch.
+	 *
+	 * @param   InputInterface  $input  The input object.
+	 * @param   OutputInterface $output The output object.
+	 * @param   \stdClass       $git    The site's git configuration.
+	 *
+	 * @return  void
+	 */
+	private function find_git_repository( InputInterface $input, OutputInterface $output, \stdClass $git ): void {
+		$destination = \trim( (string) ( $git->destinationPath ?? '' ), '/' ); // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+		$subdir      = \trim( (string) ( $git->repositorySubdirectory ?? '' ), '/' ); // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+		if ( 'wp-content' !== $destination || '' !== $subdir ) {
+			$from = '' === $subdir ? 'the repository root' : "`$subdir`";
+			$into = '' === $destination ? 'the document root' : "`$destination`";
+			$output->writeln( "<error>The site deploys $from into $into, and only the repository root deployed into wp-content can be connected here.</error>" );
+			$this->confirm_without_repository( $input, $output );
+			return;
+		}
+
+		$parsed     = parse_github_remote_repository_url( (string) ( $git->repository ?? '' ) );
+		$repository = \is_null( $parsed ) ? null : get_github_repository( $parsed->repo );
+		if ( \is_null( $repository ) || 0 !== \strcasecmp( "$parsed->user/$parsed->repo", (string) ( $repository->full_name ?? '' ) ) ) {
+			$output->writeln( '<error>Failed to get the GitHub repository the site deploys from, or it is outside our GitHub organization.</error>' );
+			$this->confirm_without_repository( $input, $output );
+			return;
+		}
+
+		$this->gh_repository     = $repository;
+		$this->source_git_branch = (string) ( $git->branch ?? '' );
+		$output->writeln( "<comment>The site deploys the branch `$this->source_git_branch` of {$this->gh_repository->full_name} through Pressable's GitHub integration.</comment>", OutputInterface::VERBOSITY_VERBOSE );
+
+		$this->gh_repo_branch = get_string_input( $input, 'branch', fn() => $this->prompt_branch_input( $input, $output ) );
+		$input->setOption( 'branch', $this->gh_repo_branch );
+	}
+
+	/**
+	 * Finds the DeployHQ project, server and repository the given site deploys through, and asks for the clone's branch.
+	 *
+	 * @param   InputInterface  $input  The input object.
+	 * @param   OutputInterface $output The output object.
+	 *
+	 * @return  void
+	 */
+	private function find_deployhq_repository( InputInterface $input, OutputInterface $output ): void {
+		$deployhq_config = get_pressable_site_deployhq_config( $this->site->id );
+		if ( \is_null( $deployhq_config ) ) {
+			$output->writeln( '<error>Unable to find a DeployHQ project for the site.</error>' );
+
+			$question = new ConfirmationQuestion( '<question>Do you want to continue anyway? [y/N]</question> ', false );
+			if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
+				$output->writeln( '<comment>Command aborted by user.</comment>' );
+				exit( 1 );
+			}
+			return;
+		}
+
+		$this->deployhq_project = $deployhq_config->project;
+		$output->writeln( "<comment>Found DeployHQ project {$this->deployhq_project->name} (permalink {$this->deployhq_project->permalink}) for the given site.</comment>", OutputInterface::VERBOSITY_VERBOSE );
+
+		$this->site_deployhq_project_server = $deployhq_config->server;
+		if ( \is_null( $this->site_deployhq_project_server ) ) {
+			$output->writeln( '<error>Failed to get the DeployHQ project server connected to the site. Aborting!</error>' );
+			exit( 1 );
+		}
+
+		$this->gh_repository = get_github_repository_from_deployhq_project( $this->deployhq_project->permalink );
+		if ( \is_null( $this->gh_repository ) ) {
+			// A repository outside our GitHub organization cannot be looked up, but the clone does not need it.
+			$output->writeln( '<error>Failed to get the GitHub repository connected to the project or invalid connected repository.</error>' );
+			$this->confirm_without_repository( $input, $output );
+			$this->deployhq_project = null;
+			return;
+		}
+
+		$this->gh_repo_branch = get_string_input( $input, 'branch', fn() => $this->prompt_branch_input( $input, $output ) );
+		$input->setOption( 'branch', $this->gh_repo_branch );
+	}
+
+	/**
+	 * Asks whether to clone without connecting the clone to a repository, and aborts unless told to.
+	 *
+	 * @param   InputInterface  $input  The input object.
+	 * @param   OutputInterface $output The output object.
+	 *
+	 * @return  void
+	 */
+	private function confirm_without_repository( InputInterface $input, OutputInterface $output ): void {
+		$question = new ConfirmationQuestion( '<question>Do you want to continue without connecting the clone to a GitHub repository? [y/N]</question> ', false );
+		if ( true !== $this->getHelper( 'question' )->ask( $input, $output, $question ) ) {
+			$output->writeln( '<comment>Command aborted by user.</comment>' );
+			exit( 1 );
+		}
+	}
+
+	/**
+	 * Connects the clone to its branch through Pressable's GitHub integration, creating the branch from the given site's when it is missing.
+	 *
+	 * @param   \stdClass       $site_clone The clone.
+	 * @param   OutputInterface $output     The output object.
+	 *
+	 * @return  string|null Why nothing deploys to the clone, or null when something does.
+	 */
+	private function connect_clone( \stdClass $site_clone, OutputInterface $output ): ?string {
+		$repository = $this->gh_repository->name;
+		$connect    = "team51 pressable:connect-site-repository $site_clone->id $repository --branch=$this->gh_repo_branch";
+
+		// Connecting exits the whole run, before the search-replace and the Safety Net verdict, on a branch GitHub does not list.
+		$listed = $this->is_branch_listed();
+		if ( \is_null( $listed ) ) {
+			return "Could not read the branches of {$this->gh_repository->full_name}, so the clone was not connected. Run `$connect` once they can be read.";
+		}
+		if ( ! $listed ) {
+			$output->writeln( "<comment>Creating the branch `$this->gh_repo_branch` from `$this->source_git_branch`...</comment>" );
+			if ( \is_null( create_github_repository_branch( $repository, $this->gh_repo_branch, $this->source_git_branch ) ) || true !== $this->is_branch_listed() ) {
+				return "Failed to create the branch `$this->gh_repo_branch` from `$this->source_git_branch`, or GitHub does not list it yet, so the clone was not connected. Create it, then run `$connect`.";
+			}
+		}
+
+		$enrolled = is_pressable_site_git_enrolled( (string) $site_clone->id );
+		if ( true !== $enrolled ) {
+			return ( false === $enrolled ? 'Pressable has not enrolled the clone in its GitHub integration' : 'Could not read the clone\'s GitHub integration settings' ) . ", so it was not connected. Once it can be, run `$connect`.";
+		}
+
+		$status = run_app_command_safely(
+			Pressable_Site_Repository_Connect::getDefaultName(),
+			array(
+				'site'           => (string) $site_clone->id,
+				'repository'     => $repository,
+				'--branch'       => $this->gh_repo_branch,
+				'--snapshot-dir' => \sys_get_temp_dir(),
+			)
+		);
+		if ( Command::SUCCESS === $status ) {
+			return null;
+		}
+
+		return explain_pressable_site_git_connect_failure( (string) $site_clone->id, $this->gh_repository, $this->gh_repo_branch, $connect );
+	}
+
+	/**
+	 * Returns whether GitHub lists the clone's branch among the repository's branches, as connecting checks.
+	 *
+	 * @return  bool|null Null when the branches could not be read.
+	 */
+	private function is_branch_listed(): ?bool {
+		$branches = get_github_repository_branches( $this->gh_repository->name );
+
+		return \is_null( $branches ) ? null : \in_array( $this->gh_repo_branch, \array_column( $branches, 'name' ), true );
+	}
 
 	/**
 	 * Returns how long the kept data stays on the clone, for the messages that mention it.

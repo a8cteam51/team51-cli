@@ -4,7 +4,7 @@ This document provides project knowledge for AI coding agents working on the Tea
 
 ## Project Overview
 
-The **Team51 CLI** is a PHP command-line tool built by Automattic's Special Projects team (Team51). It automates provisioning WordPress sites on Pressable, connecting them to GitHub repositories, and configuring DeployHQ deployments. It integrates with WPCOM, Jetpack, GitHub, DeployHQ, and Pressable via a central OpsOasis REST API.
+The **Team51 CLI** is a PHP command-line tool built by Automattic's Special Projects team (Team51). It automates provisioning WordPress sites on Pressable, connecting them to GitHub repositories, and deploying them through Pressable's GitHub integration (DeployHQ for sites not yet moved off it). It integrates with WPCOM, Jetpack, GitHub, DeployHQ, and Pressable via a central OpsOasis REST API.
 
 **CRITICAL**: This tool is internal and team-specific. It depends on 1Password, OpsOasis API access, and Automattic infrastructure. Do not assume it can be run by arbitrary users without those prerequisites.
 
