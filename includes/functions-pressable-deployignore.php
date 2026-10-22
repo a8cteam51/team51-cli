@@ -859,15 +859,10 @@ function check_pressable_site_before_connect( stdClass $site, stdClass $reposito
 		if ( ! empty( $git->connected ) ) {
 			$problems['blocking'][] = 'The site is already connected to ' . ( $git->repository ?? 'a repository' ) . ' on `' . ( $git->branch ?? '?' ) . '`. Disconnect it first.';
 		}
-		$stored = array(
-			'destination_path'        => $git->destinationPath ?? null, // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
-			'repository_subdirectory' => $git->repositorySubdirectory ?? null, // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
-		);
-		foreach ( $stored as $key => $value ) {
-			// A site that is not connected reports both paths empty, and Pressable takes the non-empty ones a connect sends.
-			if ( '' !== trim( (string) $value, '/' ) && trim( (string) $value, '/' ) !== $paths[ $key ] ) {
-				$problems['blocking'][] = 'Pressable has `' . $value . "` stored as the site's $key, and the deploy that connecting starts would use it before it can be corrected. Correct it in MyPressable first.";
-			}
+		// Pressable takes any non-empty path a connect sends, and the repository subdirectory always goes as one.
+		$stored = trim( (string) ( $git->destinationPath ?? '' ), '/' ); // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+		if ( '' !== $stored && $stored !== $paths['destination_path'] ) {
+			$problems['blocking'][] = "Pressable has `$stored` stored as the site's destination_path, and the deploy that connecting starts would use it before it can be corrected. Correct it in MyPressable first.";
 		}
 	}
 
