@@ -666,6 +666,63 @@ function list_pressable_site_wp_content( string $site_id ): ?array {
 }
 
 /**
+ * Reads the `Version:` header of files in a Pressable site's wp-content over SSH.
+ *
+ * @param   string   $site_id The site's ID.
+ * @param   string[] $paths   The files, relative to wp-content.
+ *
+ * @return  array<string,string>|null The versions by path, for the files that have one, or null when the read failed.
+ */
+function read_pressable_site_header_versions( string $site_id, array $paths ): ?array {
+	if ( ! $paths ) {
+		return array();
+	}
+
+	$ssh = \Pressable_Connection_Helper::get_ssh_connection( $site_id );
+	if ( is_null( $ssh ) ) {
+		return null;
+	}
+
+	try {
+		$ssh->setTimeout( 120 );
+		$files  = implode( ' ', array_map( 'escapeshellarg', $paths ) );
+		$output = $ssh->exec( get_pressable_wp_content_cd_command() . " && for f in $files; do printf '%s\\t' \"\$f\"; head -c 8192 -- \"\$f\" 2>/dev/null | grep -m1 -i -E '^[[:space:]*#@]*Version[[:space:]]*:' | tr -d '\\r\\n'; echo; done" );
+		if ( 0 !== $ssh->getExitStatus() ) {
+			return null;
+		}
+	} finally {
+		$ssh->disconnect();
+	}
+
+	$versions = array();
+	foreach ( array_filter( explode( "\n", (string) $output ) ) as $line ) {
+		[ $path, $header ] = explode( "\t", $line, 2 ) + array( '', '' );
+		$version           = parse_wordpress_header_version( $header );
+		if ( '' !== $path && ! is_null( $version ) ) {
+			$versions[ $path ] = $version;
+		}
+	}
+
+	return $versions;
+}
+
+/**
+ * Reads the value of a WordPress `Version:` header line.
+ *
+ * @param   string $line The header line.
+ *
+ * @return  string|null The version, or null when the line has none.
+ */
+function parse_wordpress_header_version( string $line ): ?string {
+	if ( 1 !== preg_match( '/Version\s*:(.*)$/i', $line, $matches ) ) {
+		return null;
+	}
+	$version = trim( (string) preg_replace( '/\s*(?:\*\/|\?>).*/', '', $matches[1] ) );
+
+	return '' === $version ? null : $version;
+}
+
+/**
  * Saves a snapshot of a Pressable site's wp-content, uploads and caches left out, to a local folder.
  *
  * @param   string          $site_id   The site's ID.
