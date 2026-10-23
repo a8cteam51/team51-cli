@@ -101,6 +101,13 @@ final class Pressable_Site_Repository_Prepare extends Command {
 	private array $server_symlinks = array();
 
 	/**
+	 * The tracked plugins and themes the server runs a newer version of than the branch, by component.
+	 *
+	 * @var array<string,array{server: string, branch: string}>
+	 */
+	private array $newer_on_server = array();
+
+	/**
 	 * Third-party markers in a component's code.
 	 */
 	private const THIRD_PARTY_PATTERN = 'EDD_SL_Plugin_Updater|PucFactory|Puc_v[0-9]|plugin-update-checker|WPMUDEV_Dashboard|Freemius|fs_dynamic_init';
@@ -273,6 +280,9 @@ final class Pressable_Site_Repository_Prepare extends Command {
 		if ( ! $this->check && \is_null( $server ) ) {
 			$output->writeln( '<error>Failed to list the site\'s files over SSH, which the tombstones and the deploy preview need.</error>' );
 			return Command::FAILURE;
+		}
+		if ( ! \is_null( $server ) ) {
+			$this->newer_on_server = $this->find_newer_on_server( $output, $server );
 		}
 
 		$this->decide_submodules( $input, $output, $tree['gitlinks'] );
@@ -696,6 +706,9 @@ final class Pressable_Site_Repository_Prepare extends Command {
 		if ( ! $is_dir ) {
 			return null;
 		}
+		if ( isset( $this->newer_on_server[ $child ] ) ) {
+			return "the server runs version {$this->newer_on_server[ $child ]['server']}, newer than the branch's {$this->newer_on_server[ $child ]['branch']}, so something updates it there and a deploy from the repository would downgrade it.";
+		}
 		if ( ! \is_null( $this->git( array( 'grep', '-q', '-i', '-E', '^[[:space:]*#@]*Update URI:[[:space:]]*(https?://|[a-z0-9-]+\\.[a-z])', '--', "$child/*.php", "$child/style.css" ), false ) ) ) {
 			return 'its header names an update server.';
 		}
@@ -704,6 +717,56 @@ final class Pressable_Site_Repository_Prepare extends Command {
 		}
 
 		return null;
+	}
+
+	/**
+	 * Finds the tracked plugins and themes the server runs a newer version of than the branch.
+	 *
+	 * @param   OutputInterface $output The output object.
+	 * @param   string[]        $server The server's files.
+	 *
+	 * @return  array<string,array{server: string, branch: string}>
+	 */
+	private function find_newer_on_server( OutputInterface $output, array $server ): array {
+		$lines = array();
+		foreach ( \array_filter( \explode( "\n", (string) $this->git( array( 'grep', '-I', '-i', '-E', '^[[:space:]*#@]*(Plugin Name|Version)[[:space:]]*:', '--', ':(glob)plugins/*/*.php', ':(glob)themes/*/style.css' ), false ) ) ) as $line ) {
+			[ $path, $text ]  = \explode( ':', $line, 2 ) + array( '', '' );
+			$lines[ $path ][] = $text;
+		}
+
+		$on_server = \array_flip( $server );
+		$main      = array();
+		foreach ( $lines as $path => $texts ) {
+			[ $dir, $name ] = \explode( '/', $path ) + array( '', '' );
+			$is_plugin      = 'plugins' === $dir && \preg_grep( '/Plugin Name\s*:/i', $texts );
+			$component      = "$dir/$name";
+			$version        = \array_values( \array_filter( \array_map( 'parse_wordpress_header_version', \preg_grep( '/Version\s*:/i', $texts ) ) ) )[0] ?? null;
+			if ( isset( $on_server[ $path ] ) && ! isset( $main[ $component ] ) && ! \is_null( $version ) && ( $is_plugin || 'themes' === $dir ) ) {
+				$main[ $component ] = array(
+					'path'   => $path,
+					'branch' => $version,
+				);
+			}
+		}
+
+		$server_versions = read_pressable_site_header_versions( (string) $this->site->id, \array_column( $main, 'path' ) );
+		if ( \is_null( $server_versions ) ) {
+			$output->writeln( '<comment>Could not read the server\'s plugin and theme versions, so a component something updates on the server is not flagged.</comment>' );
+			return array();
+		}
+
+		$newer = array();
+		foreach ( $main as $component => [ 'path' => $path, 'branch' => $branch ] ) {
+			$on_site = $server_versions[ $path ] ?? null;
+			if ( ! \is_null( $on_site ) && \preg_match( '/^\d/', $on_site ) && \preg_match( '/^\d/', $branch ) && \version_compare( $on_site, $branch, '>' ) ) {
+				$newer[ $component ] = array(
+					'server' => $on_site,
+					'branch' => $branch,
+				);
+			}
+		}
+
+		return $newer;
 	}
 
 	/**
