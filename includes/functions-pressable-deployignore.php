@@ -60,6 +60,9 @@ const PRESSABLE_DEPLOY_KEPT_BY_PRESSABLE = array( 'object-cache.php', 'advanced-
 // Folders live deploys neither shipped nor deleted inside a theme with no line naming them; assumed at any depth.
 const PRESSABLE_DEPLOY_SKIPPED_DIRS = array( '.github' );
 
+// Files live deploys neither shipped nor deleted at any depth, whatever .deployignore says.
+const PRESSABLE_DEPLOY_SKIPPED_FILES = array( '.gitignore', '.gitattributes' );
+
 const PRESSABLE_DEPLOYIGNORE_SYNTHETIC_SERVER_PATHS = array(
 	'zz-unknown-root/x.txt',
 	'zz-unknown-root.php',
@@ -170,7 +173,7 @@ function pressable_deployignore_glob_to_regex( string $glob ): string {
  */
 function is_path_deployed_by_pressable( string $path, array $rules ): bool {
 	$parts = explode( '/', $path );
-	if ( array_intersect( array_slice( $parts, 0, -1 ), PRESSABLE_DEPLOY_SKIPPED_DIRS ) ) {
+	if ( array_intersect( array_slice( $parts, 0, -1 ), PRESSABLE_DEPLOY_SKIPPED_DIRS ) || in_array( end( $parts ), PRESSABLE_DEPLOY_SKIPPED_FILES, true ) ) {
 		return false;
 	}
 
