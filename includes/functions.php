@@ -428,7 +428,7 @@ function maybe_warn_about_unbounded_wp_user_list( string $wp_cli_command, Output
 		return;
 	}
 
-	if ( 1 === preg_match( '/--(?:search|role|role__in|include|login|login__in|nicename|nicename__in|number)=|--format=(?:ids|count)\b/', $command ) ) {
+	if ( 1 === preg_match( '/--(?:search|role|role__in|include|login|login__in|nicename|nicename__in)=|--number=[1-9]\d*\b|--format=(?:ids|count)\b/', $command ) ) {
 		return;
 	}
 
