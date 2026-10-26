@@ -92,6 +92,8 @@ final class Pressable_Site_WP_CLI_Command_Run extends Command {
 			$this->wp_command = \escapeshellcmd( $this->wp_command );
 		}
 		$input->setArgument( 'wp-cli-command', $this->wp_command );
+
+		maybe_warn_about_unbounded_wp_user_list( $this->wp_command, $output );
 	}
 
 	/**

@@ -415,6 +415,27 @@ function console_writeln( string $message, int $verbosity = 0 ): void {
 }
 
 /**
+ * Warns when a WP-CLI command is an unfiltered `user list`, which loads every user's meta into memory.
+ *
+ * @param   string          $wp_cli_command The WP-CLI command, without the leading `wp`.
+ * @param   OutputInterface $output         The output instance.
+ *
+ * @return  void
+ */
+function maybe_warn_about_unbounded_wp_user_list( string $wp_cli_command, OutputInterface $output ): void {
+	$command = preg_replace( '/^(?:--\S+\s+)*/', '', trim( $wp_cli_command ) );
+	if ( 1 !== preg_match( '/^user\s+list(?:\s|$)/', $command ) ) {
+		return;
+	}
+
+	if ( 1 === preg_match( '/--(?:search|role|role__in|include|login|login__in|nicename|nicename__in|number)=|--format=(?:ids|count)\b/', $command ) ) {
+		return;
+	}
+
+	$output->writeln( '<comment>Warning: `wp user list` without --search, --role, --include, --login or --number loads every user\'s metadata and can run out of memory on sites with many users. To check one user, use `wp user get <email|login>`, or add a filter or --format=count|ids.</comment>' );
+}
+
+/**
  * Grabs a value from the provided input. Allows for a null value if no input is given.
  *
  * @param   InputInterface $input         The input instance. Most likely the console input.
