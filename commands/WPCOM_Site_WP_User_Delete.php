@@ -172,16 +172,20 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 			),
 			$find_reassign_errors
 		);
-		if ( $find_reassign_errors ) {
-			$output->writeln( '<error>There are sites that could NOT be searched for administrators.</error>' );
+		if ( is_null( $api_site_admins ) ) {
+			$output->writeln( '<error>Failed to search the sites for administrators.</error>' );
 			exit( 1 );
 		}
 
+		// A site that can't be processed is skipped, so one bad site doesn't stop the user being deleted from the rest.
+		foreach ( $find_reassign_errors ?? array() as $site_id => $error ) {
+			$this->skip_site( $output, $site_id, 'Could not search the site for administrators: ' . encode_json_content( $error->errors ) );
+		}
+
 		foreach ( $api_site_admins as $site_id => $site_users ) {
-			$site = $sites[ $site_id ];
 			if ( ! is_array( $site_users ) || empty( $site_users ) ) {
-				$output->writeln( "<error>No administrators found on site {$site['site_URL']} (ID $site_id).</error>" );
-				exit( 1 );
+				$this->skip_site( $output, $site_id, 'No administrators found.' );
+				continue;
 			}
 
 			$concierge_user = null;
@@ -199,21 +203,27 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 		}
 
 		foreach ( $this->ssh_users ?? array() as $site_id => $ssh_user_data ) {
-			if ( 'pressable' === $ssh_user_data['type'] ) {
-				$result = run_pressable_site_wp_cli_command( $ssh_user_data['id'], 'user list --role=administrator --skip-themes --skip-plugins --format=json', true );
-			} else {
-				$result = run_wpcom_site_wp_cli_command( $ssh_user_data['id'], 'user list --role=administrator --skip-themes --skip-plugins --format=json', true );
+			// The WP-CLI command runners look the site up through the API first, which can throw for a site that SSH reached.
+			try {
+				if ( 'pressable' === $ssh_user_data['type'] ) {
+					$result = run_pressable_site_wp_cli_command( $ssh_user_data['id'], '--skip-plugins --skip-themes user list --role=administrator --format=json', true );
+				} else {
+					$result = run_wpcom_site_wp_cli_command( $ssh_user_data['id'], '--skip-plugins --skip-themes user list --role=administrator --format=json', true );
+				}
+			} catch ( \Throwable $exception ) {
+				$this->skip_site( $output, $site_id, "Failed to retrieve administrator users using SSH: {$exception->getMessage()}" );
+				continue;
 			}
 
 			if ( 0 !== $result ) {
-				$output->writeln( "<error>Failed to retrieve administrator users for site ID {$ssh_user_data['id']} using SSH.</error>" );
-				exit( 1 );
+				$this->skip_site( $output, $site_id, 'Failed to retrieve administrator users using SSH.' );
+				continue;
 			}
 
 			$wp_cli_output = $GLOBALS['wp_cli_output'] ?? null;
 			if ( ! is_string( $wp_cli_output ) || '' === trim( $wp_cli_output ) ) {
-				$output->writeln( "<error>Failed to decode administrator users for site ID {$ssh_user_data['id']} using SSH.</error>" );
-				exit( 1 );
+				$this->skip_site( $output, $site_id, 'Failed to decode administrator users using SSH.' );
+				continue;
 			}
 
 			// The accumulated reply may carry notices or warnings around the JSON, so the payload is the line
@@ -232,13 +242,13 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 			}
 
 			if ( null === $site_admins ) {
-				$output->writeln( "<error>Failed to decode administrator users for site ID {$ssh_user_data['id']} using SSH.</error>" );
-				exit( 1 );
+				$this->skip_site( $output, $site_id, 'Failed to decode administrator users using SSH.' );
+				continue;
 			}
 
 			if ( empty( $site_admins ) ) {
-				$output->writeln( "<error>No administrators found on site ID {$ssh_user_data['id']} using SSH.</error>" );
-				exit( 1 );
+				$this->skip_site( $output, $site_id, 'No administrators found using SSH.' );
+				continue;
 			}
 
 			$concierge_user = null;
@@ -256,6 +266,18 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 				'ID'    => $concierge_user?->ID ?? $oldest_user?->ID,
 				'email' => $concierge_user?->user_email ?? $oldest_user?->user_email,
 			);
+		}
+
+		// Without someone to take over the user's content, deleting the user would orphan or lose it.
+		foreach ( array_keys( $this->users ) as $site_id ) {
+			if ( empty( $this->reassign_users[ $site_id ]->ID ) ) {
+				$this->skip_site( $output, $site_id, 'No other administrator to reassign the user\'s content to.' );
+			}
+		}
+
+		if ( empty( $this->users ) ) {
+			$output->writeln( '<error>The user could not be deleted from any of the sites it was found on.</error>' );
+			exit( 1 );
 		}
 	}
 
@@ -301,10 +323,15 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 					continue;
 				}
 
-				if ( 'pressable' === $ssh_user_data['type'] ) {
-					$result = run_pressable_site_wp_cli_command( $ssh_user_data['id'], "user delete $user->ID --reassign={$this->reassign_users[ $user->site_ID ]->ID} --yes", true );
-				} else {
-					$result = run_wpcom_site_wp_cli_command( $ssh_user_data['id'], "user delete $user->ID --reassign={$this->reassign_users[ $user->site_ID ]->ID} --yes", true );
+				try {
+					if ( 'pressable' === $ssh_user_data['type'] ) {
+						$result = run_pressable_site_wp_cli_command( $ssh_user_data['id'], "user delete $user->ID --reassign={$this->reassign_users[ $user->site_ID ]->ID} --yes", true );
+					} else {
+						$result = run_wpcom_site_wp_cli_command( $ssh_user_data['id'], "user delete $user->ID --reassign={$this->reassign_users[ $user->site_ID ]->ID} --yes", true );
+					}
+				} catch ( \Throwable $exception ) {
+					$output->writeln( "<error>Failed to delete user $user->ID from WPCOM site $user->site_URL (ID $user->site_ID): {$exception->getMessage()}</error>" );
+					continue;
 				}
 
 				if ( 0 !== $result ) {
@@ -413,7 +440,7 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 				'shell_command',
 				static function () use ( $email ): string {
 					return sprintf(
-						'wp user get %s --fields=ID,email --format=json',
+						'wp --skip-plugins --skip-themes user get %s --fields=ID,email --format=json',
 						escapeshellarg( $email )
 					);
 				}
@@ -545,6 +572,22 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 				return ! \in_array( $site_domain, $exclude_sites, true );
 			}
 		);
+	}
+
+	/**
+	 * Drops a site from the list of sites to delete the user from, and says why.
+	 *
+	 * @param   OutputInterface $output  The output interface.
+	 * @param   int             $site_id The ID of the site to skip.
+	 * @param   string          $reason  Why the site is skipped.
+	 *
+	 * @return  void
+	 */
+	private function skip_site( OutputInterface $output, int $site_id, string $reason ): void {
+		$site_url = $this->users[ $site_id ]->site_URL;
+		$output->writeln( "<error>Skipping WPCOM site $site_url (ID $site_id), the user will NOT be deleted from it. $reason</error>" );
+
+		unset( $this->users[ $site_id ], $this->ssh_users[ $site_id ] );
 	}
 
 	/**
