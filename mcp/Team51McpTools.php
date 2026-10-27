@@ -228,7 +228,7 @@ final class Team51McpTools {
 	 */
 	private static function is_safe_site_argument( string $site_id_or_url ): bool {
 		return ! str_starts_with( ltrim( $site_id_or_url ), '-' )
-			&& ! in_array( $site_id_or_url, array( 'completion', '_complete' ), true );
+			&& ! in_array( $site_id_or_url, array( 'completion', '_complete', 'ssh-worker' ), true );
 	}
 
 	/**
