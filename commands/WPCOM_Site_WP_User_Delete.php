@@ -60,6 +60,13 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 	 */
 	private ?bool $dry_run = null;
 
+	/**
+	 * The sites the user was found on but not deleted from, as table rows indexed by site ID.
+	 *
+	 * @var array|null
+	 */
+	private ?array $failed_sites = null;
+
 	// endregion
 
 	// region INHERITED METHODS
@@ -331,11 +338,13 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 					}
 				} catch ( \Throwable $exception ) {
 					$output->writeln( "<error>Failed to delete user $user->ID from WPCOM site $user->site_URL (ID $user->site_ID): {$exception->getMessage()}</error>" );
+					$this->failed_sites[ $user->site_ID ] = array( $user->site_ID, $user->site_URL, "Deletion failed: {$exception->getMessage()}" );
 					continue;
 				}
 
 				if ( 0 !== $result ) {
 					$output->writeln( "<error>Failed to delete user $user->ID from WPCOM site $user->site_URL (ID $user->site_ID).</error>" );
+					$this->failed_sites[ $user->site_ID ] = array( $user->site_ID, $user->site_URL, 'Deletion failed.' );
 					continue;
 				}
 			} else {
@@ -347,6 +356,7 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 				$result = delete_wpcom_site_user( $user->site_ID, $user->ID, $this->reassign_users[ $user->site_ID ]->ID );
 				if ( true !== $result ) {
 					$output->writeln( "<error>Failed to delete user $user->ID from WPCOM site $user->site_URL (ID $user->site_ID).</error>" );
+					$this->failed_sites[ $user->site_ID ] = array( $user->site_ID, $user->site_URL, 'Deletion failed.' );
 					continue;
 				}
 			}
@@ -356,6 +366,12 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 
 		if ( $this->dry_run ) {
 			$output->writeln( '<info>Dry run completed. No users were actually deleted.</info>', OutputInterface::VERBOSITY_VERBOSE );
+		}
+
+		// Repeated at the end because, on a big run, the deletion output scrolls the earlier skip messages away.
+		if ( ! empty( $this->failed_sites ) ) {
+			output_table( $output, $this->failed_sites, array( 'Site ID', 'Site URL', 'Reason' ), 'WPCOM sites the user was NOT deleted from' );
+			return Command::FAILURE;
 		}
 
 		return Command::SUCCESS;
@@ -587,6 +603,7 @@ final class WPCOM_Site_WP_User_Delete extends Command {
 		$site_url = $this->users[ $site_id ]->site_URL;
 		$output->writeln( "<error>Skipping WPCOM site $site_url (ID $site_id), the user will NOT be deleted from it. $reason</error>" );
 
+		$this->failed_sites[ $site_id ] = array( $site_id, $site_url, "Skipped: $reason" );
 		unset( $this->users[ $site_id ], $this->ssh_users[ $site_id ] );
 	}
 
