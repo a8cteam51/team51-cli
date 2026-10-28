@@ -228,7 +228,7 @@ final class WPCOM_Site_Clone extends Command {
 			return Command::FAILURE;
 		}
 
-		$ssh_connection = wait_on_wpcom_site_ssh( $staging_site->id, $output );
+		wait_on_wpcom_site_ssh( $staging_site->id, $output )?->disconnect();
 
 		// Must run before anything loads WordPress on the staging site - the site name update and the password
 		// rotation below may - because Safety Net's first run there decides whether the data is kept or deleted.
@@ -278,15 +278,17 @@ final class WPCOM_Site_Clone extends Command {
 		if ( $this->skip_safety_net ) {
 			$output->writeln( '<comment>Skipping the installation of SafetyNet as a mu-plugin.</comment>' );
 		} else {
-			// The wait above can expire on a site that becomes reachable moments later - the steps in between
-			// open their own connections and may already have succeeded - so the install gets one fresh
-			// attempt instead of inheriting a stale null.
-			$ssh_connection ??= \WPCOM_Connection_Helper::get_ssh_connection( $staging_site->id );
-
-			maybe_install_safety_net( $ssh_connection, $output );
+			// The host can close a connection left idle since the SSH wait, so the install opens its own.
+			$ssh_connection = null;
+			try {
+				$ssh_connection = \WPCOM_Connection_Helper::get_ssh_connection( $staging_site->id );
+				maybe_install_safety_net( $ssh_connection, $output );
+			} catch ( \RuntimeException $exception ) {
+				$output->writeln( "<error>The SSH connection failed while installing SafetyNet: {$exception->getMessage()}</error>" );
+			} finally {
+				$ssh_connection?->disconnect();
+			}
 		}
-
-		$ssh_connection?->disconnect();
 
 		$deployment_failed = false;
 
