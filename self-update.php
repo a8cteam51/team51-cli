@@ -121,6 +121,10 @@ foreach ( $argv as $arg ) {
 		case '_complete':
 			$team51_is_autocomplete = true;
 			return; // Don't run the rest of the script.
+		case 'ssh-worker':
+			// The command that started the worker has already updated the CLI and its dependencies. Several workers
+			// run at once in the same checkout, so updating here would race on git and on Composer's autoload files.
+			return;
 		case '-q':
 		case '--quiet':
 			$team51_cli_is_quiet = true;
