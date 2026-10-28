@@ -283,7 +283,7 @@ final class Pressable_Site_Clone extends Command {
 		// mean one will never appear - Pressable provisions them asynchronously, and the wait re-queries every
 		// pass - so cutting it short here would strand a clone that was moments from being reachable, holding
 		// unscrubbed production data. The reason is already on screen; the budget is the safety margin.
-		$ssh_connection = wait_on_pressable_site_ssh( $site_clone->id, $output );
+		wait_on_pressable_site_ssh( $site_clone->id, $output )?->disconnect();
 
 		// Must run before anything loads WordPress on the clone - the password rotation's WP-CLI fallback below
 		// does - because Safety Net's first run there decides whether the data is kept or deleted.
@@ -321,14 +321,17 @@ final class Pressable_Site_Clone extends Command {
 		if ( $this->skip_safety_net ) {
 			$output->writeln( '<comment>Skipping the installation of SafetyNet as a mu-plugin.</comment>' );
 		} else {
-			// The wait above can expire on a site that becomes reachable moments later - the steps in between
-			// open their own connections and may already have succeeded - so the install gets one fresh
-			// attempt instead of inheriting a stale null.
-			$ssh_connection ??= \Pressable_Connection_Helper::get_ssh_connection( $site_clone->id );
-
-			maybe_install_safety_net( $ssh_connection, $output );
+			// The host can close a connection left idle since the SSH wait, so the install opens its own.
+			$ssh_connection = null;
+			try {
+				$ssh_connection = \Pressable_Connection_Helper::get_ssh_connection( $site_clone->id );
+				maybe_install_safety_net( $ssh_connection, $output );
+			} catch ( \RuntimeException $exception ) {
+				$output->writeln( "<error>The SSH connection failed while installing SafetyNet: {$exception->getMessage()}</error>" );
+			} finally {
+				$ssh_connection?->disconnect();
+			}
 		}
-		$ssh_connection?->disconnect();
 
 		$connect_problem = null;
 		if ( ! \is_null( $this->deployhq_project ) ) {
