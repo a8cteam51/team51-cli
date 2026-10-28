@@ -486,8 +486,10 @@ final class Pressable_Site_Clone extends Command {
 
 		$this->site_deployhq_project_server = $deployhq_config->server;
 		if ( \is_null( $this->site_deployhq_project_server ) ) {
-			$output->writeln( '<error>Failed to get the DeployHQ project server connected to the site. Aborting!</error>' );
-			exit( 1 );
+			$output->writeln( '<error>Failed to get the DeployHQ project server connected to the site.</error>' );
+			$this->confirm_without_repository( $input, $output );
+			$this->deployhq_project = null;
+			return;
 		}
 
 		$this->gh_repository = get_github_repository_from_deployhq_project( $this->deployhq_project->permalink );
