@@ -4,9 +4,6 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Helper\ProgressBar;
 
-// Poseidon infrastructure repositories; collaborator access is managed manually, never via the CLI.
-const GITHUB_COLLABORATOR_LOCKED_REPOSITORIES = array( 'poseidon-runner', 'poseidon-actions' );
-
 // region API
 
 /**
@@ -137,42 +134,6 @@ function create_github_repository_webhook( string $repository, array $config, ar
  */
 function get_github_repository_secrets( string $repository ): ?array {
 	return API_Helper::make_github_request( "repositories/$repository/secrets" )?->records;
-}
-
-/**
- * Adds a user as a collaborator to a given GitHub repository.
- *
- * @param   string $repository The name of the repository to add the collaborator to.
- * @param   string $username   The GitHub username to add as a collaborator.
- * @param   string $permission The permission to grant. One of 'pull', 'triage', 'push', 'maintain', 'admin'.
- *
- * @link    https://docs.github.com/en/rest/collaborators/collaborators#add-a-repository-collaborator
- *
- * @return  stdClass|true|null
- *
- * @throws  \InvalidArgumentException If collaborator management for the repository is locked.
- */
-function add_github_repository_collaborator( string $repository, string $username, string $permission = 'push' ): stdClass|true|null {
-	if ( is_github_repository_collaborator_locked( $repository ) ) {
-		throw new InvalidArgumentException( "Adding collaborators to `$repository` via the CLI is disabled. Access to this repository is managed manually." );
-	}
-
-	return API_Helper::make_github_request(
-		"repositories/$repository/collaborators/$username",
-		'PUT',
-		array( 'permission' => $permission )
-	);
-}
-
-/**
- * Checks whether collaborator management for a given GitHub repository is disabled in this tool.
- *
- * @param   string $repository The name of the repository to check.
- *
- * @return  bool
- */
-function is_github_repository_collaborator_locked( string $repository ): bool {
-	return in_array( strtolower( $repository ), GITHUB_COLLABORATOR_LOCKED_REPOSITORIES, true );
 }
 
 // endregion
