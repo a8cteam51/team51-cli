@@ -12,13 +12,14 @@ use Symfony\Component\EventDispatcher\EventDispatcher;
 const TEAM51_CLI_ROOT_DIR = __DIR__;
 const TEAM51_CLI_FILE     = __FILE__;
 
-// Fail clearly on an unsupported runtime before autoload (shared with mcp-server.php).
+// Fail clearly on an unsupported runtime before autoload.
 require_once TEAM51_CLI_ROOT_DIR . '/environment-guard.php';
 
-// If --mcp flag is passed, start the MCP server instead of the CLI.
+// The MCP server was removed in favour of context-a8c. Say so, for MCP clients still configured to start it.
 if ( in_array( '--mcp', $argv ?? $_SERVER['argv'] ?? array(), true ) ) {
-	require __DIR__ . '/mcp-server.php';
-	exit;
+	fwrite( STDERR, "The Team51 CLI MCP server has been removed. Use the team51 provider in context-a8c instead: https://mc.a8c.com/ai/context-a8c/\n" );
+	fwrite( STDERR, "Remove the `team51 --mcp` server from your MCP client (for example .cursor/mcp.json, or `claude mcp remove team51`).\n" );
+	exit( 1 );
 }
 
 require_once TEAM51_CLI_ROOT_DIR . '/self-update.php';

@@ -138,27 +138,6 @@ function get_pressable_site_notes( string $site_id_or_url, array $params = array
 }
 
 /**
- * Creates a new note on the specified Pressable site.
- *
- * @param   string $site_id_or_url The ID or URL of the Pressable site to create the note on.
- * @param   string $subject        The subject of the note.
- * @param   string $content        The content of the note.
- *
- * @return  stdClass|null
- */
-function create_pressable_site_note( string $site_id_or_url, string $subject, string $content ): ?stdClass {
-	$site_id_or_url = pressable_maybe_resolve_site_alias( $site_id_or_url );
-	return API_Helper::make_pressable_request(
-		"site-notes/$site_id_or_url",
-		'POST',
-		array(
-			'subject' => $subject,
-			'content' => $content,
-		)
-	);
-}
-
-/**
  * Returns the DeployHQ project and server configuration for the specified Pressable site.
  *
  * @param   string $site_id_or_url The ID or URL of the Pressable site to retrieve the DeployHQ configuration for.
@@ -423,18 +402,6 @@ function create_pressable_site_collaborator( string $site_id_or_url, string $col
 function get_pressable_site_sftp_users( string $site_id_or_url ): ?array {
 	$site_id_or_url = pressable_maybe_resolve_site_alias( $site_id_or_url );
 	return API_Helper::make_pressable_request( "site-sftp-users/$site_id_or_url" )?->records;
-}
-
-/**
- * Returns the list of domains for the specified Pressable site.
- *
- * @param   string $site_id_or_url The ID or URL of the Pressable site to retrieve the domains for.
- *
- * @return  stdClass[]|null
- */
-function get_pressable_site_domains( string $site_id_or_url ): ?array {
-	$site_id_or_url = pressable_maybe_resolve_site_alias( $site_id_or_url );
-	return API_Helper::make_pressable_request( "site-domains/$site_id_or_url" )?->records;
 }
 
 /**
