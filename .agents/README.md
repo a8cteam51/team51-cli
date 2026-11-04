@@ -21,7 +21,6 @@ This directory contains progressive, on-demand instructions for AI coding agents
 | Skill | Trigger |
 |-------|---------|
 | `local-setup.md` | Setting up the Team51 CLI development environment locally; troubleshooting install/run issues; onboarding a new developer. |
-| `add-mcp-tool.md` | Adding a new MCP tool to Team51McpTools.php; exposing a new operation for AI assistants. |
 | `connection-helpers.md` | Implementing commands that need SSH or SFTP access to Pressable/WPCOM sites; remote file operations or shell access. |
 | `fleet-scripts.md` | Building a one-off script that checks or changes a set of fleet sites (incident audits, bulk changes from a list or CSV); diagnosing why such a script fails on a site (403, SSH, WP-CLI). |
 

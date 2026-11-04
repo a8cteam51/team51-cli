@@ -57,10 +57,8 @@ After setup:
 1. `team51 list` — Shows all commands.
 2. `team51 wpcom:list-sites --help` — Command help works.
 3. `team51 --dev list` — Dev mode works.
-4. `team51 --mcp` — MCP server starts (Ctrl+C to stop).
 
 ## Notes
 
 - The CLI self-updates from the `trunk` branch every 7 days by default.
 - Identity (1Password credentials) loads on first real command; autocomplete mode skips it.
-- MCP: Identity loads on first tool call, not at server startup.

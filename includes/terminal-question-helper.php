@@ -32,10 +32,9 @@ final class TerminalQuestionHelper extends QuestionHelper {
 	/**
 	 * Reads and throws away whatever is waiting to be read from a terminal.
 	 *
-	 * Only a terminal is drained: piped input is meant to be read, and the MCP server's stdio carries JSON-RPC. The
-	 * terminal leaves line mode for the drain, the way Symfony's autocompletion does, because text typed without
-	 * Enter otherwise stays in its line buffer and is glued onto the real answer: `y`, then `n` and Enter, reads as
-	 * `yn`, which a confirmation takes as yes.
+	 * Only a terminal is drained: piped input is meant to be read. The terminal leaves line mode for the drain, the
+	 * way Symfony's autocompletion does, because text typed without Enter otherwise stays in its line buffer and is
+	 * glued onto the real answer: `y`, then `n` and Enter, reads as `yn`, which a confirmation takes as yes.
 	 *
 	 * A read is only made when it is known to return something. A read that returns nothing from a terminal is taken
 	 * by PHP as the end of the input, and the question would then be answered with its default without being asked.

@@ -125,17 +125,6 @@ function create_github_repository_webhook( string $repository, array $config, ar
 	);
 }
 
-/**
- * Lists all secrets available in a repository without revealing their encrypted values.
- *
- * @param   string $repository The name of the repository. The name is not case-sensitive.
- *
- * @return  object[]|null
- */
-function get_github_repository_secrets( string $repository ): ?array {
-	return API_Helper::make_github_request( "repositories/$repository/secrets" )?->records;
-}
-
 // endregion
 
 // region CONSOLE
