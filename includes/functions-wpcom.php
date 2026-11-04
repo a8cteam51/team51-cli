@@ -167,6 +167,27 @@ function get_wpcom_sites_atlantis_status_batch( array $site_ids_or_urls, ?array 
 }
 
 /**
+ * Returns the Jetpack connection data for a batch of WPCOM sites, as each site reports it.
+ *
+ * Each record is the site's own `jetpack/v4/connection/data` answer for our connected user, so
+ * `currentUser->isMaster` says whether we are the connection owner and `connectionOwner` holds the
+ * owner's display name. Sites that could not be reached are surfaced via $errors.
+ *
+ * @param   array      $site_ids_or_urls The list of site domains or numeric WPCOM IDs.
+ * @param   array|null $errors           The list of errors that occurred during the request.
+ *
+ * @return  array<int|string,stdClass>|null
+ */
+function get_wpcom_sites_jetpack_connection_batch( array $site_ids_or_urls, ?array &$errors = null ): ?array {
+	$sites_connection = API_Helper::make_wpcom_request( 'sites/batch/jetpack-connection', 'POST', array( 'sites' => $site_ids_or_urls ) );
+	if ( is_null( $sites_connection ) ) {
+		return null;
+	}
+
+	return parse_batch_response( $sites_connection, $errors );
+}
+
+/**
  * Forces an update of a single plugin across a batch of WPCOM/Jetpack sites.
  *
  * Proxies the OpsOasis batch endpoint, which calls the WPCOM v1.2 plugin update endpoint on each
