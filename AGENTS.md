@@ -50,6 +50,7 @@ team51-cli/
 │   ├── functions-*.php           # Service-specific (1password, deployhq, github, jetpack, pressable, wporg, wpcom)
 │   ├── functions-pressable-deployignore.php # Pressable's .deployignore matching, the allowlist block and its checks; wp-content listing and snapshots over SSH; the pre-connect check
 │   ├── parallel-process.php
+│   ├── poseidon-review-drivers.php # Model providers for poseidon:pr-review (Anthropic, OpenAI through Codex, LM Studio) and their setup instructions
 │   ├── autocomplete-trait.php
 │   ├── export-trait.php         # --export / --export-format / --export-exclude for commands that output a table
 │   ├── terminal-question-helper.php # Question helper that discards keys typed before a question (registered in team51-cli.php)

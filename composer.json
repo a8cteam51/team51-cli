@@ -51,6 +51,7 @@
       "includes/functions-wporg.php",
       "includes/functions-wpcom.php",
       "includes/parallel-process.php",
+      "includes/poseidon-review-drivers.php",
       "includes/enum-site-type.php"
     ]
   },
