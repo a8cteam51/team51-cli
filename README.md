@@ -157,6 +157,27 @@ team51 pressable:download-site-plugins <site> [--destination=/path/to/plugins.ta
 team51 wpcom:download-site-plugins <site> [--destination=/path/to/plugins.tar.gz]
 ```
 
+### Review a PR with Poseidon
+
+`poseidon:pr-review` runs a review on your computer and prints it in the terminal. Use `--model` to select the model:
+
+```bash
+team51 poseidon:pr-review <PR> [--model=<model>]
+```
+
+| `--model` value | Provider | Requires |
+|---|---|---|
+| `claude-opus-5-5` (default) | Anthropic | `claude` CLI |
+| `claude-<id>` or `anthropic/<id>` | Anthropic | `claude` CLI |
+| `openai/gpt-6-luna` | OpenAI | `codex` CLI |
+| `openai/gpt-5.6-terra` | OpenAI | `codex` CLI |
+| `openai/gpt-5.6-luna` | OpenAI | `codex` CLI |
+| `lmstudio/qwen/qwen3.8-27b` | Local | `claude` CLI and LM Studio with its server on |
+
+The OpenAI models that you can use depend on your sign-in. To see your list, run `codex debug models` and look for the `slug` values where `visibility` is `list`. If you enter a model that your ChatGPT sign-in cannot use, the CLI stops and lists the models that it can use.
+
+Before your first OpenAI review, the CLI asks you to confirm that your account is on a paid plan. Enterprise plans count as paid. Local reviews are slow: test reviews took 30 to 40 minutes.
+
 ### Conventions around defaults
 
 If you run a command without any arguments, the CLI will ask you for the necessary information. Most of the time, a reasonable default will be provided, and you can just hit `Enter` to accept it.
