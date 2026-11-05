@@ -268,8 +268,12 @@ final class Poseidon_PR_Review extends Command {
 				}
 			}
 
-			$filesystem->dumpFile( "$work_dir/$pr_data_dir/diff.patch", $pr_data['diff'] );
 			$filesystem->dumpFile( "$work_dir/$pr_data_dir/pr.json", $pr_data['details'] );
+			if ( null !== $pr_data['diff'] ) {
+				$filesystem->dumpFile( "$work_dir/$pr_data_dir/diff.patch", $pr_data['diff'] );
+			} elseif ( ! $this->build_diff_from_clone( $work_dir, "$work_dir/$pr_data_dir/diff.patch", $errors ) ) {
+				return Command::FAILURE;
+			}
 
 			$agent = $this->driver->create_process(
 				$prompt,
@@ -681,7 +685,7 @@ final class Poseidon_PR_Review extends Command {
 	 *
 	 * @param   OutputInterface $errors The message stream.
 	 *
-	 * @return  array{diff: string, details: string}|null
+	 * @return  array{diff: string|null, details: string}|null A null diff means that GitHub refused the diff and the clone must supply it.
 	 */
 	private function fetch_pr_data( OutputInterface $errors ): ?array {
 		$errors->writeln( '<comment>Fetching the PR diff, metadata, and prior reviews.</comment>' );
@@ -693,17 +697,86 @@ final class Poseidon_PR_Review extends Command {
 		foreach ( array( $diff, $details ) as $process ) {
 			$process->setTimeout( 120 );
 			$process->run();
-			if ( ! $process->isSuccessful() ) {
-				$errors->writeln( '<error>Failed to fetch the PR data.</error>' );
-				$this->maybe_print_stderr( $errors, $process );
-				return null;
+			if ( $process->isSuccessful() ) {
+				continue;
 			}
+
+			if ( $process === $diff && str_contains( $process->getErrorOutput(), 'HTTP 406' ) ) {
+				if ( $this->no_clone ) {
+					$this->render_problem(
+						new Review_Problem(
+							'This PR is too large for a diff-only review',
+							'GitHub does not return a diff this large, and `--no-clone` gives the CLI no other source for the diff.',
+							array( array( 'Run the review again without `--no-clone`.' ) ),
+							'The Poseidon review stopped because GitHub refused the diff of a large PR. Tell me to run the review again without `--no-clone`. Do not run the review.',
+							array(),
+							false
+						),
+						$errors
+					);
+					return null;
+				}
+
+				$errors->writeln( '<comment>GitHub does not return a diff this large. The CLI will build the diff from the clone. A review this large can take a long time.</comment>' );
+				continue;
+			}
+
+			$errors->writeln( '<error>Failed to fetch the PR data.</error>' );
+			$this->maybe_print_stderr( $errors, $process );
+			return null;
 		}
 
 		return array(
-			'diff'    => $diff->getOutput(),
+			'diff'    => $diff->isSuccessful() ? $diff->getOutput() : null,
 			'details' => $details->getOutput(),
 		);
+	}
+
+	/**
+	 * Builds the diff from GitHub's test merge commit, because a shallow clone may not contain the merge base.
+	 *
+	 * @param   string          $work_dir  The clone, with the PR checked out.
+	 * @param   string          $diff_path The absolute path of the diff file.
+	 * @param   OutputInterface $errors    The message stream.
+	 *
+	 * @return  boolean
+	 */
+	private function build_diff_from_clone( string $work_dir, string $diff_path, OutputInterface $errors ): bool {
+		$fetch = $this->gh_process( array( 'git', '-c', 'credential.helper=', '-c', 'credential.helper=!gh auth git-credential', 'fetch', '--quiet', '--depth=2', 'origin', "refs/pull/{$this->pr_number}/merge" ), $work_dir );
+		$fetch->setTimeout( 300 );
+		$fetch->run();
+		$this->maybe_print_stderr( $errors, $fetch );
+
+		// GitHub keeps the old merge commit when a PR gets a conflict, so the commit must contain the current PR head.
+		$commits = new Process( array( 'git', 'rev-parse', 'FETCH_HEAD^2', 'HEAD' ), $work_dir );
+		$commits->run();
+		$lines   = explode( "\n", trim( $commits->getOutput() ) );
+		$current = $fetch->isSuccessful() && $commits->isSuccessful() && 2 === count( $lines ) && $lines[0] === $lines[1];
+
+		if ( $current ) {
+			$diff = new Process( array( 'git', 'diff', '--no-color', '--no-ext-diff', "--output=$diff_path", 'FETCH_HEAD^1', 'FETCH_HEAD' ), $work_dir );
+			$diff->setTimeout( 300 );
+			$diff->run();
+			if ( $diff->isSuccessful() ) {
+				return true;
+			}
+			$this->maybe_print_stderr( $errors, $diff );
+		}
+
+		$this->render_problem(
+			new Review_Problem(
+				'The CLI could not build the diff for this large PR',
+				'GitHub does not return a diff this large, and the PR has no current merge commit on GitHub. This occurs when a PR is closed or has merge conflicts, or when GitHub has not updated the commit yet.',
+				array(
+					array( 'If the PR has merge conflicts, resolve them.' ),
+					array( 'If you pushed recently, wait one minute.' ),
+				),
+				'The Poseidon review stopped because it could not build the diff for a large PR. Check whether the PR is closed or has merge conflicts, and tell me what you find. Do not run the review.'
+			),
+			$errors
+		);
+
+		return false;
 	}
 
 	/**
