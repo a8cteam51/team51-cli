@@ -742,7 +742,7 @@ final class Poseidon_PR_Review extends Command {
 	 * @return  boolean
 	 */
 	private function build_diff_from_clone( string $work_dir, string $diff_path, OutputInterface $errors ): bool {
-		$fetch = $this->gh_process( array( 'git', '-c', 'credential.helper=', '-c', 'credential.helper=!gh auth git-credential', 'fetch', '--quiet', '--depth=2', 'origin', "refs/pull/{$this->pr_number}/merge" ), $work_dir );
+		$fetch = $this->gh_process( array( 'git', '-c', 'credential.helper=', '-c', 'credential.helper=!gh auth git-credential', 'fetch', '--quiet', '--depth=50', 'origin', "refs/pull/{$this->pr_number}/merge" ), $work_dir );
 		$fetch->setTimeout( 300 );
 		$fetch->run();
 		$this->maybe_print_stderr( $errors, $fetch );
