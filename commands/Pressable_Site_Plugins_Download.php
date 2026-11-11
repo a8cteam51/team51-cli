@@ -92,10 +92,10 @@ final class Pressable_Site_Plugins_Download extends Command {
 
 			$archive_command = 'if [ -d htdocs/wp-content/plugins ]; then '
 				. 'if [ -d /tmp ]; then archive_path=' . escapeshellarg( "/tmp/$archive_filename" ) . '; else archive_path=' . escapeshellarg( "tmp/$archive_filename" ) . '; fi; '
-				. 'tar -czf "$archive_path" -C htdocs/wp-content plugins; '
+				. 'tar -czhf "$archive_path" -C htdocs/wp-content plugins || { rc=$?; rm -f "$archive_path"; exit $rc; }; '
 				. 'elif [ -d /htdocs/wp-content/plugins ]; then '
 				. 'if [ -d /tmp ]; then archive_path=' . escapeshellarg( "/tmp/$archive_filename" ) . '; else archive_path=' . escapeshellarg( "tmp/$archive_filename" ) . '; fi; '
-				. 'tar -czf "$archive_path" -C /htdocs/wp-content plugins; '
+				. 'tar -czhf "$archive_path" -C /htdocs/wp-content plugins || { rc=$?; rm -f "$archive_path"; exit $rc; }; '
 				. 'else '
 				. 'false; '
 				. 'fi; '
