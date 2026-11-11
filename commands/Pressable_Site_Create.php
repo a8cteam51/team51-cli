@@ -153,7 +153,7 @@ final class Pressable_Site_Create extends Command {
 		$ssh_connection?->disconnect();
 
 		// Run a few commands to set up the site.
-		$rotate_status = run_app_command(
+		$rotate_status = run_app_command_safely(
 			Pressable_Site_WP_User_Password_Rotate::getDefaultName(),
 			array(
 				'site'   => $site->id,

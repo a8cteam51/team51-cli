@@ -204,6 +204,11 @@ final class WPCOM_Site_Clone extends Command {
 	 * @noinspection PhpUnhandledExceptionInspection
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
+		if ( empty( list_1password_vaults() ) ) {
+			$output->writeln( '<error>The 1Password CLI is not signed in or not responding, and the staging site needs it to store its concierge password. Sign in with `op signin` and run the command again. Aborting!</error>' );
+			return Command::FAILURE;
+		}
+
 		$repo_text = $this->gh_repo_branch ? "and connect it to the branch `$this->gh_repo_branch` of {$this->gh_repository_name}" : 'without connecting it to a GitHub repository';
 		$output->writeln( "<fg=magenta;options=bold>Creating a staging site of the WordPress.com site {$this->site->name} (ID {$this->site->ID}, URL {$this->site->URL}) $repo_text.</>" );
 
@@ -256,7 +261,7 @@ final class WPCOM_Site_Clone extends Command {
 		}
 
 		// Run a few commands to set up the site.
-		$rotate_status = run_app_command(
+		$rotate_status = run_app_command_safely(
 			WPCOM_Site_WP_User_Password_Rotate::getDefaultName(),
 			array(
 				'site'   => $staging_site->id,
