@@ -154,7 +154,7 @@ final class WPCOM_Site_Create extends Command {
 		}
 
 		// Run a few commands to set up the site.
-		$rotate_status = run_app_command(
+		$rotate_status = run_app_command_safely(
 			WPCOM_Site_WP_User_Password_Rotate::getDefaultName(),
 			array(
 				'site'   => $transfer->blog_id,

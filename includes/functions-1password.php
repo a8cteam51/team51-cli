@@ -24,6 +24,24 @@ function list_1password_accounts( array $global_flags = array() ): ?array {
 }
 
 /**
+ * Lists the 1Password vaults the signed-in account can access.
+ *
+ * @param   array $global_flags The global flags to pass to the command.
+ *
+ * @link    https://developer.1password.com/docs/cli/reference/management-commands/vault#vault-list
+ *
+ * @return  object[]|null
+ */
+function list_1password_vaults( array $global_flags = array() ): ?array {
+	$command   = _build_1password_command_args( array( 'op', 'vault', 'list' ), array(), array(), $global_flags );
+	$command[] = '--format';
+	$command[] = 'json';
+
+	$json = _run_op_command( $command );
+	return is_null( $json ) ? null : decode_json_content( $json );
+}
+
+/**
  * Lists 1Password items.
  *
  * @param   array $flags        The flags to filter the results by.

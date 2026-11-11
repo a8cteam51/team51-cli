@@ -137,6 +137,11 @@ final class Pressable_Site_WP_User_Password_Rotate extends Command {
 	 * @noinspection DisconnectedForeachInstructionInspection
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
+		if ( empty( list_1password_vaults() ) ) {
+			$output->writeln( '<error>The 1Password CLI is not signed in or not responding, so a rotated password could not be stored. No password was rotated. Sign in with `op signin` and run the command again.</error>' );
+			return Command::FAILURE;
+		}
+
 		$failures = array();
 
 		foreach ( $this->sites as $site ) {
@@ -154,7 +159,12 @@ final class Pressable_Site_WP_User_Password_Rotate extends Command {
 			$output->writeln( "<comment>New WP user password:</comment> <fg=green;options=bold>$credentials->password</>", OutputInterface::VERBOSITY_DEBUG );
 
 			// Update the 1Password password value.
-			$result = $this->update_1password_login( $output, $site, $credentials->password, $credentials->username );
+			try {
+				$result = $this->update_1password_login( $output, $site, $credentials->password, $credentials->username );
+			} catch ( \Throwable $exception ) {
+				$output->writeln( "<error>Updating 1Password failed: {$exception->getMessage()}</error>" );
+				$result = false;
+			}
 			if ( true !== $result ) {
 				$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 				$output->writeln( "<error>⚠  Password rotated on Pressable but NOT synced to 1Password for $site->displayName.</error>" );
@@ -162,6 +172,10 @@ final class Pressable_Site_WP_User_Password_Rotate extends Command {
 				$output->writeln( "<fg=yellow;options=bold>    $credentials->password</>" );
 				$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
 				$failures[] = $site->displayName; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Pressable API field, not ours.
+				if ( \is_null( $result ) ) {
+					$output->writeln( '<error>Stopping before rotating any more passwords, since 1Password cannot be reached.</error>' );
+					break;
+				}
 				continue;
 			}
 
@@ -247,7 +261,7 @@ final class Pressable_Site_WP_User_Password_Rotate extends Command {
 	 *
 	 * @return  boolean|null   True if the update was successful, null if the update was never attempted.
 	 */
-	private function update_1password_login( OutputInterface $output, object $site, string $password, ?string $username = null ): ?bool {
+	private function update_1password_login( OutputInterface $output, object $site, #[\SensitiveParameter] string $password, ?string $username = null ): ?bool {
 		// Find matching 1Password entries for the WP user and site.
 		$op_login_entries = search_1password_items(
 			fn( object $op_login ) => $this->match_1password_login_entry( $op_login, $site->url, $username ),
@@ -256,6 +270,10 @@ final class Pressable_Site_WP_User_Password_Rotate extends Command {
 				'tags'       => 'team51-cli',
 			)
 		);
+		if ( \is_null( $op_login_entries ) ) {
+			$output->writeln( "<error>Could not search 1Password for the login entry of $this->wp_user_email on $site->displayName (ID $site->id, URL $site->url). Is the 1Password CLI still signed in?</error>" );
+			return null;
+		}
 		if ( 1 < \count( $op_login_entries ) ) {
 			$output->writeln( "<error>Multiple 1Password login entries found for $this->wp_user_email on $site->displayName (ID $site->id, URL $site->url).</error>" );
 			return false;
