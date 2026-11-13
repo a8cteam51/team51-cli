@@ -355,7 +355,7 @@ final class Pressable_Site_Clone extends Command {
 		}
 
 		// Done last because it seems to cause issues sometimes with the connection breaking off.
-		run_pressable_site_wp_cli_command( $site_clone->id, "search-replace {$this->site->url} $site_clone->url" );
+		run_pressable_site_wp_cli_command( $site_clone->id, "search-replace {$this->site->url} $site_clone->url --skip-tables='*_users,*_usermeta'" );
 		run_pressable_site_wp_cli_command( $site_clone->id, 'cache flush' );
 
 		if ( Command::SUCCESS !== $rotate_status ) {
@@ -577,7 +577,7 @@ final class Pressable_Site_Clone extends Command {
 	/**
 	 * Returns whether GitHub lists the clone's branch among the repository's branches, as connecting checks.
 	 *
-	 * @return  bool|null Null when the branches could not be read.
+	 * @return  boolean|null Null when the branches could not be read.
 	 */
 	private function is_branch_listed(): ?bool {
 		$branches = get_github_repository_branches( $this->gh_repository->name );
