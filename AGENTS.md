@@ -20,7 +20,6 @@ The **Team51 CLI** is a PHP command-line tool built by Automattic's Special Proj
 | Coding Standards | WordPress Coding Standards (WPCS) via `a8cteam51/team51-configs` |
 | API Backend | OpsOasis REST API (`opsoasis.wpspecialprojects.com`) |
 | Credentials | 1Password CLI (v8) |
-| MCP | php-mcp/server ^3.3 |
 
 **Required PHP extensions**: `gd`, `json`, `posix`, `readline`.
 
@@ -30,9 +29,8 @@ The **Team51 CLI** is a PHP command-line tool built by Automattic's Special Proj
 
 ```
 team51-cli/
-├── team51-cli.php       # Entry point. Use `--mcp` to start MCP server instead of CLI.
-├── mcp-server.php       # MCP server entry (also reachable via team51 --mcp)
-├── environment-guard.php # Pre-autoload platform gate. Required first by both entry points.
+├── team51-cli.php       # Entry point. `--mcp` only prints that the MCP server moved to context-a8c.
+├── environment-guard.php # Pre-autoload platform gate. Required first by the entry point.
 ├── self-update.php      # Git self-update logic (trunk branch, 7-day check)
 ├── load-identity.php    # Loads OPSOASIS credentials from 1Password
 ├── install-osx          # Mac installation script (composer install + symlink)
@@ -55,8 +53,6 @@ team51-cli/
 │   ├── export-trait.php         # --export / --export-format / --export-exclude for commands that output a table
 │   ├── terminal-question-helper.php # Question helper that discards keys typed before a question (registered in team51-cli.php)
 │   └── enum-site-type.php
-├── mcp/
-│   └── Team51McpTools.php       # MCP tool definitions (McpTool attribute)
 └── scaffold/            # Files to deploy (load-safety-net.php)
 ```
 
@@ -111,7 +107,7 @@ team51 --force-update <command-name>
 team51 --shell
 ```
 
-**MCP server**: `team51 --mcp` — starts MCP server for AI assistants (Cursor, Claude Code).
+**MCP server**: removed. Team51 tools for AI assistants are in context-a8c's `team51` provider (https://mc.a8c.com/ai/context-a8c/). `team51 --mcp` prints that pointer to STDERR and exits with status 1.
 
 ### Tests
 
@@ -158,18 +154,6 @@ When asked for a script that checks or changes a list of sites (an incident audi
 
 **For the workflow, templates and failure reasons (403s, SSH, WP-CLI quirks)**: `.agents/skills/fleet-scripts.md`
 
-### Adding an MCP Tool
-
-1. Add a public method to `mcp/Team51McpTools.php`.
-2. Add `#[McpTool(name: 'tool_name')]` attribute.
-3. Call `self::ensure_identity()` at the start (for 1Password credentials).
-4. Use existing `get_*` functions from includes.
-5. Return arrays (or error arrays with `'error' => '...'`). No STDOUT — reserved for JSON-RPC.
-
-**MUST**: Annotate every write tool with `ToolAnnotations` (`readOnlyHint: false`, plus `destructiveHint: true` when the action is irreversible or impactful) so clients prompt before executing. Risk is gated by annotation, not by exclusion — high-risk tools (site creation, WP-CLI execution, collaborator removal, deployment project creation, shell access) are exposed and annotated. See README MCP section.
-
-**For full details**: `.agents/skills/add-mcp-tool.md`
-
 ---
 
 ## Architectural Decisions
@@ -180,10 +164,7 @@ These are intentional; do not "fix" them without team discussion.
 2. **Self-update from trunk**: The CLI hard-resets to `trunk` and checks for updates every 7 days (or via `--force-update`). Use `--dev` to skip during development.
 3. **1Password required**: `load-identity.php` must succeed before most commands. It sets `OPSOASIS_WP_USERNAME` and `OPSOASIS_APP_PASSWORD`.
 4. **No Composer in self-update**: `self-update.php` does not use Composer or other includes; it runs before autoload.
-5. **MCP identity laziness**: Identity is loaded on first MCP tool call, not at server startup, to avoid 1Password prompts when Cursor opens the project.
-6. **STDOUT reserved in MCP**: All MCP server output goes to STDERR except JSON-RPC on STDOUT.
-7. **Pre-autoload platform gate**: `environment-guard.php` runs from both entry points before the Composer autoloader and enforces the project floor (PHP 8.3+, `gd`/`json`/`posix`/`readline`). Install and self-update run `composer dump-autoload --ignore-platform-reqs`, which drops Composer's generated `platform_check.php`, so this is the *only* platform check at startup. It uses built-in functions only, and checks the project floor — not what installed dependencies require.
-8. **MCP risk is annotation-gated**: High-risk tools are exposed rather than withheld; `ToolAnnotations` drive client-side confirmation. Do not remove a tool on risk grounds alone.
+5. **Pre-autoload platform gate**: `environment-guard.php` runs from the entry point before the Composer autoloader and enforces the project floor (PHP 8.3+, `gd`/`json`/`posix`/`readline`). Install and self-update run `composer dump-autoload --ignore-platform-reqs`, which drops Composer's generated `platform_check.php`, so this is the *only* platform check at startup. It uses built-in functions only, and checks the project floor — not what installed dependencies require.
 
 ---
 
@@ -209,11 +190,10 @@ These are intentional; do not "fix" them without team discussion.
 
 ## Where to Find More
 
-- **README.md** — User-facing docs, installation, troubleshooting, MCP setup.
+- **README.md** — User-facing docs, installation, troubleshooting.
 - **GitHub Wiki** — Command documentation. See README for updating it.
 - **.agents/skills/** — Complex procedures loaded on demand:
   - `local-setup.md` — Environment setup, prerequisites, troubleshooting.
-  - `add-mcp-tool.md` — Adding MCP tools with identity, return format, annotations.
   - `connection-helpers.md` — SSH/SFTP to Pressable and WPCOM sites.
   - `fleet-scripts.md` — One-off scripts across a set of sites, on `Abstract_Fleet_Command`.
 - **.agents/subagents/** — Runbooks for repeatable tasks (e.g. `add-cli-command.md`).

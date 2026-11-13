@@ -2,7 +2,7 @@
 /**
  * Pre-autoload environment guard.
  *
- * Runs from every entry point (team51-cli.php, mcp-server.php) before the Composer autoloader,
+ * Runs from the entry point (team51-cli.php) before the Composer autoloader,
  * enforcing the project's declared floor — PHP 8.3+ and the gd/json/posix/readline extensions —
  * so an unsupported runtime fails with a clear message instead of a cryptic fatal deep in a
  * dependency. Install and self-update run `composer dump-autoload --ignore-platform-reqs`, which
