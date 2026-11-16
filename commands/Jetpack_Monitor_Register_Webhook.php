@@ -8,6 +8,7 @@ use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Output\ConsoleOutputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
@@ -79,11 +80,13 @@ final class Jetpack_Monitor_Register_Webhook extends Command {
 	/**
 	 * How many sites to send per request when chunking a large fleet. OpsOasis makes up to three
 	 * sequential wpcom calls per site inside the one request (the site record, the Monitor settings
-	 * read and the write), so a large chunk risks the request timing out with no per-site results.
+	 * read and the write), and a request that outlasts the API helper's 120-second timeout is retried
+	 * and then ends the whole run with exit 1, losing the results of the chunks before it. Ten keeps a
+	 * chunk to at most thirty calls; OpsOasis refuses more than 25 sites in one request.
 	 *
 	 * @var int
 	 */
-	private const CHUNK_SIZE = 25;
+	private const CHUNK_SIZE = 10;
 
 	/**
 	 * Exit code for a transport/auth/usage failure (a non-2xx response with no per-site results). This
@@ -253,12 +256,43 @@ final class Jetpack_Monitor_Register_Webhook extends Command {
 		}
 
 		$attempted        = \count( $this->entries );
-		$merged_results   = array();
 		$transport_failed = false;
+
+		// API_Helper reports a failed request through the shared console output, which is stdout; with
+		// --json that would land ahead of the document and make it unparseable in exactly the case
+		// `transport_error` reports, so the requests' diagnostics go to stderr until they are done.
+		global $team51_cli_output;
+		$console_output = $team51_cli_output;
+		if ( $this->json && $output instanceof ConsoleOutputInterface ) {
+			$team51_cli_output = $output->getErrorOutput();
+		}
+
+		try {
+			$merged_results = $this->send_chunks( $transport_failed );
+		} finally {
+			$team51_cli_output = $console_output;
+		}
+
+		return $this->render_results( $merged_results, $attempted, $transport_failed, $output );
+	}
+
+	// endregion
+
+	// region REQUESTS
+
+	/**
+	 * Sends the entries to OpsOasis a chunk at a time and merges the per-site results.
+	 *
+	 * @param   bool $transport_failed Set when any chunk failed before returning per-site results.
+	 *
+	 * @return  array<int, mixed> The merged per-site result objects.
+	 */
+	private function send_chunks( bool &$transport_failed ): array {
+		$merged_results = array();
 
 		$chunks = \array_chunk( $this->entries, self::CHUNK_SIZE );
 		foreach ( $chunks as $index => $chunk ) {
-			$response = API_Helper::make_opsoasis_request(
+			$response = \API_Helper::make_opsoasis_request(
 				self::ENDPOINT,
 				$this->deregister ? 'DELETE' : 'POST',
 				array( 'sites' => \array_map( array( $this, 'to_payload_item' ), $chunk ) )
@@ -282,7 +316,7 @@ final class Jetpack_Monitor_Register_Webhook extends Command {
 			}
 		}
 
-		return $this->render_results( $merged_results, $attempted, $transport_failed, $output );
+		return $merged_results;
 	}
 
 	// endregion
@@ -392,9 +426,9 @@ final class Jetpack_Monitor_Register_Webhook extends Command {
 	 * Parses a sites file into `site` / `monitor_url` entries.
 	 *
 	 * Each non-blank line is split on commas. A line of exactly two tokens whose second is an http(s)
-	 * URL is read as a single `site,monitor_url` pair; otherwise every token on the line is a separate
-	 * plain site identifier (so a comma-separated list on one line still works). Blank tokens are
-	 * dropped.
+	 * URL and whose first is not is read as a single `site,monitor_url` pair; otherwise every token on
+	 * the line is a separate plain site identifier (so a comma-separated list on one line still works,
+	 * including two sites written as URLs). Blank tokens are dropped.
 	 *
 	 * @param   string $path The file path.
 	 *
@@ -428,7 +462,9 @@ final class Jetpack_Monitor_Register_Webhook extends Command {
 				continue;
 			}
 
-			if ( 2 === \count( $tokens ) && \preg_match( '#^https?://#i', $tokens[1] ) ) {
+			// A URL in the first column is a site, not a site-and-URL pair: two sites written as URLs
+			// would otherwise enrol the first at the second's address and never enrol the second.
+			if ( 2 === \count( $tokens ) && \preg_match( '#^https?://#i', $tokens[1] ) && ! \preg_match( '#^https?://#i', $tokens[0] ) ) {
 				$entries[] = array(
 					'site'        => $tokens[0],
 					'monitor_url' => $tokens[1],
