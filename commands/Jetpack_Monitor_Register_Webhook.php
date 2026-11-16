@@ -426,9 +426,9 @@ final class Jetpack_Monitor_Register_Webhook extends Command {
 	 * Parses a sites file into `site` / `monitor_url` entries.
 	 *
 	 * Each non-blank line is split on commas. A line of exactly two tokens whose second is an http(s)
-	 * URL and whose first is not is read as a single `site,monitor_url` pair; otherwise every token on
-	 * the line is a separate plain site identifier (so a comma-separated list on one line still works,
-	 * including two sites written as URLs). Blank tokens are dropped.
+	 * URL is read as a single `site,monitor_url` pair, unless both are URLs on different hosts; otherwise
+	 * every token on the line is a separate plain site identifier (so a comma-separated list on one line
+	 * still works, including two sites written as URLs). Blank tokens are dropped.
 	 *
 	 * @param   string $path The file path.
 	 *
@@ -462,9 +462,7 @@ final class Jetpack_Monitor_Register_Webhook extends Command {
 				continue;
 			}
 
-			// A URL in the first column is a site, not a site-and-URL pair: two sites written as URLs
-			// would otherwise enrol the first at the second's address and never enrol the second.
-			if ( 2 === \count( $tokens ) && \preg_match( '#^https?://#i', $tokens[1] ) && ! \preg_match( '#^https?://#i', $tokens[0] ) ) {
+			if ( 2 === \count( $tokens ) && \preg_match( '#^https?://#i', $tokens[1] ) && $this->pairs_with( $tokens[0], $tokens[1] ) ) {
 				$entries[] = array(
 					'site'        => $tokens[0],
 					'monitor_url' => $tokens[1],
@@ -482,6 +480,28 @@ final class Jetpack_Monitor_Register_Webhook extends Command {
 
 		\fclose( $handle );
 		return $entries;
+	}
+
+	/**
+	 * Whether a sites-file line's first token is the site its second, a URL, is monitored on.
+	 *
+	 * A blog ID or a domain always is. A first token that is itself a URL is only when both share a
+	 * host: two sites written as URLs would otherwise enrol the first at the second's address and never
+	 * enrol the second.
+	 *
+	 * @param   string $site        The first token.
+	 * @param   string $monitor_url The second token, an http(s) URL.
+	 *
+	 * @return  bool
+	 */
+	private function pairs_with( string $site, string $monitor_url ): bool {
+		if ( ! \preg_match( '#^https?://#i', $site ) ) {
+			return true;
+		}
+
+		$host = \strtolower( (string) \parse_url( $site, PHP_URL_HOST ) );
+
+		return '' !== $host && \strtolower( (string) \parse_url( $monitor_url, PHP_URL_HOST ) ) === $host;
 	}
 
 	/**
