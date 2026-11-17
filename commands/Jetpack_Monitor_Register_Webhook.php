@@ -4,6 +4,7 @@ namespace WPCOMSpecialProjects\CLI\Command;
 
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Formatter\OutputFormatter;
 use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
@@ -39,13 +40,21 @@ use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
  * `error` for that site (`jetmon_webhook_foreign`) and leaves it in place, and deregistering leaves it
  * and succeeds.
  *
+ * With `--list` the command changes nothing: it issues a GET to the same endpoint and prints every URL
+ * each site's Monitor watches (up to ten), its check interval, and whose webhook it carries — `ours`,
+ * `stale` (ours, minted from an earlier secret, which OpsOasis now refuses), `foreign` (the site's own)
+ * or `none`. Neither the secret nor a site's own webhook URL is ever shown. `--raw` (which implies
+ * `--list` and `--json`) adds each site's Monitor settings as WordPress.com sent them — a site's own
+ * webhook and its alert addresses and numbers included — with only OpsOasis's secret taken out.
+ *
  * A monitored URL defaults to the site's homepage. Pass a non-homepage URL either with
  * `--monitor-url` (single site only) or as a second `site,monitor_url` column in `--sites-file`.
  *
  * Note: the OpsOasis endpoint returns HTTP 200 even when every site failed, so success is judged from
- * the per-site `results`, not the HTTP status. The service user must hold the
- * `wpcomsp_rest_jetpack_monitor_register_webhook` capability (OpsOasis grants it to the
- * administrator, developer, team51-designer and team51-tam roles) or every call 403s.
+ * the per-site `results`, not the HTTP status. The OpsOasis account the CLI signs in as (the
+ * runner's own, from load-identity.php) must hold the `wpcomsp_rest_jetpack_monitor_register_webhook`
+ * capability (OpsOasis grants it to the administrator, developer, team51-designer and team51-tam
+ * roles) or every call 403s.
  *
  * Examples:
  *   # Register two sites (homepage monitored)
@@ -63,6 +72,12 @@ use WPCOMSpecialProjects\CLI\Helper\AutocompleteTrait;
  *
  *   # Remove the webhook from a site
  *   team51 jetpack-monitor:register-webhook example.org --deregister
+ *
+ *   # Show what each site's Monitor watches, and whose webhook each URL carries
+ *   team51 jetpack-monitor:register-webhook example.org --list
+ *
+ *   # The same, with each site's Monitor settings as WordPress.com sent them
+ *   team51 jetpack-monitor:register-webhook example.org --raw
  */
 #[AsCommand( name: 'jetpack-monitor:register-webhook' )]
 final class Jetpack_Monitor_Register_Webhook extends Command {
@@ -97,6 +112,14 @@ final class Jetpack_Monitor_Register_Webhook extends Command {
 	private const EXIT_TRANSPORT = 2;
 
 	/**
+	 * How many URLs WordPress.com lets one site's Monitor watch (`JP_Monitor::MAX_URLS_TO_MONITOR_PER_BLOG`),
+	 * shown beside each site's count in `--list`.
+	 *
+	 * @var int
+	 */
+	private const MAX_MONITORED_URLS = 10;
+
+	/**
 	 * The sites to register, each `array{ site: string, monitor_url: string|null, label: string }`.
 	 * `site` is the identifier sent to OpsOasis (blog ID or domain); `monitor_url` is null for the
 	 * homepage default; `label` is a human-readable identifier for output.
@@ -125,6 +148,20 @@ final class Jetpack_Monitor_Register_Webhook extends Command {
 	 * @var bool
 	 */
 	private bool $deregister = false;
+
+	/**
+	 * Whether to list each site's monitored URLs (GET) instead of changing anything.
+	 *
+	 * @var bool
+	 */
+	private bool $list = false;
+
+	/**
+	 * Whether a listing also carries each site's Monitor settings as WordPress.com sent them.
+	 *
+	 * @var bool
+	 */
+	private bool $raw = false;
 
 	/**
 	 * Whether to skip the `--all` confirmation (for unattended runs).
@@ -162,13 +199,15 @@ final class Jetpack_Monitor_Register_Webhook extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function configure(): void {
-		$this->setDescription( 'Registers (or, with --deregister, removes) the Jetpack Monitor status-down webhook for one or more sites via OpsOasis.' )
-			->setHelp( 'Tells OpsOasis to point each site\'s Jetpack Monitor `status_down_webhook_url` at the OpsOasis receiver (or, with --deregister, to remove it). The CLI only gathers the site list and reports the per-site result; the secret and receiver URL live server-side. Both directions are idempotent and safe to re-run, and neither touches a status-down webhook the site\'s owner set. --deregister is the only way the webhook comes off a site. Requires the `wpcomsp_rest_jetpack_monitor_register_webhook` capability on the service user.' );
+		$this->setDescription( 'Registers (or, with --deregister, removes; with --list, shows) the Jetpack Monitor status-down webhook for one or more sites via OpsOasis.' )
+			->setHelp( 'Tells OpsOasis to point each site\'s Jetpack Monitor `status_down_webhook_url` at the OpsOasis receiver (or, with --deregister, to remove it). The CLI only gathers the site list and reports the per-site result; the secret and receiver URL live server-side. Both directions are idempotent and safe to re-run, and neither touches a status-down webhook the site\'s owner set. --deregister is the only way the webhook comes off a site. --list changes nothing and shows every URL each site\'s Monitor watches and whose webhook it carries. --raw prints the same as JSON with each site\'s Monitor settings as WordPress.com sent them, less the OpsOasis secret. Requires the `wpcomsp_rest_jetpack_monitor_register_webhook` capability on your OpsOasis account.' );
 
 		$this->addArgument( 'site', InputArgument::IS_ARRAY | InputArgument::OPTIONAL, 'One or more WordPress.com blog IDs and/or domains to register (homepage monitored).' )
 			->addOption( 'sites-file', null, InputOption::VALUE_REQUIRED, 'Path to a file of sites: one identifier per line, comma-separated tokens, or `site,monitor_url` rows for per-site monitored URLs.' )
 			->addOption( 'monitor-url', null, InputOption::VALUE_REQUIRED, 'Override the monitored URL. Only valid for a single site; for bulk, use the `site,monitor_url` form in --sites-file.' )
 			->addOption( 'deregister', null, InputOption::VALUE_NONE, 'Remove the OpsOasis webhook instead of registering it (issues a DELETE to the same endpoint). Idempotent: an already-clean site, or one whose webhook is its owner\'s, succeeds as a no-op.' )
+			->addOption( 'list', null, InputOption::VALUE_NONE, 'Change nothing; show every URL each site\'s Monitor watches, its check interval, and whether its webhook is ours, stale (ours, from an earlier secret), the site\'s own, or none.' )
+			->addOption( 'raw', null, InputOption::VALUE_NONE, 'With --list (which it implies), print JSON carrying each site\'s Monitor settings as WordPress.com sent them: a site\'s own webhook and alert addresses included, the OpsOasis secret taken out.' )
 			->addOption( 'all', null, InputOption::VALUE_NONE, 'Enrol the whole Jetpack fleet (gated by a confirmation). Cannot be combined with explicit sites or --sites-file.' )
 			->addOption( 'production', null, InputOption::VALUE_NONE, 'With --all, restrict to production sites (URL does not contain `staging`).' )
 			->addOption( 'staging', null, InputOption::VALUE_NONE, 'With --all, restrict to staging sites (URL contains `staging`).' )
@@ -186,6 +225,13 @@ final class Jetpack_Monitor_Register_Webhook extends Command {
 		$this->all        = (bool) $input->getOption( 'all' );
 		$this->yes        = (bool) $input->getOption( 'yes' );
 		$this->deregister = (bool) $input->getOption( 'deregister' );
+		$this->raw        = (bool) $input->getOption( 'raw' );
+		$this->list       = $this->raw || (bool) $input->getOption( 'list' );
+		$this->json       = $this->raw || $this->json;
+		if ( $this->list && $this->deregister ) {
+			$output->writeln( '<error>--list and --raw cannot be combined with --deregister.</error>' );
+			exit( 1 );
+		}
 
 		$production = (bool) $input->getOption( 'production' );
 		$staging    = (bool) $input->getOption( 'staging' );
@@ -225,6 +271,10 @@ final class Jetpack_Monitor_Register_Webhook extends Command {
 		}
 
 		if ( null !== $monitor_url ) {
+			if ( $this->list ) {
+				$output->writeln( '<error>--monitor-url does not apply to --list, which shows every monitored URL.</error>' );
+				exit( 1 );
+			}
 			if ( ! \preg_match( '#^https?://#i', $monitor_url ) ) {
 				$output->writeln( '<error>--monitor-url must be an http(s) URL.</error>' );
 				exit( 1 );
@@ -250,7 +300,7 @@ final class Jetpack_Monitor_Register_Webhook extends Command {
 			return $this->render_dry_run( $output );
 		}
 
-		if ( $this->all && ! $this->confirm_all( $input, $output ) ) {
+		if ( $this->all && ! $this->list && ! $this->confirm_all( $input, $output ) ) {
 			$output->writeln( '<comment>Command aborted by user.</comment>' );
 			return Command::FAILURE;
 		}
@@ -292,11 +342,12 @@ final class Jetpack_Monitor_Register_Webhook extends Command {
 
 		$chunks = \array_chunk( $this->entries, self::CHUNK_SIZE );
 		foreach ( $chunks as $index => $chunk ) {
-			$response = \API_Helper::make_opsoasis_request(
-				self::ENDPOINT,
-				$this->deregister ? 'DELETE' : 'POST',
-				array( 'sites' => \array_map( array( $this, 'to_payload_item' ), $chunk ) )
-			);
+			$sites    = array( 'sites' => \array_map( array( $this, 'to_payload_item' ), $chunk ) );
+			$query    = $this->raw ? $sites + array( 'raw' => 1 ) : $sites;
+			$response = $this->list
+				// A listing names only sites, so they ride the query string: a GET carries no body.
+				? \API_Helper::make_opsoasis_request( self::ENDPOINT . '?' . \http_build_query( $query ) )
+				: \API_Helper::make_opsoasis_request( self::ENDPOINT, $this->deregister ? 'DELETE' : 'POST', $sites );
 
 			// A non-2xx response (usage/auth/server error) surfaces as null; the API helper has already
 			// printed the error body. There are no per-site results for this chunk.
@@ -530,10 +581,14 @@ final class Jetpack_Monitor_Register_Webhook extends Command {
 	 * The per-site status word the endpoint reports on success, mirrored so the CLI's counts and
 	 * summary match the direction of the run.
 	 *
-	 * @return  string `deregistered` when removing, otherwise `registered`.
+	 * @return  string `listed` when listing, `deregistered` when removing, otherwise `registered`.
 	 */
 	private function success_status(): string {
-		return $this->deregister ? 'deregistered' : 'registered';
+		return match ( true ) {
+			$this->list       => 'listed',
+			$this->deregister => 'deregistered',
+			default           => 'registered',
+		};
 	}
 
 	/**
@@ -558,7 +613,7 @@ final class Jetpack_Monitor_Register_Webhook extends Command {
 			return Command::SUCCESS;
 		}
 
-		$verb = $this->deregister ? 'deregister' : 'register';
+		$verb = $this->list ? 'list' : ( $this->deregister ? 'deregister' : 'register' );
 		$output->writeln( '<fg=yellow;options=bold>--- DRY RUN: nothing will be sent ---</>' );
 		$output->writeln( "Would $verb <info>" . \count( $this->entries ) . "</info> site(s) [{$this->scope_label}]:" );
 
@@ -608,22 +663,11 @@ final class Jetpack_Monitor_Register_Webhook extends Command {
 				)
 			);
 		} else {
-			$table = new Table( $output );
-			$table->setHeaders( array( 'Site', 'Monitored URL', 'Status', 'Error' ) );
-			foreach ( $results as $result ) {
-				$status = (string) ( $result->status ?? 'unknown' );
-				$style  = $success_status === $status ? 'info' : 'error';
-				$table->addRow(
-					array(
-						(string) ( $result->site ?? '' ),
-						(string) ( $result->monitor_url ?? '' ),
-						"<$style>$status</$style>",
-						\Symfony\Component\Console\Formatter\OutputFormatter::escape( (string) ( $result->error ?? '' ) ),
-					)
-				);
+			if ( $this->list ) {
+				$this->render_listing( $results, $output );
+			} else {
+				$this->render_changes( $results, $output );
 			}
-			$table->render();
-
 			$output->writeln( \ucfirst( $success_status ) . " <info>$succeeded</info> of <info>$reported</info> site(s)." );
 			if ( $reported < $attempted ) {
 				$dropped = $attempted - $reported;
@@ -641,6 +685,89 @@ final class Jetpack_Monitor_Register_Webhook extends Command {
 			return Command::FAILURE;
 		}
 		return Command::SUCCESS;
+	}
+
+	/**
+	 * Renders what became of each site a registration or removal named.
+	 *
+	 * @param   array<int, mixed> $results The merged per-site result objects.
+	 * @param   OutputInterface   $output  The output object.
+	 *
+	 * @return  void
+	 */
+	private function render_changes( array $results, OutputInterface $output ): void {
+		$success_status = $this->success_status();
+
+		$table = new Table( $output );
+		$table->setHeaders( array( 'Site', 'Monitored URL', 'Status', 'Error' ) );
+		foreach ( $results as $result ) {
+			$status = (string) ( $result->status ?? 'unknown' );
+			$style  = $success_status === $status ? 'info' : 'error';
+			$table->addRow(
+				array(
+					(string) ( $result->site ?? '' ),
+					(string) ( $result->monitor_url ?? '' ),
+					"<$style>$status</$style>",
+					OutputFormatter::escape( (string) ( $result->error ?? '' ) ),
+				)
+			);
+		}
+		$table->render();
+	}
+
+	/**
+	 * Renders every URL each listed site's Monitor watches, one row per URL, and a site that could not be
+	 * read as one row carrying its error.
+	 *
+	 * @param   array<int, mixed> $results The merged per-site result objects.
+	 * @param   OutputInterface   $output  The output object.
+	 *
+	 * @return  void
+	 */
+	private function render_listing( array $results, OutputInterface $output ): void {
+		$table = new Table( $output );
+		$table->setHeaders( array( 'Site', 'Monitor', 'Monitored URL', 'Interval', 'Webhook' ) );
+		foreach ( $results as $result ) {
+			$site = OutputFormatter::escape( (string) ( $result->site ?? '' ) );
+			if ( 'listed' !== ( $result->status ?? '' ) ) {
+				$table->addRow( array( $site, '<error>error</error>', OutputFormatter::escape( (string) ( $result->error ?? '' ) ), '', '' ) );
+				continue;
+			}
+
+			$urls    = \is_array( $result->urls ?? null ) ? $result->urls : array();
+			$monitor = match ( $result->monitor_active ?? null ) {
+				true    => 'on',
+				false   => '<comment>off</comment>',
+				default => '?',
+			};
+			$monitor .= ' (' . \count( $urls ) . '/' . self::MAX_MONITORED_URLS . ')';
+			if ( empty( $urls ) ) {
+				$table->addRow( array( $site, $monitor, '<comment>(none)</comment>', '', '' ) );
+				continue;
+			}
+
+			foreach ( \array_values( $urls ) as $index => $url ) {
+				$interval = $url->check_interval ?? null;
+				$webhook  = (string) ( $url->webhook ?? '' );
+				$table->addRow(
+					array(
+						0 === $index ? $site : '',
+						0 === $index ? $monitor : '',
+						OutputFormatter::escape( (string) ( $url->monitor_url ?? '' ) ),
+						null === $interval ? '' : "{$interval} min",
+						match ( $webhook ) {
+							'ours'    => '<info>ours</info>',
+							'stale'   => '<error>stale</error>',
+							'foreign' => '<comment>foreign</comment>',
+							default   => OutputFormatter::escape( $webhook ),
+						},
+					)
+				);
+			}
+		}
+		$table->render();
+
+		$output->writeln( '<comment>ours: posts to OpsOasis. stale: posts to OpsOasis with an earlier secret, which it refuses; register again to fix. foreign: the site\'s own webhook, left alone. none: no webhook.</comment>' );
 	}
 
 	/**
