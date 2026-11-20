@@ -355,8 +355,20 @@ final class Pressable_Site_Clone extends Command {
 		}
 
 		// Done last because it seems to cause issues sometimes with the connection breaking off.
-		run_pressable_site_wp_cli_command( $site_clone->id, "search-replace {$this->site->url} $site_clone->url" );
+		// The bare source domain also matches admin emails, so the users tables are skipped by name: escapeshellcmd breaks a `*` glob.
+		$table_prefix = $this->get_table_prefix( $site_clone );
+		$skip_users   = \is_null( $table_prefix ) ? '' : " --skip-tables={$table_prefix}users,{$table_prefix}usermeta";
+		run_pressable_site_wp_cli_command( $site_clone->id, "search-replace {$this->site->url} $site_clone->url$skip_users" );
 		run_pressable_site_wp_cli_command( $site_clone->id, 'cache flush' );
+
+		if ( \is_null( $table_prefix ) ) {
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+			$output->writeln( "<error>⚠  Could not read the clone's table prefix, so the search-replace also changed the users tables.</error>" );
+			$output->writeln( "<error>    Admin emails on {$this->site->url} now end in $site_clone->url. To put them back, read the prefix, then replace in those two tables only:</error>" );
+			$output->writeln( "<error>    team51 pressable:run-site-wp-cli-command \"db prefix\" $site_clone->id</error>" );
+			$output->writeln( "<error>    team51 pressable:run-site-wp-cli-command \"search-replace $site_clone->url {$this->site->url} <prefix>users <prefix>usermeta\" $site_clone->id</error>" );
+			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
+		}
 
 		if ( Command::SUCCESS !== $rotate_status ) {
 			$output->writeln( '<error>════════════════════════════════════════════════════════════════</error>' );
@@ -577,12 +589,34 @@ final class Pressable_Site_Clone extends Command {
 	/**
 	 * Returns whether GitHub lists the clone's branch among the repository's branches, as connecting checks.
 	 *
-	 * @return  bool|null Null when the branches could not be read.
+	 * @return  boolean|null Null when the branches could not be read.
 	 */
 	private function is_branch_listed(): ?bool {
 		$branches = get_github_repository_branches( $this->gh_repository->name );
 
 		return \is_null( $branches ) ? null : \in_array( $this->gh_repo_branch, \array_column( $branches, 'name' ), true );
+	}
+
+	/**
+	 * Returns the clone's database table prefix.
+	 *
+	 * @param   \stdClass $site_clone The clone to ask.
+	 *
+	 * @return  string|null Null when WP-CLI does not report one.
+	 */
+	private function get_table_prefix( \stdClass $site_clone ): ?string {
+		try {
+			if ( Command::SUCCESS !== run_pressable_site_wp_cli_command( $site_clone->id, 'db prefix', true ) ) {
+				return null;
+			}
+		} catch ( \Throwable ) {
+			return null;
+		}
+
+		$output_lines = \preg_split( '/\R/', \trim( (string) ( $GLOBALS['wp_cli_output'] ?? '' ) ) );
+		$table_prefix = \end( $output_lines );
+
+		return 1 === \preg_match( '/^\w+$/', $table_prefix ) ? $table_prefix : null;
 	}
 
 	/**
