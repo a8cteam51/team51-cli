@@ -7,6 +7,10 @@ use Symfony\Component\Console\Output\OutputInterface;
 
 const SAFETY_NET_ZIP_URL = 'https://github.com/a8cteam51/safety-net/releases/latest/download/safety-net.zip';
 
+const SAFETY_NET_LATEST_RELEASE_URL = 'https://github.com/a8cteam51/safety-net/releases/latest';
+
+const SAFETY_NET_STATUS_ENDPOINT_SINCE = '1.6.0';
+
 // endregion
 
 // region API
@@ -481,19 +485,24 @@ function is_safety_net_confirmed_via_http( string $site_url, ?OutputInterface $o
  *
  * @param   SSH2|null       $ssh_connection The SSH connection to the site, if one could be established.
  * @param   OutputInterface $output         The output instance.
+ * @param   boolean         $replace        Whether to replace a copy that is already installed with the latest release.
  *
  * @return  boolean  Whether both Safety Net and its loader are in place afterwards.
  */
-function maybe_install_safety_net( ?SSH2 $ssh_connection, OutputInterface $output ): bool {
+function maybe_install_safety_net( ?SSH2 $ssh_connection, OutputInterface $output, bool $replace = false ): bool {
 	if ( is_null( $ssh_connection ) ) {
 		$output->writeln( '<error>Failed to connect to the site via SSH. Cannot install SafetyNet!</error>' );
 		return false;
 	}
 
 	$installed = is_safety_net_installed( $ssh_connection );
-	if ( true === $installed ) {
+	if ( true === $installed && ! $replace ) {
 		$output->writeln( '<comment>SafetyNet is already installed as a mu-plugin. Skipping installation...</comment>' );
 		return true;
+	}
+
+	if ( true === $installed ) {
+		$output->writeln( '<comment>Replacing the installed SafetyNet with the latest release...</comment>' );
 	}
 
 	if ( is_null( $installed ) ) {
@@ -566,6 +575,200 @@ function maybe_install_safety_net( ?SSH2 $ssh_connection, OutputInterface $outpu
 
 	$output->writeln( '<fg=green;options=bold>SafetyNet installed as a mu-plugin.</>' );
 	return true;
+}
+
+/**
+ * Installs Safety Net, retrying on a fresh SSH connection when the connection fails or drops.
+ *
+ * @param   callable        $connect      Returns a new SSH connection to the site, or null if it cannot connect.
+ * @param   OutputInterface $output       The output instance.
+ * @param   integer         $max_attempts The number of attempts, at least 1.
+ * @param   boolean         $replace      Whether to replace a copy that is already installed with the latest release.
+ *
+ * @return  boolean  Whether Safety Net is in place after the last attempt.
+ */
+function install_safety_net_with_retries( callable $connect, OutputInterface $output, int $max_attempts = 3, bool $replace = false ): bool {
+	$max_attempts = max( 1, $max_attempts );
+
+	for ( $attempt = 1; $attempt <= $max_attempts; $attempt++ ) {
+		if ( 1 < $attempt ) {
+			$delay = 10 * ( $attempt - 1 );
+			$output->writeln( "<comment>Retrying the SafetyNet installation in $delay seconds (attempt $attempt of $max_attempts).</comment>" );
+			sleep( $delay );
+		}
+
+		$ssh_connection = null;
+		try {
+			$ssh_connection = $connect();
+			if ( maybe_install_safety_net( $ssh_connection, $output, $replace ) ) {
+				return true;
+			}
+
+			// A failure on a live connection repeats on retry, and after a timeout a retry would run a second install beside the first.
+			if ( $ssh_connection?->isConnected() ) {
+				return false;
+			}
+		} catch ( \RuntimeException $exception ) {
+			$output->writeln( '<error>The SSH connection failed while installing SafetyNet: ' . \Symfony\Component\Console\Formatter\OutputFormatter::escape( $exception->getMessage() ) . '</error>' );
+		} finally {
+			$ssh_connection?->disconnect();
+		}
+	}
+
+	return false;
+}
+
+/**
+ * Returns the version of the Safety Net copy on a site, or null if the site has none or it cannot be read.
+ *
+ * @param   SSH2 $ssh_connection The SSH connection to the site.
+ *
+ * @return  string|null
+ */
+function get_installed_safety_net_version( SSH2 $ssh_connection ): ?string {
+	$plugin = get_ssh_site_root_path( $ssh_connection ) . '/wp-content/mu-plugins/safety-net/safety-net.php';
+	$header = $ssh_connection->exec( "head -c 8192 '$plugin' 2>/dev/null" );
+
+	return is_string( $header ) && preg_match( '/^[ \t\/*#@]*Version:[ \t]*([0-9][^\s]*)/mi', $header, $matches ) ? $matches[1] : null;
+}
+
+/**
+ * Returns the version of the latest Safety Net release, or null if GitHub does not answer with one.
+ *
+ * Reads the tag from the redirect of the latest-release page, which does not count against the GitHub API rate limit.
+ *
+ * @return  string|null
+ */
+function get_latest_safety_net_version(): ?string {
+	$context = stream_context_create(
+		array(
+			'http' => array(
+				'method'          => 'HEAD',
+				'timeout'         => 10,
+				'follow_location' => 0,
+				'ignore_errors'   => true,
+				'user_agent'      => 'team51-cli',
+			),
+		)
+	);
+
+	@file_get_contents( SAFETY_NET_LATEST_RELEASE_URL, false, $context ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+
+	$response_headers = function_exists( 'http_get_last_response_headers' )
+		? ( http_get_last_response_headers() ?? array() )
+		: ( $http_response_header ?? array() );
+	$location         = (string) ( array_change_key_case( parse_http_headers( $response_headers ) )['location'] ?? '' );
+
+	return preg_match( '#/releases/tag/v?([0-9][0-9A-Za-z.\-]*)$#', $location, $matches ) ? $matches[1] : null;
+}
+
+/**
+ * Sets WP_ENVIRONMENT_TYPE to development when it is production or not set and the caller approves, because Safety Net does nothing on production.
+ *
+ * @param   callable        $run_wp_cli Runs one WP-CLI command on the site and returns its output.
+ * @param   callable        $approve    Receives the current type as plain text, such as `not set` or `"production"`, and returns whether to change it.
+ * @param   OutputInterface $output     The output instance.
+ *
+ * @return  string|null  Why Safety Net can still treat the site as production, as plain text, or null if it cannot.
+ */
+function maybe_set_safety_net_environment_type( callable $run_wp_cli, callable $approve, OutputInterface $output ): ?string {
+	$current = get_wp_config_constant_json( $run_wp_cli, 'WP_ENVIRONMENT_TYPE' );
+	if ( false === $current ) {
+		return 'The command could not read WP_ENVIRONMENT_TYPE.';
+	}
+
+	// Safety Net also accepts sandbox, dev and develop, which core reads as production.
+	$value = null === $current ? null : json_decode( $current );
+	if ( \in_array( $value, array( 'local', 'development', 'staging', 'sandbox', 'dev', 'develop' ), true ) ) {
+		$output->writeln( "<comment>WP_ENVIRONMENT_TYPE is already $value.</comment>" );
+		return null;
+	}
+
+	$before = null === $current ? 'not set' : $current;
+	if ( true !== $approve( $before ) ) {
+		return "WP_ENVIRONMENT_TYPE is $before.\nThe command did not change it.";
+	}
+
+	$problem = set_wp_config_constant( $run_wp_cli, 'WP_ENVIRONMENT_TYPE', 'development' );
+	if ( null !== $problem ) {
+		return "WP_ENVIRONMENT_TYPE is $before.\nThe command could not set it to development: $problem.";
+	}
+
+	$output->writeln( '<fg=green;options=bold>Set WP_ENVIRONMENT_TYPE to development. It was ' . \Symfony\Component\Console\Formatter\OutputFormatter::escape( $before ) . '.</>' );
+	return null;
+}
+
+/**
+ * Finds the single 1Password login the CLI stored for a site, if there is exactly one.
+ *
+ * @param   string $site_url The URL of the site.
+ *
+ * @return  object|null
+ */
+function find_site_1password_login( string $site_url ): ?object {
+	if ( '' === trim( $site_url ) ) {
+		return null;
+	}
+
+	try {
+		// An earlier search in this process can have cached the list before the login was created.
+		$items = search_1password_items(
+			static fn( object $op_item ) => is_1password_item_url_match( $op_item, $site_url ),
+			array(
+				'categories' => 'login',
+				'tags'       => 'team51-cli',
+			),
+			array( 'cache' => false )
+		);
+	} catch ( \Throwable ) {
+		return null;
+	}
+
+	return is_array( $items ) && 1 === count( $items ) ? reset( $items ) : null;
+}
+
+/**
+ * Prints the checklist for a clone that did not finish cleanly.
+ *
+ * @param   OutputInterface $output               The output instance.
+ * @param   string          $platform             Either `pressable` or `wpcom`.
+ * @param   string          $site_id              The ID of the clone.
+ * @param   string          $site_url             The URL of the clone.
+ * @param   boolean         $safety_net_confirmed Whether Safety Net confirmed the clone is safe.
+ *
+ * @return  void
+ */
+function print_failed_clone_cleanup( OutputInterface $output, string $platform, string $site_id, string $site_url, bool $safety_net_confirmed ): void {
+	$host_name = 'pressable' === $platform ? 'Pressable' : 'WordPress.com';
+	$wpcom     = 'wpcom' === $platform ? ' --wpcom' : '';
+	$has_url   = '' !== trim( $site_url );
+	$step      = 1;
+	$lines     = array(
+		$has_url ? "Site: $site_url (ID $site_id)" : "Site ID: $site_id",
+		'',
+		'If you will not keep the clone, clean it up now. Do the steps in this order.',
+		'If you delete the site before Safety Net is active, it can email users or remove payment tokens.',
+	);
+
+	if ( ! $safety_net_confirmed ) {
+		array_push( $lines, '', "$step. Install Safety Net:", array( "team51 safety-net:install $site_id$wpcom" ) );
+		++$step;
+	}
+
+	array_push( $lines, '', "$step. Delete the site in $host_name yourself. The CLI does not delete it." );
+	++$step;
+
+	$op_login = find_site_1password_login( $site_url );
+	array_push(
+		$lines,
+		'',
+		"$step. Remove the 1Password entry for the clone:",
+		is_null( $op_login )
+			? '   Search 1Password for ' . ( $has_url ? $site_url : 'the clone URL' ) . ', tag team51-cli.'
+			: array( "op item delete {$op_login->id} --archive" )
+	);
+
+	write_console_box( $output, 'yellow', '⚠ The clone did not finish cleanly', $lines );
 }
 
 // endregion

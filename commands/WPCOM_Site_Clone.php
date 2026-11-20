@@ -204,6 +204,29 @@ final class WPCOM_Site_Clone extends Command {
 	 * @noinspection PhpUnhandledExceptionInspection
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
+		$created_site = null;
+		$status       = Command::FAILURE;
+
+		try {
+			$status = $this->run_clone( $output, $created_site );
+		} finally {
+			if ( Command::SUCCESS !== $status && ! \is_null( $created_site ) ) {
+				print_failed_clone_cleanup( $output, 'wpcom', (string) $created_site->id, $created_site->url, $created_site->safety_net_confirmed );
+			}
+		}
+
+		return $status;
+	}
+
+	/**
+	 * Runs the clone.
+	 *
+	 * @param   OutputInterface $output The output object.
+	 * @param   \stdClass|null  $created_site  Set to the clone's ID, URL and Safety Net state as soon as the clone exists.
+	 *
+	 * @return  integer
+	 */
+	private function run_clone( OutputInterface $output, ?\stdClass &$created_site ): int {
 		if ( empty( list_1password_vaults() ) ) {
 			$output->writeln( '<error>The 1Password CLI is not signed in or not responding, and the staging site needs it to store its concierge password. Sign in with `op signin` and run the command again. Aborting!</error>' );
 			return Command::FAILURE;
@@ -226,6 +249,12 @@ final class WPCOM_Site_Clone extends Command {
 			$output->writeln( "<error>$staging_site->error</error>" );
 			return Command::FAILURE;
 		}
+
+		$created_site = (object) array(
+			'id'                   => $staging_site->id,
+			'url'                  => (string) $staging_site_https_url,
+			'safety_net_confirmed' => false,
+		);
 
 		$transfer = wait_until_wpcom_site_transfer_state( $staging_site->id, 'complete', $output );
 		if ( \is_null( $transfer ) ) {
@@ -283,16 +312,8 @@ final class WPCOM_Site_Clone extends Command {
 		if ( $this->skip_safety_net ) {
 			$output->writeln( '<comment>Skipping the installation of SafetyNet as a mu-plugin.</comment>' );
 		} else {
-			// The host can close a connection left idle since the SSH wait, so the install opens its own.
-			$ssh_connection = null;
-			try {
-				$ssh_connection = \WPCOM_Connection_Helper::get_ssh_connection( $staging_site->id );
-				maybe_install_safety_net( $ssh_connection, $output );
-			} catch ( \RuntimeException $exception ) {
-				$output->writeln( "<error>The SSH connection failed while installing SafetyNet: {$exception->getMessage()}</error>" );
-			} finally {
-				$ssh_connection?->disconnect();
-			}
+			// The host can close a connection left idle since the SSH wait, so each attempt opens its own.
+			install_safety_net_with_retries( static fn() => \WPCOM_Connection_Helper::get_ssh_connection( (string) $staging_site->id ), $output );
 		}
 
 		$deployment_failed = false;
@@ -359,6 +380,8 @@ final class WPCOM_Site_Clone extends Command {
 		if ( $this->keep_data && ! $keep_data_applied ) {
 			$output->writeln( "<error>The source site's users, orders and subscriptions were NOT kept on the staging site: the request to keep them could not be applied.</error>" );
 		}
+
+		$created_site->safety_net_confirmed = true === $safety_net_installed;
 
 		if ( true !== $safety_net_installed ) {
 			$headline = \is_null( $safety_net_installed )
