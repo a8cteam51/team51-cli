@@ -2,10 +2,12 @@
 
 use Symfony\Component\Console\Exception\ExceptionInterface;
 use Symfony\Component\Console\Formatter\OutputFormatter;
+use Symfony\Component\Console\Helper\Helper;
 use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Terminal;
 use Symfony\Component\EventDispatcher\GenericEvent;
 use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Process\Process;
@@ -412,6 +414,37 @@ function console_writeln( string $message, int $verbosity = 0 ): void {
 	if ( $verbosity <= $team51_cli_output->getVerbosity() ) {
 		$team51_cli_output->writeln( $message );
 	}
+}
+
+/**
+ * Writes a message inside a colored frame, so that it stands out from the command output around it.
+ *
+ * @param   OutputInterface $output The output instance.
+ * @param   string          $color  The color of the frame and the title, such as red or yellow.
+ * @param   string          $title  The title, written into the top border.
+ * @param   array           $lines  Plain-text paragraphs, wrapped to fit. An empty string adds a blank line. A nested array holds lines to copy, such as commands, which are never wrapped.
+ *
+ * @return  void
+ */
+function write_console_box( OutputInterface $output, string $color, string $title, array $lines ): void {
+	$width = min( 88, max( 40, ( new Terminal() )->getWidth() ) );
+	$edge  = "<fg=$color>│</>";
+
+	$output->writeln( '' );
+	$output->writeln( "<fg=$color;options=bold>╭─ " . OutputFormatter::escape( $title ) . ' ' . str_repeat( '─', max( 2, $width - Helper::width( $title ) - 4 ) ) . '</>' );
+	foreach ( $lines as $line ) {
+		if ( is_array( $line ) ) {
+			foreach ( $line as $literal ) {
+				$output->writeln( "$edge    <options=bold>" . OutputFormatter::escape( (string) $literal ) . '</>' );
+			}
+			continue;
+		}
+
+		foreach ( explode( "\n", wordwrap( (string) $line, $width - 2 ) ) as $part ) {
+			$output->writeln( '' === $part ? $edge : "$edge " . OutputFormatter::escape( $part ) );
+		}
+	}
+	$output->writeln( "<fg=$color;options=bold>╰" . str_repeat( '─', $width - 1 ) . '</>' );
 }
 
 /**

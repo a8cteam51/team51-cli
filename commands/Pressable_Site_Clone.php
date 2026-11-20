@@ -251,6 +251,29 @@ final class Pressable_Site_Clone extends Command {
 	 * @noinspection PhpUnhandledExceptionInspection
 	 */
 	protected function execute( InputInterface $input, OutputInterface $output ): int {
+		$created_site = null;
+		$status       = Command::FAILURE;
+
+		try {
+			$status = $this->run_clone( $output, $created_site );
+		} finally {
+			if ( Command::SUCCESS !== $status && ! \is_null( $created_site ) ) {
+				print_failed_clone_cleanup( $output, 'pressable', (string) $created_site->id, $created_site->url, $created_site->safety_net_confirmed );
+			}
+		}
+
+		return $status;
+	}
+
+	/**
+	 * Runs the clone.
+	 *
+	 * @param   OutputInterface $output The output object.
+	 * @param   \stdClass|null  $created_site  Set to the clone's ID, URL and Safety Net state as soon as the clone exists.
+	 *
+	 * @return  integer
+	 */
+	private function run_clone( OutputInterface $output, ?\stdClass &$created_site ): int {
 		if ( empty( list_1password_vaults() ) ) {
 			$output->writeln( '<error>The 1Password CLI is not signed in or not responding, and the clone needs it to store its concierge password. Sign in with `op signin` and run the command again. Aborting!</error>' );
 			return Command::FAILURE;
@@ -266,6 +289,12 @@ final class Pressable_Site_Clone extends Command {
 			return Command::FAILURE;
 		}
 
+		$created_site = (object) array(
+			'id'                   => $site_clone->id,
+			'url'                  => (string) ( $site_clone->url ?? '' ),
+			'safety_net_confirmed' => false,
+		);
+
 		$site_clone = wait_on_pressable_site_state( $site_clone->id, 'deploying', $output );
 		if ( \is_null( $site_clone ) ) {
 			$output->writeln( '<error>Failed to check on site deployment status.</error>' );
@@ -277,6 +306,8 @@ final class Pressable_Site_Clone extends Command {
 			$output->writeln( '<error>Failed to check on site deployment status.</error>' );
 			return Command::FAILURE;
 		}
+
+		$created_site->url = (string) ( $site_clone->url ?? $created_site->url );
 
 		// A clone does not always inherit the concierge collaborator, and without it every SSH and SFTP
 		// connection below fails with `SFTP user not found.`
@@ -326,16 +357,8 @@ final class Pressable_Site_Clone extends Command {
 		if ( $this->skip_safety_net ) {
 			$output->writeln( '<comment>Skipping the installation of SafetyNet as a mu-plugin.</comment>' );
 		} else {
-			// The host can close a connection left idle since the SSH wait, so the install opens its own.
-			$ssh_connection = null;
-			try {
-				$ssh_connection = \Pressable_Connection_Helper::get_ssh_connection( $site_clone->id );
-				maybe_install_safety_net( $ssh_connection, $output );
-			} catch ( \RuntimeException $exception ) {
-				$output->writeln( "<error>The SSH connection failed while installing SafetyNet: {$exception->getMessage()}</error>" );
-			} finally {
-				$ssh_connection?->disconnect();
-			}
+			// The host can close a connection left idle since the SSH wait, so each attempt opens its own.
+			install_safety_net_with_retries( static fn() => \Pressable_Connection_Helper::get_ssh_connection( (string) $site_clone->id ), $output );
 		}
 
 		$connect_problem = null;
@@ -403,6 +426,8 @@ final class Pressable_Site_Clone extends Command {
 		if ( $this->keep_data && ! $keep_data_applied ) {
 			$output->writeln( "<error>The source site's users, orders and subscriptions were NOT kept on the clone: the request to keep them could not be applied.</error>" );
 		}
+
+		$created_site->safety_net_confirmed = true === $safety_net_installed;
 
 		if ( true !== $safety_net_installed ) {
 			$headline = \is_null( $safety_net_installed )
