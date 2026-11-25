@@ -204,10 +204,11 @@ final class Fleet_Exposed_Files_Quarantine extends Abstract_Fleet_Command {
 		$bytes   = 0;
 
 		$problems = array();
+		$live     = $ssh; // Replaced by a fresh connection if the server drops this one during a long download.
 		try {
 			foreach ( $paths as $path ) {
 				try {
-					[ $outcome, $size ] = $this->handle_file( $site, $ssh, $sftp, $platform, $root, $host, $base, $path );
+					[ $outcome, $size ] = $this->handle_file( $site, $live, $sftp, $platform, $root, $host, $base, $path );
 					$message            = 'still-served' === $outcome ? 'deleted, but still served after an edge cache purge' : '';
 				} catch ( \Throwable $e ) {
 					[ $outcome, $size, $message ] = array( 'failed', 0, $e->getMessage() );
@@ -223,6 +224,9 @@ final class Fleet_Exposed_Files_Quarantine extends Abstract_Fleet_Command {
 			}
 		} finally {
 			$sftp?->disconnect();
+			if ( $live !== $ssh ) {
+				$live->disconnect();
+			}
 		}
 
 		$failed   = ( $tally['failed'] ?? 0 ) + ( $tally['still-served'] ?? 0 );
@@ -257,7 +261,7 @@ final class Fleet_Exposed_Files_Quarantine extends Abstract_Fleet_Command {
 	 * Copies, verifies and removes one file.
 	 *
 	 * @param   \stdClass $site     The fleet site record.
-	 * @param   SSH2      $ssh      The open SSH connection.
+	 * @param   SSH2      $ssh      The SSH connection, replaced here if the server has dropped it.
 	 * @param   SFTP|null $sftp     The SFTP connection, opened on first use and reused for the site.
 	 * @param   string    $platform The site's platform.
 	 * @param   string    $root     The web root as SSH sees it.
@@ -269,7 +273,7 @@ final class Fleet_Exposed_Files_Quarantine extends Abstract_Fleet_Command {
 	 *
 	 * @return  array{ 0: string, 1: int } The outcome (`gone`, `would-download`, `would-remove`, `downloaded`, `removed`, `still-served`) and the file's size.
 	 */
-	private function handle_file( \stdClass $site, SSH2 $ssh, ?SFTP &$sftp, string $platform, string $root, string $host, string $base, string $path ): array {
+	private function handle_file( \stdClass $site, SSH2 &$ssh, ?SFTP &$sftp, string $platform, string $root, string $host, string $base, string $path ): array {
 		$refusal = $this->refusal( $path );
 		if ( null !== $refusal ) {
 			throw new \RuntimeException( $refusal );
@@ -277,7 +281,8 @@ final class Fleet_Exposed_Files_Quarantine extends Abstract_Fleet_Command {
 
 		// Every command starts in the web root with the path in $f, quoted once here.
 		$in_root = 'cd ' . \escapeshellarg( $root ) . ' && f=' . \escapeshellarg( $path );
-		$facts   = $this->parse_tagged(
+		$this->ensure_ssh( $site, $platform, $ssh );
+		$facts = $this->parse_tagged(
 			$this->exec(
 				$ssh,
 				"$in_root && if [ -L \"\$f\" ]; then echo STATE=symlink; elif [ ! -e \"\$f\" ]; then echo STATE=missing; elif [ ! -f \"\$f\" ]; then echo STATE=not-a-file; else echo STATE=file; echo SIZE=\$(stat -c %s -- \"\$f\")"
@@ -308,6 +313,8 @@ final class Fleet_Exposed_Files_Quarantine extends Abstract_Fleet_Command {
 			return array( 'downloaded', $size );
 		}
 
+		// The SSH connection sat idle for the whole download, and servers drop idle connections.
+		$this->ensure_ssh( $site, $platform, $ssh );
 		$gone = $this->exec( $ssh, "$in_root && rm -f -- \"\$f\" && [ ! -e \"\$f\" ] && echo GONE=1" );
 		if ( 'GONE=1' !== $gone['output'] ) {
 			$this->record( $site, $path, $size, $sha, $local, false, '' );
@@ -355,27 +362,27 @@ final class Fleet_Exposed_Files_Quarantine extends Abstract_Fleet_Command {
 			throw new \RuntimeException( 'not enough free disk space for ' . $this->human_size( $size ) );
 		}
 
-		if ( null === $sftp ) {
-			// The same identifier the SSH connection used, so the cached credentials are reused and the
-			// password is not rotated a second time.
-			$sftp = match ( $platform ) {
-				self::PLATFORM_WPCOM     => \WPCOM_Connection_Helper::get_sftp_connection( (string) $site->userblog_id ),
-				self::PLATFORM_PRESSABLE => \Pressable_Connection_Helper::get_sftp_connection( $this->pressable_identifier( $site ) ),
-			};
-			if ( null === $sftp ) {
-				throw new \RuntimeException( 'could not open an SFTP connection' );
-			}
-			$sftp->setTimeout( self::SSH_TIMEOUT );
-		}
-
-		$remote = $this->sftp_path( $sftp, $path );
 		if ( ! \is_dir( \dirname( $local ) ) && ! \mkdir( \dirname( $local ), 0700, true ) ) {
 			throw new \RuntimeException( 'could not create the local folder' );
 		}
 
+		// Two attempts, reconnecting in between, since the SFTP connection can also be dropped while idle.
 		$partial = "$local.part";
-		if ( ! $sftp->get( $remote, $partial ) ) {
-			\is_file( $partial ) && \unlink( $partial );
+		$fetched = false;
+		for ( $attempt = 1; $attempt <= 2 && ! $fetched; $attempt++ ) {
+			if ( null === $sftp || ! $this->is_sftp_alive( $sftp ) ) {
+				$sftp = $this->open_connection( $site, $platform, true );
+			}
+			try {
+				$fetched = (bool) $sftp->get( $this->sftp_path( $sftp, $path ), $partial );
+			} catch ( \Throwable ) {
+				$fetched = false;
+			}
+			if ( ! $fetched && \is_file( $partial ) ) {
+				\unlink( $partial );
+			}
+		}
+		if ( ! $fetched ) {
 			throw new \RuntimeException( 'the SFTP download failed' );
 		}
 		\chmod( $partial, 0600 );
@@ -389,6 +396,67 @@ final class Fleet_Exposed_Files_Quarantine extends Abstract_Fleet_Command {
 		}
 
 		return $local;
+	}
+
+	/**
+	 * Replaces the SSH connection with a fresh one if the server has dropped it.
+	 *
+	 * @param   \stdClass $site     The fleet site record.
+	 * @param   string    $platform The site's platform.
+	 * @param   SSH2      $ssh      The connection, replaced in place.
+	 *
+	 * @return  void
+	 */
+	private function ensure_ssh( \stdClass $site, string $platform, SSH2 &$ssh ): void {
+		try {
+			$alive = 'OK' === $this->exec( $ssh, 'echo OK' )['output'];
+		} catch ( \Throwable ) {
+			$alive = false;
+		}
+
+		if ( ! $alive ) {
+			$ssh = $this->open_connection( $site, $platform, false );
+		}
+	}
+
+	/**
+	 * Whether an SFTP connection still answers.
+	 *
+	 * @param   SFTP $sftp The connection.
+	 *
+	 * @return  boolean
+	 */
+	private function is_sftp_alive( SFTP $sftp ): bool {
+		try {
+			return $sftp->isConnected() && false !== $sftp->stat( '.' );
+		} catch ( \Throwable ) {
+			return false;
+		}
+	}
+
+	/**
+	 * Opens a connection with the identifier the base class used, so the cached credentials are reused
+	 * and the site's password is not rotated again.
+	 *
+	 * @param   \stdClass $site     The fleet site record.
+	 * @param   string    $platform The site's platform.
+	 * @param   bool      $sftp     Whether to open SFTP rather than SSH.
+	 *
+	 * @throws  \RuntimeException If the connection cannot be opened.
+	 *
+	 * @return  SSH2 An SFTP connection when $sftp is true.
+	 */
+	private function open_connection( \stdClass $site, string $platform, bool $sftp ): SSH2 {
+		$connection = match ( $platform ) {
+			self::PLATFORM_WPCOM     => $sftp ? \WPCOM_Connection_Helper::get_sftp_connection( (string) $site->userblog_id ) : \WPCOM_Connection_Helper::get_ssh_connection( (string) $site->userblog_id ),
+			self::PLATFORM_PRESSABLE => $sftp ? \Pressable_Connection_Helper::get_sftp_connection( $this->pressable_identifier( $site ) ) : \Pressable_Connection_Helper::get_ssh_connection( $this->pressable_identifier( $site ) ),
+		};
+		if ( null === $connection ) {
+			throw new \RuntimeException( 'could not ' . ( $sftp ? 'open an SFTP' : 'reopen the SSH' ) . ' connection' );
+		}
+		$connection->setTimeout( self::SSH_TIMEOUT );
+
+		return $connection;
 	}
 
 	/**
