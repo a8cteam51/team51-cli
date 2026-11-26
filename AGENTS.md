@@ -50,7 +50,7 @@ team51-cli/
 │   ├── functions-*.php           # Service-specific (1password, deployhq, github, jetpack, pressable, wporg, wpcom)
 │   ├── functions-pressable-deployignore.php # Pressable's .deployignore matching, the allowlist block and its checks; wp-content listing and snapshots over SSH; the pre-connect check
 │   ├── parallel-process.php
-│   ├── poseidon-review-drivers.php # Model providers for poseidon:pr-review (Anthropic, OpenAI through Codex, LM Studio) and their setup instructions
+│   ├── poseidon-review-drivers.php # Model providers for poseidon:pr-review (Anthropic, OpenAI through Codex, xAI through Grok Build, LM Studio), their setup instructions, and the `--model` completion values
 │   ├── autocomplete-trait.php
 │   ├── export-trait.php         # --export / --export-format / --export-exclude for commands that output a table
 │   ├── terminal-question-helper.php # Question helper that discards keys typed before a question (registered in team51-cli.php)
@@ -216,4 +216,5 @@ These are intentional; do not "fix" them without team discussion.
   - `add-mcp-tool.md` — Adding MCP tools with identity, return format, annotations.
   - `connection-helpers.md` — SSH/SFTP to Pressable and WPCOM sites.
   - `fleet-scripts.md` — One-off scripts across a set of sites, on `Abstract_Fleet_Command`.
+  - `poseidon-pr-review-setup.md` — Install and sign-in steps for the `claude`, `codex`, `grok` and LM Studio providers of `poseidon:pr-review`.
 - **.agents/subagents/** — Runbooks for repeatable tasks (e.g. `add-cli-command.md`).

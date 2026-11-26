@@ -180,9 +180,10 @@ abstract class Claude_Code_Review_Driver implements Review_Driver {
 	/**
 	 * Creates the driver.
 	 *
-	 * @param string $model The model ID.
+	 * @param string $model  The model ID.
+	 * @param string $effort The reasoning effort.
 	 */
-	public function __construct( protected readonly string $model ) {}
+	public function __construct( protected readonly string $model, protected readonly string $effort = Review_Drivers::DEFAULT_EFFORT ) {}
 
 	/**
 	 * {@inheritDoc}
@@ -254,6 +255,7 @@ abstract class Claude_Code_Review_Driver implements Review_Driver {
 				$instructions_file,
 				'--model',
 				$this->model,
+				...$this->effort_arguments(),
 				'--max-turns',
 				(string) $max_turns,
 				'--restricted',
@@ -325,6 +327,15 @@ abstract class Claude_Code_Review_Driver implements Review_Driver {
 		}
 
 		return null;
+	}
+
+	/**
+	 * The arguments that set the reasoning effort.
+	 *
+	 * @return string[]
+	 */
+	protected function effort_arguments(): array {
+		return array( '--effort', $this->effort );
 	}
 
 	/**
@@ -426,22 +437,18 @@ final class LM_Studio_Review_Driver extends Claude_Code_Review_Driver {
 			);
 		}
 
-		$models = $this->fetch_models();
+		$models = self::fetch_models();
 		if ( null === $models ) {
 			return null === Review_Drivers::command_output( array( 'lms', 'version' ) ) ? $this->lm_studio_missing_problem() : $this->server_down_problem();
 		}
 
-		$usable = array();
-		$model  = null;
+		$model = null;
 		foreach ( $models as $candidate ) {
-			$id = (string) ( $candidate['id'] ?? '' );
-			if ( $id === $this->model ) {
+			if ( ( $candidate['id'] ?? '' ) === $this->model ) {
 				$model = $candidate;
 			}
-			if ( in_array( 'tool_use', (array) ( $candidate['capabilities'] ?? array() ), true ) && ! preg_match( self::BLOCKED_MODELS, $id ) ) {
-				$usable[] = "--model=lmstudio/$id";
-			}
 		}
+		$usable = array_map( static fn( string $id ): string => "--model=lmstudio/$id", self::usable_models( $models ) );
 
 		if ( null === $model ) {
 			return new Review_Problem(
@@ -508,6 +515,14 @@ final class LM_Studio_Review_Driver extends Claude_Code_Review_Driver {
 	/**
 	 * {@inheritDoc}
 	 */
+	protected function effort_arguments(): array {
+		// Local models do not share one meaning for the effort levels.
+		return array();
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
 	protected function environment(): array {
 		$environment = array(
 			'ANTHROPIC_BASE_URL'                       => self::BASE_URL,
@@ -527,13 +542,15 @@ final class LM_Studio_Review_Driver extends Claude_Code_Review_Driver {
 	/**
 	 * Lists the models that LM Studio knows about, or returns null if the server is not reachable.
 	 *
+	 * @param float $timeout The number of seconds to wait for the server.
+	 *
 	 * @return array<int, array<string, mixed>>|null
 	 */
-	private function fetch_models(): ?array {
+	public static function fetch_models( float $timeout = 3 ): ?array {
 		$context = stream_context_create(
 			array(
 				'http' => array(
-					'timeout'       => 3,
+					'timeout'       => $timeout,
 					'ignore_errors' => true,
 				),
 			)
@@ -542,6 +559,25 @@ final class LM_Studio_Review_Driver extends Claude_Code_Review_Driver {
 		$data    = false === $body ? null : json_decode( $body, true );
 
 		return is_array( $data['data'] ?? null ) ? $data['data'] : null;
+	}
+
+	/**
+	 * The IDs of the listed models that can run a review.
+	 *
+	 * @param array<int, array<string, mixed>> $models The models that LM Studio lists.
+	 *
+	 * @return string[]
+	 */
+	public static function usable_models( array $models ): array {
+		$usable = array();
+		foreach ( $models as $candidate ) {
+			$id = (string) ( $candidate['id'] ?? '' );
+			if ( in_array( 'tool_use', (array) ( $candidate['capabilities'] ?? array() ), true ) && ! preg_match( self::BLOCKED_MODELS, $id ) ) {
+				$usable[] = $id;
+			}
+		}
+
+		return $usable;
 	}
 
 	/**
@@ -602,9 +638,10 @@ final class Codex_Review_Driver implements Review_Driver {
 	/**
 	 * Creates the driver.
 	 *
-	 * @param string $model The model ID.
+	 * @param string $model  The model ID.
+	 * @param string $effort The reasoning effort.
 	 */
-	public function __construct( private readonly string $model ) {}
+	public function __construct( private readonly string $model, private readonly string $effort = Review_Drivers::DEFAULT_EFFORT ) {}
 
 	/**
 	 * {@inheritDoc}
@@ -671,7 +708,7 @@ final class Codex_Review_Driver implements Review_Driver {
 		}
 
 		// Codex names ChatGPT sign-ins in this rejection, so an API key sign-in skips the check.
-		$models = $this->model_catalog();
+		$models = self::model_catalog();
 		if ( array() !== $models && ! isset( $models[ $this->model ] ) && str_contains( (string) $this->account_status(), 'ChatGPT' ) ) {
 			return $this->model_problem();
 		}
@@ -719,6 +756,8 @@ final class Codex_Review_Driver implements Review_Driver {
 				'never',
 				'--output-last-message',
 				$this->result_file,
+				'-c',
+				'model_reasoning_effort="' . $this->effort . '"',
 				'-c',
 				'approval_policy="never"',
 				'-c',
@@ -824,7 +863,7 @@ final class Codex_Review_Driver implements Review_Driver {
 	 *
 	 * @return array<string, boolean> An empty array if the catalog cannot be read.
 	 */
-	private function model_catalog(): array {
+	public static function model_catalog(): array {
 		$catalog = json_decode( (string) Review_Drivers::command_output( array( 'codex', 'debug', 'models' ) ), true );
 
 		$models = array();
@@ -845,7 +884,7 @@ final class Codex_Review_Driver implements Review_Driver {
 	 * @return Review_Problem
 	 */
 	private function model_problem( array $details = array() ): Review_Problem {
-		$listed = array_keys( array_filter( $this->model_catalog() ) );
+		$listed = array_keys( array_filter( self::model_catalog() ) );
 		$step   = array() === $listed
 			? array( 'Find a model ID with `codex debug models`, and use it as `--model=openai/<id>`.' )
 			: array(
@@ -886,6 +925,279 @@ final class Codex_Review_Driver implements Review_Driver {
 }
 
 /**
+ * Runs the review on xAI's hosted models through the Grok Build CLI.
+ */
+final class Grok_Review_Driver implements Review_Driver {
+	/**
+	 * The settings that keep the user's and the repository's Claude, Cursor, and Grok add-ons out of the run.
+	 */
+	private const ENVIRONMENT = array(
+		'GROK_DISABLE_AUTOUPDATER'   => '1',
+		'GROK_MEMORY'                => '0',
+		'GROK_SUBAGENTS'             => '0',
+		'GROK_CLAUDE_AGENTS_ENABLED' => '0',
+		'GROK_CLAUDE_RULES_ENABLED'  => '0',
+		'GROK_CLAUDE_MCPS_ENABLED'   => '0',
+		'GROK_CLAUDE_HOOKS_ENABLED'  => '0',
+		'GROK_CLAUDE_SKILLS_ENABLED' => '0',
+		'GROK_CURSOR_RULES_ENABLED'  => '0',
+		'GROK_CURSOR_MCPS_ENABLED'   => '0',
+		'GROK_CURSOR_HOOKS_ENABLED'  => '0',
+		'GROK_CURSOR_SKILLS_ENABLED' => '0',
+	);
+
+	/**
+	 * Creates the driver.
+	 *
+	 * @param string $model  The model ID.
+	 * @param string $effort The reasoning effort.
+	 */
+	public function __construct( private readonly string $model, private readonly string $effort = Review_Drivers::DEFAULT_EFFORT ) {}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	public function label(): string {
+		return $this->model;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	public function destination(): string {
+		return 'xAI';
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	public function consent_key(): ?string {
+		return 'xai';
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	public function account_status(): ?string {
+		// The Grok CLI has no status command. A saved sign-in takes precedence over an API key.
+		if ( is_file( $this->home() . '/auth.json' ) ) {
+			return 'signed in with `grok login`';
+		}
+
+		return $this->has_api_key() ? 'API key from the environment' : null;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	public function preflight(): ?Review_Problem {
+		if ( null === Review_Drivers::command_output( array( 'grok', '--version' ) ) ) {
+			return new Review_Problem(
+				'The `grok` CLI is not installed',
+				'Reviews on xAI models run through the Grok Build CLI, with your own xAI account.',
+				array(
+					array( 'Install the Grok Build CLI. Use one of these commands:', array( 'curl -fsSL https://x.ai/cli/install.sh | bash', 'npm install --global @xai-official/grok' ) ),
+					array( 'Sign in. Use an Enterprise or paid plan:', array( 'grok login' ) ),
+					array( 'Check the model list:', array( 'grok models' ) ),
+				),
+				'Help me install the xAI Grok Build CLI. Ask me before you install software. Run `npm install --global @xai-official/grok`, or the install script from https://x.ai/cli/install.sh. Confirm with `grok --version`. Then ask me to run `grok login`, because it opens a browser and needs an Enterprise or paid plan. Finish with `grok models`. Do not run the review.'
+			);
+		}
+
+		if ( null === $this->account_status() ) {
+			return $this->login_problem();
+		}
+
+		return null;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	public function default_timeout(): int {
+		return 1200;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	public function agent_rules( bool $has_checkout ): string {
+		$rules = 'The Read, Grep, Glob, Write, and Bash tools named above do not exist in this run. Inspect files with the `read_file`, `grep`, and `list_dir` tools. There is no shell, so `git` does not work in this run. Use the supplied `diff.patch` and `pr.json`. The sandbox blocks files outside the working directory.';
+		if ( $has_checkout ) {
+			$rules .= ' The working directory contains the PR version of the files.';
+		}
+
+		return $rules;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	public function create_process( string $instructions, string $task, string $scratch_dir, string $work_dir, int $max_turns, bool $has_checkout ): Process {
+		$home = $this->home();
+
+		// Without `--trust`, the CLI does not load the permission rules, instructions, and skills of the PR's repository.
+		$process = new Process(
+			array(
+				'grok',
+				'-p',
+				$task,
+				'--rules',
+				$instructions,
+				'--model',
+				$this->model,
+				'--reasoning-effort',
+				$this->effort,
+				'--cwd',
+				$work_dir,
+				'--max-turns',
+				(string) $max_turns,
+				'--output-format',
+				'json',
+				'--sandbox',
+				'strict',
+				'--permission-mode',
+				'dontAsk',
+				'--tools',
+				'read_file,grep,list_dir',
+				'--disallowed-tools',
+				'run_terminal_cmd,search_replace,web_search,web_fetch,Agent',
+				'--deny',
+				'MCPTool',
+				'--deny',
+				'WebFetch',
+				'--deny',
+				"Read($home/**)",
+				'--deny',
+				"Grep($home/**)",
+				'--disable-web-search',
+				'--no-subagents',
+				'--no-plan',
+				'--no-auto-update',
+			),
+			$work_dir,
+			self::ENVIRONMENT + Review_Drivers::REMOVED_ENV
+		);
+		$process->setInput( '' );
+
+		return $process;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	public function read_result( Process $process ): string {
+		$data = $this->decode( $process );
+		if ( 'error' === ( $data['type'] ?? '' ) || 'end_turn' !== ( $data['stopReason'] ?? '' ) ) {
+			return '';
+		}
+
+		return trim( (string) ( $data['text'] ?? '' ) );
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	public function diagnose( Process $process ): ?Review_Problem {
+		$data    = $this->decode( $process );
+		$message = trim( (string) ( $data['message'] ?? '' ) . ' ' . $process->getErrorOutput() );
+
+		if ( 'max_turn_requests' === ( $data['stopReason'] ?? '' ) || preg_match( '/max.turns?.(reached|requests)/i', $message ) ) {
+			return new Review_Problem(
+				'The agent reached the turn limit',
+				'The agent used all of its turns before it finished the review.',
+				array( array( 'Add `--max-turns` with a higher number when you run the review again, for example `--max-turns=90`.' ) ),
+				'Tell me that the review reached the turn limit. Do not run the review.'
+			);
+		}
+
+		if ( preg_match( '/authentication failed|not (logged|signed) in|unauthorized|grok login|api key|\b401\b/i', $message ) ) {
+			return $this->login_problem( array( mb_substr( $message, -500 ) ) );
+		}
+
+		if ( preg_match( '/model.{0,80}(not supported|not found|does not exist|unknown|unsupported|no access|not available)|model_not_found/is', $message ) ) {
+			return new Review_Problem(
+				"Grok cannot use the model `{$this->model}`",
+				'The model does not exist, or your sign-in has no access to it.',
+				array( array( 'Find a model ID, and use it as `--model=xai/<id>`:', array( 'grok models' ) ) ),
+				"The `grok` CLI rejected the model `{$this->model}`. Run `grok models`, and tell me which model IDs my sign-in can use. Do not run the review.",
+				array( mb_substr( $message, -500 ) ),
+				false
+			);
+		}
+
+		if ( preg_match( '/sandbox/i', $message ) ) {
+			return new Review_Problem(
+				'Grok could not start its sandbox',
+				'The CLI stopped the review because the agent cannot run with its file limits.',
+				array(
+					array( 'Update the Grok Build CLI:', array( 'grok update' ) ),
+					array( 'If the error stays, use an Anthropic model with `--model=claude-opus-5-5`.' ),
+				),
+				'The Poseidon review could not start the Grok sandbox. Show me the error details, and help me update the Grok Build CLI. Do not change the sandbox settings, and do not run the review.',
+				array( mb_substr( $message, -500 ) )
+			);
+		}
+
+		return null;
+	}
+
+	/**
+	 * The JSON object that the CLI prints when it stops.
+	 *
+	 * @param Process $process The finished process.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private function decode( Process $process ): array {
+		$data = json_decode( $process->getOutput(), true );
+
+		return is_array( $data ) ? $data : array();
+	}
+
+	/**
+	 * The folder where the Grok CLI keeps its sign-in and sessions.
+	 *
+	 * @return string
+	 */
+	private function home(): string {
+		$home = (string) getenv( 'GROK_HOME' );
+
+		return '' !== $home ? rtrim( $home, '/' ) : getenv( 'HOME' ) . '/.grok';
+	}
+
+	/**
+	 * Whether the environment holds an xAI API key.
+	 *
+	 * @return boolean
+	 */
+	private function has_api_key(): bool {
+		return '' !== (string) getenv( 'XAI_API_KEY' ) || '' !== (string) getenv( 'GROK_CODE_XAI_API_KEY' );
+	}
+
+	/**
+	 * The instructions for a missing or expired sign-in.
+	 *
+	 * @param string[] $details Extra lines to show.
+	 *
+	 * @return Review_Problem
+	 */
+	private function login_problem( array $details = array() ): Review_Problem {
+		return new Review_Problem(
+			'Grok is not signed in',
+			'The sign-in is missing or expired, and the environment has no working `XAI_API_KEY`.',
+			array(
+				array( 'Remove the old sign-in:', array( 'grok logout' ) ),
+				array( 'Sign in again. Use an Enterprise or paid plan:', array( 'grok login' ) ),
+				array( 'On a computer with no browser, use this command instead:', array( 'grok login --device-auth' ) ),
+			),
+			'Ask me to run `grok logout` and then `grok login`, because the sign-in opens a browser and needs an Enterprise or paid plan. Then confirm that `grok models` prints a model list. Do not run the review.',
+			$details
+		);
+	}
+}
+
+/**
  * Creates drivers, and holds what the drivers share.
  */
 final class Review_Drivers {
@@ -899,16 +1211,56 @@ final class Review_Drivers {
 	);
 
 	/**
+	 * The reasoning efforts that a review can run with.
+	 */
+	public const EFFORTS = array( 'medium', 'high' );
+
+	/**
+	 * The reasoning effort of a review, unless the user sets one.
+	 */
+	public const DEFAULT_EFFORT = 'high';
+
+	/**
+	 * The models that shell completion always offers. The providers add and retire models, so `--model` accepts other IDs too.
+	 */
+	private const LISTED_MODELS = array(
+		'claude-opus-5-5'           => 'Anthropic, the default',
+		'claude-fable-5-2'          => 'Anthropic, the most capable model',
+		'claude-sonnet-5-5'         => 'Anthropic, a faster model',
+		'openai/gpt-6.2-astra'      => 'OpenAI, the most capable model',
+		'openai/gpt-6.2-sol'        => 'OpenAI, the everyday model',
+		'openai/gpt-6.1-terra'      => 'OpenAI, a lower-cost model',
+		'xai/grok-4.7'              => 'xAI, the most capable model',
+		'xai/grok-4.6'              => 'xAI, the previous model',
+		'lmstudio/qwen/qwen3.8-27b' => 'This computer, through LM Studio. Slow, and needs a model download',
+	);
+
+	/**
 	 * Creates the driver for a `--model` value.
 	 *
-	 * @param string $model The value of `--model`.
+	 * @param string $model  The value of `--model`.
+	 * @param string $effort The value of `--effort`.
 	 *
 	 * @return Review_Driver|Review_Problem
 	 */
-	public static function create( string $model ): Review_Driver|Review_Problem {
+	public static function create( string $model, string $effort = self::DEFAULT_EFFORT ): Review_Driver|Review_Problem {
+		if ( ! in_array( $effort, self::EFFORTS, true ) ) {
+			return new Review_Problem(
+				"The CLI does not recognize the effort `$effort`",
+				'A review runs with one of two reasoning efforts. `high` is the default. `medium` is faster and less thorough.',
+				array( array( 'Run the review with `--effort=medium` or `--effort=high`.' ) ),
+				'The `team51 poseidon:pr-review` command needs `--effort` to be `medium` or `high`. Tell me the corrected value. Do not run the review.',
+				array(),
+				false
+			);
+		}
+
 		if ( 1 === preg_match( '/^[a-z0-9][\w.:\/@-]*$/i', $model ) ) {
 			if ( str_starts_with( $model, 'claude-' ) ) {
-				return new Anthropic_Review_Driver( $model );
+				return new Anthropic_Review_Driver( $model, $effort );
+			}
+			if ( str_starts_with( $model, 'grok-' ) ) {
+				return new Grok_Review_Driver( $model, $effort );
 			}
 
 			$parts = explode( '/', $model, 2 );
@@ -916,11 +1268,13 @@ final class Review_Drivers {
 			if ( '' !== $id ) {
 				switch ( $parts[0] ) {
 					case 'anthropic':
-						return new Anthropic_Review_Driver( $id );
+						return new Anthropic_Review_Driver( $id, $effort );
 					case 'openai':
-						return new Codex_Review_Driver( $id );
+						return new Codex_Review_Driver( $id, $effort );
+					case 'xai':
+						return new Grok_Review_Driver( $id, $effort );
 					case 'lmstudio':
-						return new LM_Studio_Review_Driver( $id );
+						return new LM_Studio_Review_Driver( $id, $effort );
 				}
 			}
 		}
@@ -930,18 +1284,43 @@ final class Review_Drivers {
 			'A model value starts with its provider, so that the CLI knows which tool runs the review.',
 			array(
 				array(
-					'Run the review with one of these forms. The first two send the PR code to the provider. The last one keeps it on this computer:',
+					'Run the review with one of these forms. The first three send the PR code to the provider. The last one keeps it on this computer:',
 					array(
 						'team51 poseidon:pr-review <PR> --model=claude-opus-5-5',
-						'team51 poseidon:pr-review <PR> --model=openai/gpt-6-luna',
+						'team51 poseidon:pr-review <PR> --model=openai/gpt-6.2-astra',
+						'team51 poseidon:pr-review <PR> --model=xai/grok-4.7',
 						'team51 poseidon:pr-review <PR> --model=lmstudio/qwen/qwen3.8-27b',
 					),
 				),
 			),
-			'The `team51 poseidon:pr-review` command needs `--model` in the form `claude-<id>`, `anthropic/<id>`, `openai/<id>`, or `lmstudio/<id>`. Tell me the corrected value. Do not run the review.',
+			'The `team51 poseidon:pr-review` command needs `--model` in the form `claude-<id>`, `anthropic/<id>`, `openai/<id>`, `xai/<id>`, `grok-<id>`, or `lmstudio/<id>`. Tell me the corrected value. Do not run the review.',
 			array(),
 			false
 		);
+	}
+
+	/**
+	 * The `--model` values that shell completion offers, as value => description.
+	 *
+	 * @param string $typed The text that the user typed so far.
+	 *
+	 * @return array<string, string>
+	 */
+	public static function suggested_models( string $typed = '' ): array {
+		$models = self::LISTED_MODELS;
+
+		// The Codex catalog needs a slow command, so the CLI reads it only when the user asks for OpenAI models.
+		if ( str_starts_with( $typed, 'openai/' ) ) {
+			foreach ( array_keys( array_filter( Codex_Review_Driver::model_catalog() ) ) as $id ) {
+				$models[ "openai/$id" ] ??= 'OpenAI, in your Codex sign-in';
+			}
+		}
+
+		foreach ( LM_Studio_Review_Driver::usable_models( LM_Studio_Review_Driver::fetch_models( 0.5 ) ?? array() ) as $id ) {
+			$models[ "lmstudio/$id" ] = 'This computer, through LM Studio. Ready to use';
+		}
+
+		return $models;
 	}
 
 	/**

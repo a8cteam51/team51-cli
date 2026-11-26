@@ -165,18 +165,11 @@ team51 wpcom:download-site-plugins <site> [--destination=/path/to/plugins.tar.gz
 team51 poseidon:pr-review <PR> [--model=<model>]
 ```
 
-| `--model` value | Provider | Requires |
-|---|---|---|
-| `claude-opus-5-5` (default) | Anthropic | `claude` CLI |
-| `claude-<id>` or `anthropic/<id>` | Anthropic | `claude` CLI |
-| `openai/gpt-6-luna` | OpenAI | `codex` CLI |
-| `openai/gpt-5.6-terra` | OpenAI | `codex` CLI |
-| `openai/gpt-5.6-luna` | OpenAI | `codex` CLI |
-| `lmstudio/qwen/qwen3.8-27b` | Local | `claude` CLI and LM Studio with its server on |
+To see the model values, type `--model=` and press the Tab key. The values cover Anthropic (`claude-opus-5-5`, the default), OpenAI (`openai/<id>`), xAI (`xai/<id>`), and local LM Studio models (`lmstudio/<id>`).
 
-The OpenAI models that you can use depend on your sign-in. To see your list, run `codex debug models` and look for the `slug` values where `visibility` is `list`. If you enter a model that your ChatGPT sign-in cannot use, the CLI stops and lists the models that it can use.
+Use `--effort=medium` for a faster and less thorough review. The default is `high`.
 
-Before your first OpenAI review, the CLI asks you to confirm that your account is on a paid plan. Enterprise plans count as paid. Local reviews are slow: test reviews took 30 to 40 minutes.
+Each provider needs its own agent CLI and sign-in. For the install and setup steps, see [`.agents/skills/poseidon-pr-review-setup.md`](.agents/skills/poseidon-pr-review-setup.md) or run `team51 poseidon:pr-review --help`.
 
 ### Conventions around defaults
 

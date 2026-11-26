@@ -4,6 +4,9 @@ namespace WPCOMSpecialProjects\CLI\Command;
 
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Completion\CompletionInput;
+use Symfony\Component\Console\Completion\CompletionSuggestions;
+use Symfony\Component\Console\Completion\Suggestion;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -28,7 +31,9 @@ use WPCOMSpecialProjects\CLI\Helper\Review_Problem;
  */
 #[AsCommand( name: 'poseidon:pr-review' )]
 final class Poseidon_PR_Review extends Command {
-	use AutocompleteTrait;
+	use AutocompleteTrait {
+		complete as private complete_names;
+	}
 
 	// region FIELDS AND CONSTANTS
 
@@ -108,6 +113,13 @@ final class Poseidon_PR_Review extends Command {
 	private string $model = '';
 
 	/**
+	 * The value of the `--effort` option.
+	 *
+	 * @var string
+	 */
+	private string $effort = Review_Drivers::DEFAULT_EFFORT;
+
+	/**
 	 * The driver that runs the chosen model.
 	 *
 	 * @var Review_Driver|null
@@ -143,15 +155,35 @@ final class Poseidon_PR_Review extends Command {
 	 * {@inheritDoc}
 	 */
 	protected function configure(): void {
-		$this->setDescription( 'Runs the Poseidon AI code review against a pull request on Anthropic, OpenAI, or a local LM Studio model.' )
-			->setHelp( "This command fetches the Poseidon review prompt from `a8cteam51/poseidon-actions` (trunk), fetches the PR data, clones the PR locally, and runs a review agent on it.\n\nIt uses your own CLI sign-ins (not OpsOasis), so it works on any PR you have GitHub access to — including repos outside a8cteam51 such as `Automattic`.\n\nChoose the model with `--model`:\n  claude-opus-5-5 or anthropic/<id>  Anthropic, through the `claude` CLI\n  openai/<id>                        OpenAI, through the `codex` CLI\n  lmstudio/<id>                      A model on this computer, through LM Studio and the `claude` CLI\n\nThe command is read-only: it prints the review to the terminal and posts nothing. The agent has no GitHub access. The CLI fetches the PR data before the agent starts." );
+		$this->setDescription( 'Runs the Poseidon AI code review against a pull request on an Anthropic, OpenAI, xAI, or local LM Studio model.' )
+			->setHelp( "This command fetches the Poseidon review prompt from `a8cteam51/poseidon-actions` (trunk), fetches the PR data, clones the PR locally, and runs a review agent on it.\n\nIt uses your own CLI sign-ins (not OpsOasis), so it works on any PR you have GitHub access to — including repos outside a8cteam51 such as `Automattic`.\n\nChoose the model with `--model`:\n  claude-opus-5-5 or anthropic/<id>  Anthropic, through the `claude` CLI\n  openai/<id>                        OpenAI, through the `codex` CLI\n  grok-<id> or xai/<id>              xAI, through the `grok` CLI\n  lmstudio/<id>                      A model on this computer, through LM Studio and the `claude` CLI\n\nTo see the model values, type `--model=` and press the Tab key.\n\nEach provider needs its own agent CLI and sign-in: `claude auth login`, `codex login`, or `grok login`. If a provider is not ready, the command prints the steps to fix it. The full setup steps are in `.agents/skills/poseidon-pr-review-setup.md` in the CLI folder.\n\nThe command is read-only: it prints the review to the terminal and posts nothing. The agent has no GitHub access. The CLI fetches the PR data before the agent starts." );
 
 		$this->addArgument( 'pr', InputArgument::OPTIONAL, 'Pull request URL (https://HOST/OWNER/REPO/pull/N, including GitHub Enterprise hosts) or OWNER/REPO#N for github.com. Prompted for if omitted.' );
 
 		$this->addOption( 'no-clone', null, InputOption::VALUE_NONE, 'Skip cloning the repository; the agent reviews the diff only. Faster, but loses AGENTS.md/.agents grounding and all surrounding-code context.' );
-		$this->addOption( 'model', null, InputOption::VALUE_REQUIRED, 'The model to use: `claude-<id>`, `anthropic/<id>`, `openai/<id>`, or `lmstudio/<id>`.', 'claude-opus-5-5' );
+		$this->addOption( 'model', null, InputOption::VALUE_REQUIRED, 'The model to use: `claude-<id>`, `anthropic/<id>`, `openai/<id>`, `xai/<id>`, or `lmstudio/<id>`. Press the Tab key after `--model=` to see the values.', 'claude-opus-5-5' );
+		$this->addOption( 'effort', null, InputOption::VALUE_REQUIRED, 'The reasoning effort: `medium` or `high`. `medium` is faster and less thorough. LM Studio runs ignore this option.', Review_Drivers::DEFAULT_EFFORT );
 		$this->addOption( 'max-turns', null, InputOption::VALUE_REQUIRED, 'The maximum number of agent turns. The Codex CLI has no such limit, so OpenAI runs ignore this option.', '45' );
 		$this->addOption( 'timeout', null, InputOption::VALUE_REQUIRED, 'The review timeout in seconds. The default is 1200 for hosted models and 3600 for LM Studio.' );
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	public function complete( CompletionInput $input, CompletionSuggestions $suggestions ): void {
+		if ( $input->mustSuggestOptionValuesFor( 'effort' ) ) {
+			$suggestions->suggestValues( Review_Drivers::EFFORTS );
+			return;
+		}
+
+		if ( ! $input->mustSuggestOptionValuesFor( 'model' ) ) {
+			$this->complete_names( $input, $suggestions );
+			return;
+		}
+
+		foreach ( Review_Drivers::suggested_models( $input->getCompletionValue() ) as $model => $description ) {
+			$suggestions->suggestValue( new Suggestion( $model, $description ) );
+		}
 	}
 
 	/**
@@ -164,7 +196,9 @@ final class Poseidon_PR_Review extends Command {
 		$this->model     = get_string_input( $input, 'model' );
 		$this->reference = (string) ( $input->getArgument( 'pr' ) ?? $this->reference );
 
-		$driver = Review_Drivers::create( $this->model );
+		$this->effort = get_string_input( $input, 'effort' );
+
+		$driver = Review_Drivers::create( $this->model, $this->effort );
 		if ( $driver instanceof Review_Problem ) {
 			$this->fail_with( $driver, $errors );
 		}
@@ -204,7 +238,7 @@ final class Poseidon_PR_Review extends Command {
 		$errors = $this->error_output( $output );
 
 		$errors->writeln( "<fg=magenta;options=bold>Poseidon Review — {$this->owner}/{$this->repo}#{$this->pr_number}: {$this->pr_title}</>" );
-		$errors->writeln( "<fg=cyan>Model:</> {$this->driver->label()}  <fg=cyan>PR code goes to:</> {$this->driver->destination()}" );
+		$errors->writeln( "<fg=cyan>Model:</> {$this->driver->label()}  <fg=cyan>Effort:</> {$this->effort}  <fg=cyan>PR code goes to:</> {$this->driver->destination()}" );
 
 		if ( ! $this->confirm_data_destination( $input, $errors ) ) {
 			return Command::FAILURE;
@@ -409,7 +443,8 @@ final class Poseidon_PR_Review extends Command {
 	 * @return  void
 	 */
 	private function render_problem( Review_Problem $problem, OutputInterface $errors ): void {
-		$problem->render( $errors, "team51 poseidon:pr-review {$this->reference} --model={$this->model}" );
+		$retry = "team51 poseidon:pr-review {$this->reference} --model={$this->model}";
+		$problem->render( $errors, Review_Drivers::DEFAULT_EFFORT === $this->effort ? $retry : "$retry --effort={$this->effort}" );
 	}
 
 	/**
