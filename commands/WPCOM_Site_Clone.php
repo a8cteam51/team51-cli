@@ -381,7 +381,7 @@ final class WPCOM_Site_Clone extends Command {
 			$output->writeln( "<error>The source site's users, orders and subscriptions were NOT kept on the staging site: the request to keep them could not be applied.</error>" );
 		}
 
-		$created_site->safety_net_confirmed = true === $safety_net_installed;
+		$created_site->safety_net_confirmed = ! $this->skip_safety_net && true === $safety_net_installed;
 
 		if ( true !== $safety_net_installed ) {
 			$headline = \is_null( $safety_net_installed )
